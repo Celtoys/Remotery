@@ -1073,6 +1073,9 @@ typedef struct
 	rmtU32 mask_offset;
 
 	rmtU8 data_mask[4];
+
+	rmtU8* frame_data_cache;
+	rmtU32 frame_data_cache_size;
 } WebSocket;
 
 
@@ -1248,6 +1251,8 @@ static WebSocket* WebSocket_Create()
 	web_socket->data_mask[1] = 0;
 	web_socket->data_mask[2] = 0;
 	web_socket->data_mask[3] = 0;
+	web_socket->frame_data_cache = NULL;
+	web_socket->frame_data_cache_size = 0;
 
 	return web_socket;
 }
@@ -1278,6 +1283,9 @@ static WebSocket* WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode)
 static void WebSocket_Destroy(WebSocket* web_socket)
 {
 	assert(web_socket != NULL);
+
+	if (web_socket->frame_data_cache != NULL)
+		free(web_socket->frame_data_cache);
 
 	if (web_socket->tcp_socket != NULL)
 		TCPSocket_Destroy(web_socket->tcp_socket);
@@ -1327,6 +1335,78 @@ static WebSocket* WebSocket_AcceptConnection(WebSocket* web_socket)
 
 	return client_socket;
 }
+
+
+static void WriteSize(rmtU32 size, rmtU8* dest, rmtU32 dest_size, rmtU32 dest_offset)
+{
+	int size_size = dest_size - dest_offset;
+	rmtU32 i;
+	for (i = 0; i < dest_size; i++)
+	{
+		int j = i - dest_offset;
+		dest[i] = (j < 0) ? 0 : (size >> ((size_size - j - 1) * 8)) & 0xFF;
+	}
+}
+
+
+static enum SendResult WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
+{
+	SocketStatus status;
+	rmtU8 final_fragment, frame_type, frame_header[10];
+	rmtU32 frame_header_size, frame_size;
+
+	assert(web_socket != NULL);
+
+	// Can't send if there are socket errors
+	status = WebSocket_PollStatus(web_socket);
+	if (status.has_errors)
+		return SEND_ERROR;
+	if (!status.can_write)
+		return SEND_TIMEOUT;
+
+	final_fragment = 0x1 << 7;
+	frame_type = (u8)web_socket->mode;
+	frame_header[0] = final_fragment | frame_type;
+
+	// Construct the frame header, correctly applying the narrowest size
+	frame_header_size = 0;
+	if (length <= 125)
+	{
+		frame_header_size = 2;
+		frame_header[1] = length;
+	}
+	else if (length <= 65535)
+	{
+		frame_header_size = 2 + 2;
+		frame_header[1] = 126;
+		WriteSize(length, frame_header + 2, 2, 0);
+	}
+	else
+	{
+		frame_header_size = 2 + 8;
+		frame_header[1] = 127;
+		WriteSize(length, frame_header + 2, 8, 4);
+	}
+
+	// Only reallocate the frame cache if its not big enough
+	frame_size = frame_header_size + length;
+	if (web_socket->frame_data_cache == NULL || frame_size > web_socket->frame_data_cache_size)
+	{
+		if (web_socket->frame_data_cache != NULL)
+			free(web_socket->frame_data_cache);
+		web_socket->frame_data_cache = (rmtU8*)malloc(frame_size);
+		web_socket->frame_data_cache_size = frame_size;
+	}
+
+	// Copy in the header and data contiguously
+	assert(data != NULL);
+	memcpy(web_socket->frame_data_cache, frame_header, frame_header_size);
+	memcpy(web_socket->frame_data_cache + frame_header_size, data, length);
+
+	// Pass Send result onto the caller
+	return TCPSocket_Send(web_socket->tcp_socket, web_socket->frame_data_cache, frame_size, timeout_ms);
+}
+
 
 
 
