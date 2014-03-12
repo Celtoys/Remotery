@@ -104,7 +104,7 @@ typedef struct
 	rmtBool can_read;
 	rmtBool can_write;
 	rmtBool has_errors;
-} TCPSocketStatus;
+} SocketStatus;
 
 
 enum SendResult
@@ -264,9 +264,9 @@ static void TCPSocket_Close(TCPSocket* tcp_socket)
 }
 
 
-static TCPSocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
+static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 {
-	TCPSocketStatus status;
+	SocketStatus status;
 	fd_set fd_read, fd_write, fd_errors;
 	struct timeval tv;
 
@@ -311,7 +311,7 @@ static TCPSocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 
 static TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 {
-	TCPSocketStatus status;
+	SocketStatus status;
 	SOCKET s;
 	TCPSocket* client_socket;
 
@@ -347,7 +347,7 @@ static TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 
 static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
-	TCPSocketStatus status;
+	SocketStatus status;
 	char* cur_data = NULL;
 	char* end_data = NULL;
 	rmtU32 start_ms = 0;
@@ -419,7 +419,7 @@ static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, r
 
 enum RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
-	TCPSocketStatus status;
+	SocketStatus status;
 	char* cur_data = NULL;
 	char* end_data = NULL;
 	rmtU32 start_ms = 0;
@@ -1053,6 +1053,29 @@ strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
 
 
 
+enum WebSocketMode
+{
+	WEBSOCKET_NONE = 0,
+	WEBSOCKET_TEXT = 1,
+	WEBSOCKET_BINARY = 2,
+};
+
+
+typedef struct
+{
+	enum rmtError error_state;
+
+	TCPSocket* tcp_socket;
+
+	enum WebSocketMode mode;
+
+	rmtU32 frame_bytes_remaining;
+	rmtU32 mask_offset;
+
+	rmtU8 data_mask[4];
+} WebSocket;
+
+
 static char* GetField(char* buffer, rsize_t buffer_length, const char* field_name)
 {
 	char* field = NULL;
@@ -1207,6 +1230,102 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit
 	}
 
 	return RMT_ERROR_NONE;
+}
+
+
+static WebSocket* WebSocket_Create()
+{
+	WebSocket* web_socket = (WebSocket*)malloc(sizeof(WebSocket));
+	if (web_socket == NULL)
+		return NULL;
+
+	web_socket->error_state = RMT_ERROR_NONE;
+	web_socket->tcp_socket = NULL;
+	web_socket->mode = WEBSOCKET_NONE;
+	web_socket->frame_bytes_remaining = 0;
+	web_socket->mask_offset = 0;
+	web_socket->data_mask[0] = 0;
+	web_socket->data_mask[1] = 0;
+	web_socket->data_mask[2] = 0;
+	web_socket->data_mask[3] = 0;
+
+	return web_socket;
+}
+
+
+static WebSocket* WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode)
+{
+	// Always try to allocate the web socket container, even if later creation of its resources fails
+	// Any errors are returned in the structure itself
+	WebSocket* web_socket = WebSocket_Create();
+	if (web_socket == NULL)
+		return NULL;
+
+	// Create the server's listening socket
+	web_socket->tcp_socket = TCPSocket_CreateServer(port);
+	if (web_socket->tcp_socket == NULL)
+	{
+		web_socket->error_state = RMT_ERROR_MALLOC_SOCKET_FAILED;
+		return web_socket;
+	}
+
+	web_socket->mode = mode;
+
+	return web_socket;
+}
+
+
+static void WebSocket_Destroy(WebSocket* web_socket)
+{
+	assert(web_socket != NULL);
+
+	if (web_socket->tcp_socket != NULL)
+		TCPSocket_Destroy(web_socket->tcp_socket);
+}
+
+
+static SocketStatus WebSocket_PollStatus(WebSocket* web_socket)
+{
+	assert(web_socket != NULL);
+	return TCPSocket_PollStatus(web_socket->tcp_socket);
+}
+
+
+static WebSocket* WebSocket_AcceptConnection(WebSocket* web_socket)
+{
+	TCPSocket* tcp_socket = NULL;
+	WebSocket* client_socket = NULL;
+	enum rmtError error;
+
+	assert(web_socket != NULL);
+
+	// Is there a waiting connection?
+	tcp_socket = TCPSocket_AcceptConnection(web_socket->tcp_socket);
+	if (tcp_socket == 0)
+		return NULL;
+
+	// Need a successful handshake between client/server before allowing the connection
+	// TODO: Specify limit_host
+	error = WebSocketHandshake(tcp_socket, NULL);
+	if (error != RMT_ERROR_NONE)
+	{
+		web_socket->error_state = error;
+		TCPSocket_Destroy(tcp_socket);
+		return NULL;
+	}
+
+	// Allocate and return a new client socket
+	client_socket = WebSocket_Create();
+	if (client_socket == NULL)
+	{
+		web_socket->error_state = RMT_ERROR_MALLOC_WEBSOCKET_FAILED;
+		return NULL;
+	}
+
+	client_socket->tcp_socket = tcp_socket;
+	client_socket->mode = web_socket->mode;
+
+	return client_socket;
 }
 
 

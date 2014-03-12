@@ -23,6 +23,7 @@ enum rmtError
 	RMT_ERROR_RECV_SOCKET_FAILED,				// Unrecoverable error occured while client/server tried to receive data
 
 	// WebSocket server errors
+	RMT_ERROR_MALLOC_WEBSOCKET_FAILED,			// Malloc call for server or client web socket failed
 	RMT_ERROR_WS_HANDSHAKE_RECV_FAILED,			// WebSocket server failed to receive complete handshake data
 	RMT_ERROR_WS_HANDSHAKE_RECV_TIMEOUT,		// WebSocket server timed out receving handshake data
 	RMT_ERROR_WS_HANDSHAKE_NOT_GET,				// WebSocket server handshake failed, not HTTP GET
