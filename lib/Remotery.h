@@ -6,7 +6,7 @@
 typedef struct Remotery Remotery;
 
 
-typedef enum rmtError
+enum rmtError
 {
 	RMT_ERROR_NONE,
 
@@ -36,7 +36,7 @@ typedef enum rmtError
 	RMT_ERROR_WS_HANDSHAKE_SEND_TIMEOUT,		// WebSocket server handshake failed, error sending response string
 	RMT_ERROR_WS_HANDSHAKE_SEND_FAILED,			// WebSocket server handshake failed, timeout sending response string
 
-} rmtError;
+};
 
 
 Remotery* rmt_Create();

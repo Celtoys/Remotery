@@ -107,15 +107,15 @@ typedef struct
 } TCPSocketStatus;
 
 
-typedef enum SendResult
+enum SendResult
 {
 	SEND_SUCCESS,
 	SEND_TIMEOUT,
 	SEND_ERROR
-} SendResult;
+};
 
 
-typedef enum RecvResult
+enum RecvResult
 {
 	// Safe
 	RECV_SUCCESS,
@@ -124,7 +124,7 @@ typedef enum RecvResult
 	// Unhealthy, probably requires a disconnect
 	RECV_TIMEOUT,
 	RECV_ERROR,
-} RecvResult;
+};
 
 
 //
@@ -133,7 +133,7 @@ typedef enum RecvResult
 static void TCPSocket_Close(TCPSocket* tcp_socket);
 
 
-static rmtError InitialiseNetwork()
+static enum rmtError InitialiseNetwork()
 {
 	#ifdef RMT_PLATFORM_WINDOWS
 
@@ -345,7 +345,7 @@ static TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 }
 
 
-static SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
+static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	TCPSocketStatus status;
 	char* cur_data = NULL;
@@ -417,7 +417,7 @@ static SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32
 }
 
 
-RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
+enum RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	TCPSocketStatus status;
 	char* cur_data = NULL;
@@ -1089,7 +1089,7 @@ static const char websocket_response[] =
 	"Sec-WebSocket-Accept: ";
 
 
-static rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit_host)
+static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit_host)
 {
 	rmtU32 start_ms, now_ms;
 
@@ -1116,7 +1116,7 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit_host
 	// Not really sure how to do this any better, as the termination requirement is \r\n\r\n
 	while (buffer_ptr - buffer < buffer_len)
 	{
-		RecvResult result = TCPSocket_Receive(tcp_socket, buffer_ptr, 1, 20);
+		enum RecvResult result = TCPSocket_Receive(tcp_socket, buffer_ptr, 1, 20);
 		if (result == RECV_ERROR)
 			return RMT_ERROR_WS_HANDSHAKE_RECV_FAILED;
 
@@ -1223,7 +1223,7 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit_host
 
 struct Remotery
 {
-	rmtError error_state;
+	enum rmtError error_state;
 };
 
 
