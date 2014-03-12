@@ -70,6 +70,14 @@ typedef struct
 } TCPSocket;
 
 
+typedef struct
+{
+	rmtBool can_read;
+	rmtBool can_write;
+	rmtBool has_errors;
+} TCPSocketStatus;
+
+
 //
 // Function prototypes
 //
@@ -102,7 +110,18 @@ static void ShutdownNetwork()
 }
 
 
-static TCPSocket* TCPSocket_Create(rmtU16 port)
+static TCPSocket* TCPSocket_Create()
+{
+	TCPSocket* tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
+	if (tcp_socket == NULL)
+		return NULL;
+	tcp_socket->error_state = RMT_ERROR_NONE;
+	tcp_socket->socket = INVALID_SOCKET;
+	return tcp_socket;
+}
+
+
+static TCPSocket* TCPSocket_CreateServer(rmtU16 port)
 {
 	TCPSocket* tcp_socket = NULL;
 	SOCKET s = INVALID_SOCKET;
@@ -111,11 +130,10 @@ static TCPSocket* TCPSocket_Create(rmtU16 port)
 
 	// Always try to allocate the socket container, even if later creation of its resources fails
 	// Any errors are returned in the socket structure itself
-	tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
+	tcp_socket = TCPSocket_Create();
 	if (tcp_socket == NULL)
 		return NULL;
 	tcp_socket->error_state = InitialiseNetwork();
-	tcp_socket->socket = INVALID_SOCKET;
 	if (tcp_socket->error_state != RMT_ERROR_NONE)
 		return tcp_socket;
 
@@ -194,6 +212,82 @@ static void TCPSocket_Close(TCPSocket* tcp_socket)
 		tcp_socket->socket = INVALID_SOCKET;
 		ShutdownNetwork();
 	}
+}
+
+
+static TCPSocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
+{
+	TCPSocketStatus status;
+	fd_set fd_read, fd_write, fd_errors;
+	struct timeval tv;
+
+	assert(tcp_socket != NULL);
+
+	status.can_read = RMT_FALSE;
+	status.can_write = RMT_FALSE;
+	status.has_errors = RMT_FALSE;
+
+	if (tcp_socket->socket == INVALID_SOCKET)
+	{
+		status.has_errors = RMT_TRUE;
+		return status;
+	}
+
+	// Set read/write/error markers for the socket
+	FD_ZERO(&fd_read);
+	FD_ZERO(&fd_write);
+	FD_ZERO(&fd_errors);
+	FD_SET(tcp_socket->socket, &fd_read);
+	FD_SET(tcp_socket->socket, &fd_write);
+	FD_SET(tcp_socket->socket, &fd_errors);
+
+	// Poll socket status without blocking
+	tv.tv_sec = 0;
+	tv.tv_usec = 0;
+	if (select(0, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
+	{
+		status.has_errors = RMT_TRUE;
+		return status;
+	}
+
+	status.can_read = FD_ISSET(tcp_socket->socket, &fd_read) != 0 ? RMT_TRUE : RMT_FALSE;
+	status.can_write = FD_ISSET(tcp_socket->socket, &fd_write) != 0 ? RMT_TRUE : RMT_FALSE;
+	status.has_errors = FD_ISSET(tcp_socket->socket, &fd_errors) != 0 ? RMT_TRUE : RMT_FALSE;
+	return status;
+}
+
+
+TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
+{
+	TCPSocketStatus status;
+
+	assert(tcp_socket != NULL);
+
+	// Ensure there is an incoming connection
+	status = TCPSocket_PollStatus(tcp_socket);
+	if (status.has_errors || !status.can_read)
+		return NULL;
+
+	// Accept the connection
+	SOCKET s = accept(tcp_socket->socket, 0, 0);
+	if (s == SOCKET_ERROR)
+	{
+		tcp_socket->error_state = RMT_ERROR_ACCEPT_CONNECTION_FAILED;
+		TCPSocket_Close(tcp_socket);
+		return NULL;
+	}
+
+	// Create a client socket for the new connection
+	TCPSocket* client_socket = TCPSocket_Create();
+	if (client_socket == NULL)
+	{
+		tcp_socket->error_state = RMT_ERROR_MALLOC_SOCKET_FAILED;
+		TCPSocket_Close(tcp_socket);
+		return NULL;
+	}
+	client_socket->socket = s;
+
+	return client_socket;
 }
 
 
