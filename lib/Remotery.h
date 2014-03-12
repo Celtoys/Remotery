@@ -17,7 +17,10 @@ typedef enum
 	RMT_ERROR_BIND_SOCKET_FAILED,				// Can't bind a socket for the server
 	RMT_ERROR_LISTEN_SOCKET_FAILED,				// Created server socket failed to enter a listen state
 	RMT_ERROR_SET_NON_BLOCKING_FAILED,			// Created server socket failed to switch to a non-blocking state
+	RMT_ERROR_SELECT_SOCKET_FAILED,				// Server failed to call select on socket
 	RMT_ERROR_ACCEPT_CONNECTION_FAILED,			// Server failed to accept connection from client
+	RMT_ERROR_SEND_SOCKET_FAILED,				// Unrecoverable error occured while client/server tried to send data
+	RMT_ERROR_RECV_SOCKET_FAILED,				// Unrecoverable error occured while client/server tried to receive data
 
 } rmtError;
 

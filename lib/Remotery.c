@@ -52,6 +52,28 @@ typedef unsigned int rmtBool;
 
 
 typedef unsigned short rmtU16;
+typedef unsigned int rmtU32;
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+   Platform-specific timers
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+//
+// Get millisecond timer value that has only one guarantee: multiple calls are consistently comparable.
+// On some platforms, even though this returns milliseconds, the timer may be far less accurate.
+//
+rmtU32 GetLowResTimer()
+{
+	#ifdef RMT_PLATFORM_WINDOWS
+		return (rmtU32)GetTickCount();
+	#endif
+}
 
 
 
@@ -76,6 +98,26 @@ typedef struct
 	rmtBool can_write;
 	rmtBool has_errors;
 } TCPSocketStatus;
+
+
+typedef enum
+{
+	SEND_SUCCESS,
+	SEND_TIMEOUT,
+	SEND_ERROR
+} SendResult;
+
+
+typedef enum
+{
+	// Safe
+	RECV_SUCCESS,
+	RECV_NODATA,
+
+	// Unhealthy, probably requires a disconnect
+	RECV_TIMEOUT,
+	RECV_ERROR,
+} RecvResult;
 
 
 //
@@ -221,7 +263,9 @@ static TCPSocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 	fd_set fd_read, fd_write, fd_errors;
 	struct timeval tv;
 
+	// Refresh error state on each call
 	assert(tcp_socket != NULL);
+	tcp_socket->error_state = RMT_ERROR_NONE;
 
 	status.can_read = RMT_FALSE;
 	status.can_write = RMT_FALSE;
@@ -246,6 +290,7 @@ static TCPSocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 	tv.tv_usec = 0;
 	if (select(0, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
 	{
+		tcp_socket->error_state = RMT_ERROR_SELECT_SOCKET_FAILED;
 		status.has_errors = RMT_TRUE;
 		return status;
 	}
@@ -257,9 +302,11 @@ static TCPSocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 }
 
 
-TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
+static TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 {
 	TCPSocketStatus status;
+	SOCKET s;
+	TCPSocket* client_socket;
 
 	assert(tcp_socket != NULL);
 
@@ -269,7 +316,7 @@ TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 		return NULL;
 
 	// Accept the connection
-	SOCKET s = accept(tcp_socket->socket, 0, 0);
+	s = accept(tcp_socket->socket, 0, 0);
 	if (s == SOCKET_ERROR)
 	{
 		tcp_socket->error_state = RMT_ERROR_ACCEPT_CONNECTION_FAILED;
@@ -278,7 +325,7 @@ TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 	}
 
 	// Create a client socket for the new connection
-	TCPSocket* client_socket = TCPSocket_Create();
+	client_socket = TCPSocket_Create();
 	if (client_socket == NULL)
 	{
 		tcp_socket->error_state = RMT_ERROR_MALLOC_SOCKET_FAILED;
@@ -289,6 +336,149 @@ TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 
 	return client_socket;
 }
+
+
+static SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, u32 length, u32 timeout_ms)
+{
+	TCPSocketStatus status;
+	char* cur_data = NULL;
+	char* end_data = NULL;
+	rmtU32 start_ms = 0;
+	rmtU32 cur_ms = 0;
+
+	assert(tcp_socket != NULL);
+
+	// Can't send if there are socket errors
+	status = TCPSocket_PollStatus(tcp_socket);
+	if (status.has_errors)
+		return SEND_ERROR;
+	if (!status.can_write)
+		return SEND_TIMEOUT;
+
+	cur_data = (char*)data;
+	end_data = cur_data + length;
+
+	start_ms = GetLowResTimer();
+	while (cur_data < end_data)
+	{
+		// Attempt to send the remaining chunk of data
+		int bytes_sent = send(tcp_socket->socket, cur_data, end_data - cur_data, 0);
+
+		if (bytes_sent == SOCKET_ERROR || bytes_sent == 0)
+		{
+			// Close the connection if sending fails for any other reason other than blocking
+			DWORD error = WSAGetLastError();
+			if (error != WSAEWOULDBLOCK)
+			{
+				tcp_socket->error_state = RMT_ERROR_SEND_SOCKET_FAILED;
+				TCPSocket_Close(tcp_socket);
+				return SEND_ERROR;
+			}
+
+			// First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
+			cur_ms = GetLowResTimer();
+			if (cur_ms < start_ms)
+			{
+				start_ms = cur_ms;
+				continue;
+			}
+
+			//
+			// Timeout can happen when:
+			//
+			//    1) endpoint is no longer there
+			//    2) endpoint can't consume quick enough
+			//    3) local buffers overflow
+			//
+			// As none of these are actually errors, we have to pass this timeout back to the caller.
+			//
+			// TODO: This strategy breaks down if a send partially completes and then times out!
+			//
+			if (cur_ms - start_ms > timeout_ms)
+			{
+				return SEND_TIMEOUT;
+			}
+		}
+		else
+		{
+			// Jump over the data sent
+			cur_data += bytes_sent;
+		}
+	}
+
+	return SEND_SUCCESS;
+}
+
+
+RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, u32 length, u32 timeout_ms)
+{
+	TCPSocketStatus status;
+	char* cur_data = NULL;
+	char* end_data = NULL;
+	rmtU32 start_ms = 0;
+	rmtU32 cur_ms = 0;
+
+	assert(tcp_socket != NULL);
+
+	// Ensure there is data to receive
+	status = TCPSocket_PollStatus(tcp_socket);
+	if (status.has_errors)
+		return RECV_ERROR;
+	if (!status.can_read)
+		return RECV_NODATA;
+
+	cur_data = (char*)data;
+	end_data = cur_data + length;
+
+	// Loop until all data has been received
+	start_ms = GetLowResTimer();
+	while (cur_data < end_data)
+	{
+		int bytes_received = recv(tcp_socket->socket, cur_data, end_data - cur_data, 0);
+		if (bytes_received == SOCKET_ERROR || bytes_received == 0)
+		{
+			// Close the connection if receiving fails for any other reason other than blocking
+			DWORD error = WSAGetLastError();
+			if (error != WSAEWOULDBLOCK)
+			{
+				tcp_socket->error_state = RMT_ERROR_RECV_SOCKET_FAILED;
+				TCPSocket_Close(tcp_socket);
+				return RECV_ERROR;
+			}
+
+			// First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
+			cur_ms = GetLowResTimer();
+			if (cur_ms < start_ms)
+			{
+				start_ms = cur_ms;
+				continue;
+			}
+
+			//
+			// Timeout can happen when:
+			//
+			//    1) data is delayed by sender
+			//    2) sender fails to send a complete set of packets
+			//
+			// As not all of these scenarios are errors, we need to pass this information back to the caller.
+			//
+			// TODO: This strategy breaks down if a receive partially completes and then times out!
+			//
+			if (cur_ms - start_ms > timeout_ms)
+			{
+				return RECV_TIMEOUT;
+			}
+		}
+		else
+		{
+			// Jump over the data received
+			cur_data += bytes_received;
+		}
+	}
+
+	return RECV_SUCCESS;
+}
+
 
 
 /*
