@@ -36,6 +36,11 @@ enum rmtError
 	RMT_ERROR_WS_HANDSHAKE_STRING_FAIL,			// WebSocket server handshake failed, internal error, bad string code
 	RMT_ERROR_WS_HANDSHAKE_SEND_TIMEOUT,		// WebSocket server handshake failed, error sending response string
 	RMT_ERROR_WS_HANDSHAKE_SEND_FAILED,			// WebSocket server handshake failed, timeout sending response string
+	RMT_ERROR_WEBSOCKET_DISCONNECTED,			// WebSocket server received a disconnect request and closed the socket
+	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER,		// Couldn't parse WebSocket frame header
+	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE,	// Partially received wide frame header size
+	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_MASK,	// Partially received frame header data mask
+	RMT_ERROR_WEBSOCKET_RECEIVE_TIMEOUT,		// Timeout receiving frame header
 
 };
 

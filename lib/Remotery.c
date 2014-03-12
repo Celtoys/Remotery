@@ -1280,15 +1280,29 @@ static WebSocket* WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode)
 }
 
 
-static void WebSocket_Destroy(WebSocket* web_socket)
+static void WebSocket_Close(WebSocket* web_socket)
 {
 	assert(web_socket != NULL);
 
 	if (web_socket->frame_data_cache != NULL)
+	{
 		free(web_socket->frame_data_cache);
+		web_socket->frame_data_cache = NULL;
+	}
 
 	if (web_socket->tcp_socket != NULL)
+	{
 		TCPSocket_Destroy(web_socket->tcp_socket);
+		web_socket->tcp_socket = NULL;
+	}
+}
+
+
+static void WebSocket_Destroy(WebSocket* web_socket)
+{
+	assert(web_socket != NULL);
+	WebSocket_Close(web_socket);
+	free(web_socket);
 }
 
 
@@ -1407,6 +1421,149 @@ static enum SendResult WebSocket_Send(WebSocket* web_socket, const void* data, r
 	return TCPSocket_Send(web_socket->tcp_socket, web_socket->frame_data_cache, frame_size, timeout_ms);
 }
 
+
+static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
+{
+	// TODO: Specify infinite timeout?
+
+	u8 msg_header[2] = { 0, 0 };
+	int msg_length, size_bytes_remaining, i;
+	rmtBool mask_present;
+
+	assert(web_socket != NULL);
+
+	// Get message header
+	if (TCPSocket_Receive(web_socket->tcp_socket, msg_header, 2, 20) != RECV_SUCCESS)
+		return RMT_FALSE;
+
+	// Check for WebSocket Protocol disconnect
+	if (msg_header[0] == 0x88)
+	{
+		web_socket->error_state = RMT_ERROR_WEBSOCKET_DISCONNECTED;
+		return RMT_FALSE;
+	}
+
+	// Check that the client isn't sending messages we don't understand
+	if (msg_header[0] != 0x81 && msg_header[0] != 0x82)
+	{
+		web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER;
+		return RMT_FALSE;
+	}
+
+	// Get message length and check to see if it's a marker for a wider length
+	msg_length = msg_header[1] & 0x7F;
+	size_bytes_remaining = 0;
+	switch (msg_length)
+	{
+		case 126: size_bytes_remaining = 2; break;
+		case 127: size_bytes_remaining = 8; break;
+	}
+
+	if (size_bytes_remaining > 0)
+	{
+		// Receive the wider bytes of the length
+		u8 size_bytes[4];
+		if (TCPSocket_Receive(web_socket->tcp_socket, size_bytes, size_bytes_remaining, 20) != RECV_SUCCESS)
+		{
+			web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE;
+			return RMT_FALSE;
+		}
+
+		// Calculate new length, MSB first
+		msg_length = 0;
+		for (i = 0; i < size_bytes_remaining; i++)
+			msg_length |= size_bytes[i] << ((size_bytes_remaining - 1 - i) * 8);
+	}
+
+	// Receive any message data masks
+	mask_present = (msg_header[1] & 0x80) != 0 ? RMT_TRUE : RMT_FALSE;
+	if (mask_present)
+	{
+		if (TCPSocket_Receive(web_socket->tcp_socket, web_socket->data_mask, 4, 20) != RECV_SUCCESS)
+		{
+			web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_MASK;
+			return RMT_FALSE;
+		}
+	}
+
+	web_socket->frame_bytes_remaining = msg_length;
+	web_socket->mask_offset = 0;
+
+	return RMT_TRUE;
+}
+
+
+enum RecvResult WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u32 timeout_ms)
+{
+	SocketStatus status;
+	char* cur_data;
+	char* end_data;
+	rmtU32 start_ms, now_ms;
+	rmtU32 bytes_to_read;
+	enum RecvResult result;
+
+	assert(web_socket != NULL);
+
+	// Ensure there is data to receive
+	status = WebSocket_PollStatus(web_socket);
+	if (status.has_errors)
+		return RECV_ERROR;
+	if (!status.can_read)
+		return RECV_NODATA;
+
+	cur_data = (char*)data;
+	end_data = cur_data + length;
+
+	start_ms = GetLowResTimer();
+	while (cur_data < end_data)
+	{
+		// Get next WebSocket frame if we've run out of data to read from the socket
+		if (web_socket->frame_bytes_remaining == 0)
+		{
+			if (ReceiveFrameHeader(web_socket) == RMT_FALSE)
+			{
+				// Frame header potentially partially received so need to close
+				WebSocket_Close(web_socket);
+				return RECV_ERROR;
+			}
+		}
+
+		// Read as much required data as possible
+		bytes_to_read = web_socket->frame_bytes_remaining < length ? web_socket->frame_bytes_remaining : length;
+		result = TCPSocket_Receive(web_socket->tcp_socket, cur_data, bytes_to_read, 20);
+		if (result == RECV_ERROR)
+			return RECV_ERROR;
+
+		// If there's a stall receiving the data, check for timeout
+		if (result == RECV_NODATA|| result == RECV_TIMEOUT)
+		{
+			now_ms = GetLowResTimer();
+			if (now_ms - start_ms > timeout_ms)
+			{
+				web_socket->error_state = RMT_ERROR_WEBSOCKET_RECEIVE_TIMEOUT;
+				return RECV_TIMEOUT;
+			}
+
+			continue;
+		}
+
+		// Apply data mask
+		if (*(u32*)web_socket->data_mask != 0)
+		{
+			rmtU32 i;
+			for (i = 0; i < bytes_to_read; i++)
+			{
+				*((u8*)cur_data + i) ^= web_socket->data_mask[web_socket->mask_offset & 3];
+				web_socket->mask_offset++;
+			}
+		}
+
+		cur_data += bytes_to_read;
+		web_socket->frame_bytes_remaining -= bytes_to_read;
+	}
+
+	return RECV_SUCCESS;
+}
 
 
 
