@@ -5,7 +5,9 @@
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    Compiler/Platform Detection and External Dependencies
+------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
@@ -59,7 +61,9 @@ typedef unsigned int rmtU32;
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    Platform-specific timers
+------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
@@ -80,14 +84,16 @@ rmtU32 GetLowResTimer()
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    Sockets TCP/IP Wrapper
+------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
 
 typedef struct
 {
-	rmtError error_state;
+	enum rmtError error_state;
 
 	SOCKET socket;
 } TCPSocket;
@@ -101,7 +107,7 @@ typedef struct
 } TCPSocketStatus;
 
 
-typedef enum
+typedef enum SendResult
 {
 	SEND_SUCCESS,
 	SEND_TIMEOUT,
@@ -109,7 +115,7 @@ typedef enum
 } SendResult;
 
 
-typedef enum
+typedef enum RecvResult
 {
 	// Safe
 	RECV_SUCCESS,
@@ -339,7 +345,7 @@ static TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
 }
 
 
-static SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, u32 length, u32 timeout_ms)
+static SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	TCPSocketStatus status;
 	char* cur_data = NULL;
@@ -411,7 +417,7 @@ static SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, u32 le
 }
 
 
-RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, u32 length, u32 timeout_ms)
+RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	TCPSocketStatus status;
 	char* cur_data = NULL;
@@ -484,7 +490,9 @@ RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, u32 length, u32 
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    SHA-1 Cryptographic Hash Function
+------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
@@ -684,7 +692,9 @@ static SHA1 SHA1_Calculate(const void* src, unsigned int length)
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    Base-64 encoder
+------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
@@ -737,9 +747,478 @@ void Base64_Encode(const rmtU8* in_bytes, rmtU32 length, rmtU8* out_bytes)
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
-   Remotery
+------------------------------------------------------------------------------------------------------------------------
+   Safe C Library excerpts
+   http://sourceforge.net/projects/safeclib/
+------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
+
+
+
+/*------------------------------------------------------------------
+ *
+ * November 2008, Bo Berry
+ *
+ * Copyright (c) 2008-2011 by Cisco Systems, Inc
+ * All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ *------------------------------------------------------------------
+ */
+
+
+// NOTE: Microsoft also has its own version of these functions so I'm do some hacky PP to remove them
+#define strnlen_s strnlen_s_safe_c
+
+
+#define RSIZE_MAX_STR (4UL << 10)	/* 4KB */
+#define RCNEGATE(x) x
+
+
+#define EOK             ( 0 )
+#define ESNULLP         ( 400 )       /* null ptr                    */
+#define ESZEROL         ( 401 )       /* length is zero              */
+#define ESLEMAX         ( 403 )       /* length exceeds max          */
+#define ESOVRLP         ( 404 )       /* overlap undefined           */
+#define ESNOSPC         ( 406 )       /* not enough space for s2     */
+#define ESUNTERM        ( 407 )       /* unterminated string         */
+#define ESNOTFND        ( 409 )       /* not found                   */
+
+#ifndef _ERRNO_T_DEFINED
+#define _ERRNO_T_DEFINED
+typedef int errno_t;
+#endif
+
+
+typedef unsigned int rsize_t;
+
+
+rsize_t
+strnlen_s (const char *dest, rsize_t dmax)
+{
+    rsize_t count;
+
+    if (dest == NULL) {
+        return RCNEGATE(0);
+    }
+
+    if (dmax == 0) {
+        return RCNEGATE(0);
+    }
+
+    if (dmax > RSIZE_MAX_STR) {
+        return RCNEGATE(0);
+    }
+
+    count = 0;
+    while (*dest && dmax) {
+        count++;
+        dmax--;
+        dest++;
+    }
+
+    return RCNEGATE(count);
+}
+
+
+errno_t
+strstr_s (char *dest, rsize_t dmax,
+          const char *src, rsize_t slen, char **substring)
+{
+    rsize_t len;
+    rsize_t dlen;
+    int i;
+
+    if (substring == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+    *substring = NULL;
+
+    if (dest == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (dmax == 0) {
+        return RCNEGATE(ESZEROL);
+    }
+
+    if (dmax > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    if (src == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (slen == 0) {
+        return RCNEGATE(ESZEROL);
+    }
+
+    if (slen > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    /*
+     * src points to a string with zero length, or
+     * src equals dest, return dest
+     */
+    if (*src == '\0' || dest == src) {
+        *substring = dest;
+        return RCNEGATE(EOK);
+    }
+
+    while (*dest && dmax) {
+        i = 0;
+        len = slen;
+        dlen = dmax;
+
+        while (src[i] && dlen) {
+
+            /* not a match, not a substring */
+            if (dest[i] != src[i]) {
+                break;
+            }
+
+            /* move to the next char */
+            i++;
+            len--;
+            dlen--;
+
+            if (src[i] == '\0' || !len) {
+                *substring = dest;
+                return RCNEGATE(EOK);
+            }
+        }
+        dest++;
+        dmax--;
+    }
+
+    /*
+     * substring was not found, return NULL
+     */
+    *substring = NULL;
+    return RCNEGATE(ESNOTFND);
+}
+
+
+errno_t
+strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
+{
+    rsize_t orig_dmax;
+    char *orig_dest;
+    const char *overlap_bumper;
+
+    if (dest == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (src == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (slen > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    if (dmax == 0) {
+        return RCNEGATE(ESZEROL);
+    }
+
+    if (dmax > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    /* hold base of dest in case src was not copied */
+    orig_dmax = dmax;
+    orig_dest = dest;
+
+    if (dest < src) {
+        overlap_bumper = src;
+
+        /* Find the end of dest */
+        while (*dest != '\0') {
+
+            if (dest == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            dest++;
+            dmax--;
+            if (dmax == 0) {
+                return RCNEGATE(ESUNTERM);
+            }
+        }
+
+        while (dmax > 0) {
+            if (dest == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            /*
+             * Copying truncated before the source null is encountered
+             */
+            if (slen == 0) {
+                *dest = '\0';
+                return RCNEGATE(EOK);
+            }
+
+            *dest = *src;
+            if (*dest == '\0') {
+                return RCNEGATE(EOK);
+            }
+
+            dmax--;
+            slen--;
+            dest++;
+            src++;
+        }
+
+    } else {
+        overlap_bumper = dest;
+
+        /* Find the end of dest */
+        while (*dest != '\0') {
+
+            /*
+             * NOTE: no need to check for overlap here since src comes first
+             * in memory and we're not incrementing src here.
+             */
+            dest++;
+            dmax--;
+            if (dmax == 0) {
+                return RCNEGATE(ESUNTERM);
+            }
+        }
+
+        while (dmax > 0) {
+            if (src == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            /*
+             * Copying truncated
+             */
+            if (slen == 0) {
+                *dest = '\0';
+                return RCNEGATE(EOK);
+            }
+
+            *dest = *src;
+            if (*dest == '\0') {
+                return RCNEGATE(EOK);
+            }
+
+            dmax--;
+            slen--;
+            dest++;
+            src++;
+        }
+    }
+
+    /*
+     * the entire src was not copied, so the string will be nulled.
+     */
+    return RCNEGATE(ESNOSPC);
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   WebSocket Server
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+static char* GetField(char* buffer, rsize_t buffer_length, const char* field_name)
+{
+	char* field = NULL;
+	char* buffer_end = buffer + buffer_length - 1;
+
+	rsize_t field_length = strnlen_s(field_name, buffer_length);
+	if (field_length == 0)
+		return NULL;
+
+	// Search for the start of the field
+	if (strstr_s(buffer, buffer_length, field_name, field_length, &field) != EOK)
+		return NULL;
+
+	// Field name is now guaranteed to be in the buffer so its safe to jump over it without hitting the bounds
+	field += strlen(field_name);
+
+	// Skip any trailing whitespace
+	while (*field == ' ')
+	{
+		if (field >= buffer_end)
+			return NULL;
+		field++;
+	}
+
+	return field;
+}
+
+
+static const char websocket_guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+static const char websocket_response[] =
+	"HTTP/1.1 101 Switching Protocols\r\n"
+	"Upgrade: websocket\r\n"
+	"Connection: Upgrade\r\n"
+	"Sec-WebSocket-Accept: ";
+
+
+static rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit_host)
+{
+	rmtU32 start_ms, now_ms;
+
+	// Parsing scratchpad
+	char buffer[1024];
+	char* buffer_ptr = buffer;
+	int buffer_len = sizeof(buffer) - 1;
+	char* buffer_end = buffer + buffer_len;
+
+	char response_buffer[256];
+	int response_buffer_len = sizeof(response_buffer) - 1;
+
+	char* version;
+	char* host;
+	char* key;
+	char* key_end;
+	SHA1 hash;
+
+	assert(tcp_socket != NULL);
+
+	start_ms = GetLowResTimer();
+
+	// Really inefficient way of receiving the handshake data from the browser
+	// Not really sure how to do this any better, as the termination requirement is \r\n\r\n
+	while (buffer_ptr - buffer < buffer_len)
+	{
+		RecvResult result = TCPSocket_Receive(tcp_socket, buffer_ptr, 1, 20);
+		if (result == RECV_ERROR)
+			return RMT_ERROR_WS_HANDSHAKE_RECV_FAILED;
+
+		// If there's a stall receiving the data, check for a handshake timeout
+		if (result == RECV_NODATA || result == RECV_TIMEOUT)
+		{
+			now_ms = GetLowResTimer();
+			if (now_ms - start_ms > 1000)
+				return RMT_ERROR_WS_HANDSHAKE_RECV_TIMEOUT;
+
+			continue;
+		}
+
+		// Just in case new enums are added...
+		assert(result == RECV_SUCCESS);
+
+		if (buffer_ptr - buffer >= 4)
+		{
+			if (*(buffer_ptr - 3) == '\r' &&
+				*(buffer_ptr - 2) == '\n' &&
+				*(buffer_ptr - 1) == '\r' &&
+				*(buffer_ptr - 0) == '\n')
+				break;
+		}
+
+		buffer_ptr++;
+	}
+	*buffer_ptr = 0;
+
+	// HTTP GET instruction
+	if (memcmp(buffer, "GET", 3) != 0)
+		return RMT_ERROR_WS_HANDSHAKE_NOT_GET;
+
+	// Look for the version number and verify that it's supported
+	version = GetField(buffer, buffer_len, "Sec-WebSocket-Version:");
+	if (version == NULL)
+		return RMT_ERROR_WS_HANDSHAKE_NO_VERSION;
+	if (buffer_end - version < 2 || (version[0] != '8' && (version[0] != '1' || version[1] != '3')))
+		return RMT_ERROR_WS_HANDSHAKE_BAD_VERSION;
+
+	// Make sure this connection comes from a known host
+	host = GetField(buffer, buffer_len, "Host:");
+	if (host == NULL)
+		return RMT_ERROR_WS_HANDSHAKE_NO_HOST;
+	if (limit_host != NULL)
+	{
+		rsize_t limit_host_len = strnlen_s(limit_host, 128);
+		char* found = NULL;
+		if (strstr_s(host, buffer_end - host, limit_host, limit_host_len, &found) != EOK)
+			return RMT_ERROR_WS_HANDSHAKE_BAD_HOST;
+	}
+
+	// Look for the key start and null-terminate it within the receive buffer
+	key = GetField(buffer, buffer_len, "Sec-WebSocket-Key:");
+	if (key == NULL)
+		return RMT_ERROR_WS_HANDSHAKE_NO_KEY;
+	if (strstr_s(key, buffer_end - key, "\r\n", 2, &key_end) != EOK)
+		return RMT_ERROR_WS_HANDSHAKE_BAD_KEY;
+	*key_end = 0;
+
+	// Concatenate the browser's key with the WebSocket Protocol GUID and base64 encode
+	// the hash, to prove to the browser that this is a bonafide WebSocket server
+	buffer[0] = 0;
+	if (strncat_s(buffer, buffer_len, key, key_end - key) != EOK)
+		return RMT_ERROR_WS_HANDSHAKE_STRING_FAIL;
+	if (strncat_s(buffer, buffer_len, websocket_guid, sizeof(websocket_guid)) != EOK)
+		return RMT_ERROR_WS_HANDSHAKE_STRING_FAIL;
+	hash = SHA1_Calculate(buffer, strnlen_s(buffer, buffer_len));
+	Base64_Encode(hash.data, sizeof(hash.data), (rmtU8*)buffer);
+
+	// Send the response back to the server with a longer timeout than usual
+	response_buffer[0] = 0;
+	if (strncat_s(response_buffer, response_buffer_len, websocket_response, sizeof(websocket_response)) != EOK)
+		return RMT_ERROR_WS_HANDSHAKE_STRING_FAIL;
+	if (strncat_s(response_buffer, response_buffer_len, buffer, buffer_len) != EOK)
+		return RMT_ERROR_WS_HANDSHAKE_STRING_FAIL;
+	if (strncat_s(response_buffer, response_buffer_len, "\r\n\r\n", 4) != EOK)
+		return RMT_ERROR_WS_HANDSHAKE_STRING_FAIL;
+
+	switch (TCPSocket_Send(tcp_socket, response_buffer, strnlen_s(response_buffer, response_buffer_len), 1000))
+	{
+		case SEND_SUCCESS:
+			return RMT_ERROR_NONE;
+		case SEND_TIMEOUT:
+			return RMT_ERROR_WS_HANDSHAKE_SEND_TIMEOUT;
+		case SEND_ERROR:
+			return RMT_ERROR_WS_HANDSHAKE_SEND_FAILED;
+	}
+
+	return RMT_ERROR_NONE;
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Remotery
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
 
 
 struct Remotery
