@@ -51,6 +51,7 @@ typedef unsigned int rmtBool;
 #define RMT_FALSE ((rmtBool)0)
 
 
+typedef unsigned char rmtU8;
 typedef unsigned short rmtU16;
 typedef unsigned int rmtU32;
 
@@ -493,7 +494,7 @@ RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, u32 length, u32 
 //
 typedef struct
 {
-	unsigned char data[20];
+	rmtU8 data[20];
 } SHA1;
 
 
@@ -615,7 +616,7 @@ static void calc(const void* src, const int bytelength, unsigned char* hash)
 	int roundPos;
 	int lastBlockBytes;
 	int hashByte;
-	
+
 	// Init the result array.
 	unsigned int result[5] = { 0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0 };
 
@@ -678,6 +679,60 @@ static SHA1 SHA1_Calculate(const void* src, unsigned int length)
 	calc(src, length, hash.data);
 	return hash;
 }
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+   Base-64 encoder
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+static const char* b64_encoding_table =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		"abcdefghijklmnopqrstuvwxyz"
+		"0123456789+/";
+
+
+rmtU32 Base64_CalculateEncodedLength(rmtU32 length)
+{
+	// ceil(l * 4/3)
+	return 4 * ((length + 2) / 3);
+}
+
+
+void Base64_Encode(const rmtU8* in_bytes, rmtU32 length, rmtU8* out_bytes)
+{
+	rmtU32 i;
+	rmtU32 encoded_length;
+	rmtU32 remaining_bytes;
+
+	rmtU8* optr = out_bytes;
+
+	for (i = 0; i < length; )
+	{
+		// Read input 3 values at a time, null terminating
+		rmtU32 c0 = i < length ? in_bytes[i++] : 0;
+		rmtU32 c1 = i < length ? in_bytes[i++] : 0;
+		rmtU32 c2 = i < length ? in_bytes[i++] : 0;
+
+		// Encode 4 bytes for ever 3 input bytes
+		rmtU32 triple = (c0 << 0x10) + (c1 << 0x08) + c2;
+		*optr++ = b64_encoding_table[(triple >> 3 * 6) & 0x3F];
+		*optr++ = b64_encoding_table[(triple >> 2 * 6) & 0x3F];
+		*optr++ = b64_encoding_table[(triple >> 1 * 6) & 0x3F];
+		*optr++ = b64_encoding_table[(triple >> 0 * 6) & 0x3F];
+	}
+
+	// Pad output to multiple of 3 bytes with terminating '='
+	encoded_length = Base64_CalculateEncodedLength(length);
+	remaining_bytes = (3 - ((length + 2) % 3)) - 1;
+	for (i = 0; i < remaining_bytes; i++)
+		out_bytes[encoded_length - 1 - i] = '=';
+}
+
 
 
 /*
