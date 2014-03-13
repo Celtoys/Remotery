@@ -271,7 +271,7 @@ static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 
 	status.can_read = FD_ISSET(tcp_socket->socket, &fd_read) != 0 ? RMT_TRUE : RMT_FALSE;
 	status.can_write = FD_ISSET(tcp_socket->socket, &fd_write) != 0 ? RMT_TRUE : RMT_FALSE;
-	status.error_state = FD_ISSET(tcp_socket->socket, &fd_errors) != 0 ? RMT_ERROR_NONE : RMT_ERROR_SOCKET_POLL_ERRORS;
+	status.error_state = FD_ISSET(tcp_socket->socket, &fd_errors) != 0 ? RMT_ERROR_SOCKET_POLL_ERRORS : RMT_ERROR_NONE;
 	return status;
 }
 
@@ -1617,10 +1617,17 @@ enum rmtError rmt_Create(Remotery** remotery)
 
 void rmt_Destroy(Remotery* rmt)
 {
-	assert(rmt != 0);
+	assert(rmt != NULL);
 
 	if (rmt->server != NULL)
 		Server_Destroy(rmt->server);
 
 	free(rmt);
+}
+
+
+void rmt_UpdateServer(Remotery* rmt)
+{
+	assert(rmt != NULL);
+	Server_Update(rmt->server);
 }

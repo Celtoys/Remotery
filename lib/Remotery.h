@@ -57,6 +57,8 @@ extern "C" {
 enum rmtError rmt_Create(Remotery** remotery);
 void rmt_Destroy(Remotery* rmt);
 
+void rmt_UpdateServer(Remotery* rmt);
+
 
 #ifdef __cplusplus
 }
