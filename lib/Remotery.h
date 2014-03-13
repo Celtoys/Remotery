@@ -11,35 +11,32 @@ enum rmtError
 	RMT_ERROR_NONE,
 
 	// Network TCP/IP socket errors
-	RMT_ERROR_INITIALISE_NETWORK_FAILED,		// Network initialisation failure (e.g. on Win32, WSAStartup fails)
-	RMT_ERROR_MALLOC_SOCKET_FAILED,				// Malloc call for server or client socket failed
-	RMT_ERROR_CREATE_SOCKET_FAILED,				// Can't create a socket for connection to the remote viewer
-	RMT_ERROR_BIND_SOCKET_FAILED,				// Can't bind a socket for the server
-	RMT_ERROR_LISTEN_SOCKET_FAILED,				// Created server socket failed to enter a listen state
-	RMT_ERROR_SET_NON_BLOCKING_FAILED,			// Created server socket failed to switch to a non-blocking state
-	RMT_ERROR_INVALID_SOCKET_POLL,				// Poll attempt on an invalid socket
-	RMT_ERROR_SELECT_SOCKET_FAILED,				// Server failed to call select on socket
-	RMT_ERROR_SOCKET_HAS_ERRORS,				// Poll notified that the socket has errors
-	RMT_ERROR_ACCEPT_CONNECTION_FAILED,			// Server failed to accept connection from client
-	RMT_ERROR_SEND_SOCKET_TIMEOUT,				// Timed out trying to send data
-	RMT_ERROR_SEND_SOCKET_FAILED,				// Unrecoverable error occured while client/server tried to send data
-	RMT_ERROR_RECV_SOCKET_NO_DATA,				// No data available when attempting a receive
-	RMT_ERROR_RECV_SOCKET_TIMEOUT,				// Timed out trying to receive data
-	RMT_ERROR_RECV_SOCKET_FAILED,				// Unrecoverable error occured while client/server tried to receive data
+	RMT_ERROR_SOCKET_INIT_NETWORK_FAIL,			// Network initialisation failure (e.g. on Win32, WSAStartup fails)
+	RMT_ERROR_SOCKET_MALLOC_FAIL,				// Malloc call for server or client socket failed
+	RMT_ERROR_SOCKET_CREATE_FAIL,				// Can't create a socket for connection to the remote viewer
+	RMT_ERROR_SOCKET_BIND_FAIL,					// Can't bind a socket for the server
+	RMT_ERROR_SOCKET_LISTEN_FAIL,				// Created server socket failed to enter a listen state
+	RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL,		// Created server socket failed to switch to a non-blocking state
+	RMT_ERROR_SOCKET_INVALID_POLL,				// Poll attempt on an invalid socket
+	RMT_ERROR_SOCKET_SELECT_FAIL,				// Server failed to call select on socket
+	RMT_ERROR_SOCKET_POLL_ERRORS,				// Poll notified that the socket has errors
+	RMT_ERROR_SOCKET_ACCEPT_FAIL,				// Server failed to accept connection from client
+	RMT_ERROR_SOCKET_SEND_TIMEOUT,				// Timed out trying to send data
+	RMT_ERROR_SOCKET_SEND_FAIL,					// Unrecoverable error occured while client/server tried to send data
+	RMT_ERROR_SOCKET_RECV_NO_DATA,				// No data available when attempting a receive
+	RMT_ERROR_SOCKET_RECV_TIMEOUT,				// Timed out trying to receive data
+	RMT_ERROR_SOCKET_RECV_FAILED,				// Unrecoverable error occured while client/server tried to receive data
 
 	// WebSocket server errors
-	RMT_ERROR_MALLOC_WEBSOCKET_FAILED,			// Malloc call for server or client web socket failed
-	RMT_ERROR_WEBSOCKET_CREATE_FAILED,			// Creation of resources for websocket failed
-	RMT_ERROR_WS_HANDSHAKE_NOT_GET,				// WebSocket server handshake failed, not HTTP GET
-	RMT_ERROR_WS_HANDSHAKE_NO_VERSION,			// WebSocket server handshake failed, can't locate WebSocket version
-	RMT_ERROR_WS_HANDSHAKE_BAD_VERSION,			// WebSocket server handshake failed, unsupported WebSocket version
-	RMT_ERROR_WS_HANDSHAKE_NO_HOST,				// WebSocket server handshake failed, can't locate host
-	RMT_ERROR_WS_HANDSHAKE_BAD_HOST,			// WebSocket server handshake failed, host is not allowed to connect
-	RMT_ERROR_WS_HANDSHAKE_NO_KEY,				// WebSocket server handshake failed, can't locate WebSocket key
-	RMT_ERROR_WS_HANDSHAKE_BAD_KEY,				// WebSocket server handshake failed, WebSocket key is ill-formed
-	RMT_ERROR_WS_HANDSHAKE_STRING_FAIL,			// WebSocket server handshake failed, internal error, bad string code
-	RMT_ERROR_WS_HANDSHAKE_SEND_TIMEOUT,		// WebSocket server handshake failed, error sending response string
-	RMT_ERROR_WS_HANDSHAKE_SEND_FAILED,			// WebSocket server handshake failed, timeout sending response string
+	RMT_ERROR_WEBSOCKET_MALLOC_FAIL,			// Malloc call for server or client web socket failed
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_NOT_GET,		// WebSocket server handshake failed, not HTTP GET
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_NO_VERSION,	// WebSocket server handshake failed, can't locate WebSocket version
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_VERSION,	// WebSocket server handshake failed, unsupported WebSocket version
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_NO_HOST,		// WebSocket server handshake failed, can't locate host
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_HOST,		// WebSocket server handshake failed, host is not allowed to connect
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_NO_KEY,		// WebSocket server handshake failed, can't locate WebSocket key
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_KEY,		// WebSocket server handshake failed, WebSocket key is ill-formed
+	RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL,	// WebSocket server handshake failed, internal error, bad string code
 	RMT_ERROR_WEBSOCKET_DISCONNECTED,			// WebSocket server received a disconnect request and closed the socket
 	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER,		// Couldn't parse WebSocket frame header
 	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE,	// Partially received wide frame header size
