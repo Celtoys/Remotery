@@ -1,0 +1,4 @@
+
+# Copy external dependencies locally
+remote_copy_objs = env.CopyFiles("../BrowserLib", "*.js; *.css", "vis/extern/BrowserLib")
+env.Build(remote_copy_objs, "remotery")
