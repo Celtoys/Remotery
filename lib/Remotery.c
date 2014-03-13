@@ -144,14 +144,10 @@ static enum rmtError TCPSocket_Create(TCPSocket** tcp_socket)
 {
 	assert(tcp_socket != NULL);
 
-	// Allocate type, cleanup on error
+	// Allocate an initialise
 	*tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
 	if (*tcp_socket == NULL)
-	{
-		free(*tcp_socket);
-		*tcp_socket = NULL;
 		return RMT_ERROR_SOCKET_MALLOC_FAIL;
-	}
 	(*tcp_socket)->socket = INVALID_SOCKET;
 
 	return RMT_ERROR_NONE;
@@ -287,7 +283,7 @@ static enum rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket
 	SocketStatus status;
 	SOCKET s;
 	enum rmtError error;
-	
+
 	// Ensure there is an incoming connection
 	assert(tcp_socket != NULL);
 	status = TCPSocket_PollStatus(tcp_socket);
