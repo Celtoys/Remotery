@@ -704,6 +704,9 @@ void Base64_Encode(const rmtU8* in_bytes, rmtU32 length, rmtU8* out_bytes)
 	remaining_bytes = (3 - ((length + 2) % 3)) - 1;
 	for (i = 0; i < remaining_bytes; i++)
 		out_bytes[encoded_length - 1 - i] = '=';
+
+	// Null terminate
+	out_bytes[encoded_length] = 0;
 }
 
 
@@ -1221,6 +1224,8 @@ static enum rmtError WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode
 	error = WebSocket_Create(web_socket);
 	if (error != RMT_ERROR_NONE)
 		return error;
+
+	(*web_socket)->mode = mode;
 
 	// Create the server's listening socket
 	error = TCPSocket_CreateServer(port, &(*web_socket)->tcp_socket);

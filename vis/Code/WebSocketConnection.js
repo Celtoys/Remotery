@@ -76,7 +76,7 @@ WebSocketConnection = (function()
 	function OnOpen(self, event)
 	{
 		Log(self, "Connected");
-		CallMessageHandlers("__OnConnect__");
+		CallMessageHandlers(self, "__OnConnect__");
 	}
 
 

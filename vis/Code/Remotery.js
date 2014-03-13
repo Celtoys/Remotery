@@ -15,7 +15,7 @@ Remotery = (function()
 		this.Console = new Console(this.WindowManager);
 
 		this.Server = new WebSocketConnection(this.Console);
-		this.Server.Connect("ws://127.0.0.1:38950/remotery");
+		this.Server.Connect("ws://127.0.0.1:17815/remotery");
 
 		// Hook up resize event handler
 		DOM.Event.AddHandler(window, "resize", Bind(OnResizeWindow, this));
