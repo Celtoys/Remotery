@@ -17,15 +17,19 @@ enum rmtError
 	RMT_ERROR_BIND_SOCKET_FAILED,				// Can't bind a socket for the server
 	RMT_ERROR_LISTEN_SOCKET_FAILED,				// Created server socket failed to enter a listen state
 	RMT_ERROR_SET_NON_BLOCKING_FAILED,			// Created server socket failed to switch to a non-blocking state
+	RMT_ERROR_INVALID_SOCKET_POLL,				// Poll attempt on an invalid socket
 	RMT_ERROR_SELECT_SOCKET_FAILED,				// Server failed to call select on socket
+	RMT_ERROR_SOCKET_HAS_ERRORS,				// Poll notified that the socket has errors
 	RMT_ERROR_ACCEPT_CONNECTION_FAILED,			// Server failed to accept connection from client
+	RMT_ERROR_SEND_SOCKET_TIMEOUT,				// Timed out trying to send data
 	RMT_ERROR_SEND_SOCKET_FAILED,				// Unrecoverable error occured while client/server tried to send data
+	RMT_ERROR_RECV_SOCKET_NO_DATA,				// No data available when attempting a receive
+	RMT_ERROR_RECV_SOCKET_TIMEOUT,				// Timed out trying to receive data
 	RMT_ERROR_RECV_SOCKET_FAILED,				// Unrecoverable error occured while client/server tried to receive data
 
 	// WebSocket server errors
 	RMT_ERROR_MALLOC_WEBSOCKET_FAILED,			// Malloc call for server or client web socket failed
-	RMT_ERROR_WS_HANDSHAKE_RECV_FAILED,			// WebSocket server failed to receive complete handshake data
-	RMT_ERROR_WS_HANDSHAKE_RECV_TIMEOUT,		// WebSocket server timed out receving handshake data
+	RMT_ERROR_WEBSOCKET_CREATE_FAILED,			// Creation of resources for websocket failed
 	RMT_ERROR_WS_HANDSHAKE_NOT_GET,				// WebSocket server handshake failed, not HTTP GET
 	RMT_ERROR_WS_HANDSHAKE_NO_VERSION,			// WebSocket server handshake failed, can't locate WebSocket version
 	RMT_ERROR_WS_HANDSHAKE_BAD_VERSION,			// WebSocket server handshake failed, unsupported WebSocket version

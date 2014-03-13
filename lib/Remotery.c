@@ -103,34 +103,15 @@ typedef struct
 {
 	rmtBool can_read;
 	rmtBool can_write;
-	rmtBool has_errors;
+	enum rmtError error_state;
 } SocketStatus;
-
-
-enum SendResult
-{
-	SEND_SUCCESS,
-	SEND_TIMEOUT,
-	SEND_ERROR
-};
-
-
-enum RecvResult
-{
-	// Safe
-	RECV_SUCCESS,
-	RECV_NODATA,
-
-	// Unhealthy, probably requires a disconnect
-	RECV_TIMEOUT,
-	RECV_ERROR,
-};
 
 
 //
 // Function prototypes
 //
 static void TCPSocket_Close(TCPSocket* tcp_socket);
+static enum rmtError TCPSocket_Destroy(TCPSocket** tcp_socket, enum rmtError error);
 
 
 static enum rmtError InitialiseNetwork()
@@ -159,80 +140,77 @@ static void ShutdownNetwork()
 }
 
 
-static TCPSocket* TCPSocket_Create()
+static enum rmtError TCPSocket_Create(TCPSocket** tcp_socket)
 {
-	TCPSocket* tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
-	if (tcp_socket == NULL)
-		return NULL;
-	tcp_socket->error_state = RMT_ERROR_NONE;
-	tcp_socket->socket = INVALID_SOCKET;
-	return tcp_socket;
+	assert(tcp_socket != NULL);
+
+	// Allocate type, cleanup on error
+	*tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
+	if (*tcp_socket == NULL)
+	{
+		free(*tcp_socket);
+		*tcp_socket = NULL;
+		return RMT_ERROR_MALLOC_SOCKET_FAILED;
+	}
+	(*tcp_socket)->socket = INVALID_SOCKET;
+
+	return RMT_ERROR_NONE;
 }
 
 
-static TCPSocket* TCPSocket_CreateServer(rmtU16 port)
+static enum rmtError TCPSocket_CreateServer(rmtU16 port, TCPSocket** tcp_socket)
 {
-	TCPSocket* tcp_socket = NULL;
 	SOCKET s = INVALID_SOCKET;
 	struct sockaddr_in sin = { 0 };
 	u_long nonblock = 1;
 
-	// Always try to allocate the socket container, even if later creation of its resources fails
-	// Any errors are returned in the socket structure itself
-	tcp_socket = TCPSocket_Create();
-	if (tcp_socket == NULL)
-		return NULL;
-	tcp_socket->error_state = InitialiseNetwork();
-	if (tcp_socket->error_state != RMT_ERROR_NONE)
-		return tcp_socket;
+	// Create socket container
+	enum rmtError error = TCPSocket_Create(tcp_socket);
+	if (error != RMT_ERROR_NONE)
+		return error;
+
+	error = InitialiseNetwork();
+	if (error != RMT_ERROR_NONE)
+		return TCPSocket_Destroy(tcp_socket, error);
 
 	// Try to create the socket
 	s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (s == SOCKET_ERROR)
-	{
-		tcp_socket->error_state = RMT_ERROR_CREATE_SOCKET_FAILED;
-		return tcp_socket;
-	}
+		return TCPSocket_Destroy(tcp_socket, RMT_ERROR_CREATE_SOCKET_FAILED);
 
 	// Bind the socket to the incoming port
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = INADDR_ANY;
 	sin.sin_port = htons(port);
 	if (bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
-	{
-		tcp_socket->error_state = RMT_ERROR_BIND_SOCKET_FAILED;
-		closesocket(s);
-		return tcp_socket;
-	}
+		return TCPSocket_Destroy(tcp_socket, RMT_ERROR_BIND_SOCKET_FAILED);
 
 	// Connection is valid, remaining code is socket state modification
-	tcp_socket->socket = s;
+	(*tcp_socket)->socket = s;
 
 	// Enter a listening state with a backlog of 1 connection
 	if (listen(s, 1) == SOCKET_ERROR)
-	{
-		tcp_socket->error_state = RMT_ERROR_LISTEN_SOCKET_FAILED;
-		TCPSocket_Close(tcp_socket);
-		return tcp_socket;
-	}
+		return TCPSocket_Destroy(tcp_socket, RMT_ERROR_LISTEN_SOCKET_FAILED);
 
 	// Set as non-blocking
-	if (ioctlsocket(tcp_socket->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
-	{
-		tcp_socket->error_state = RMT_ERROR_SET_NON_BLOCKING_FAILED;
-		TCPSocket_Close(tcp_socket);
-		return tcp_socket;
-	}
+	if (ioctlsocket((*tcp_socket)->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
+		return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SET_NON_BLOCKING_FAILED);
 
-	return tcp_socket;
+	return RMT_ERROR_NONE;
 }
 
 
-static void TCPSocket_Destroy(TCPSocket* tcp_socket)
+static enum rmtError TCPSocket_Destroy(TCPSocket** tcp_socket, enum rmtError error)
 {
 	assert(tcp_socket != NULL);
-	TCPSocket_Close(tcp_socket);
+
+	TCPSocket_Close(*tcp_socket);
+	ShutdownNetwork();
+
 	free(tcp_socket);
+	*tcp_socket = NULL;
+
+	return error;
 }
 
 
@@ -259,7 +237,6 @@ static void TCPSocket_Close(TCPSocket* tcp_socket)
 		// Close the socket and issue a network shutdown request
 		closesocket(tcp_socket->socket);
 		tcp_socket->socket = INVALID_SOCKET;
-		ShutdownNetwork();
 	}
 }
 
@@ -270,17 +247,14 @@ static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 	fd_set fd_read, fd_write, fd_errors;
 	struct timeval tv;
 
-	// Refresh error state on each call
-	assert(tcp_socket != NULL);
-	tcp_socket->error_state = RMT_ERROR_NONE;
-
 	status.can_read = RMT_FALSE;
 	status.can_write = RMT_FALSE;
-	status.has_errors = RMT_FALSE;
+	status.error_state = RMT_ERROR_NONE;
 
+	assert(tcp_socket != NULL);
 	if (tcp_socket->socket == INVALID_SOCKET)
 	{
-		status.has_errors = RMT_TRUE;
+		status.error_state = RMT_ERROR_INVALID_SOCKET_POLL;
 		return status;
 	}
 
@@ -297,55 +271,52 @@ static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 	tv.tv_usec = 0;
 	if (select(0, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
 	{
-		tcp_socket->error_state = RMT_ERROR_SELECT_SOCKET_FAILED;
-		status.has_errors = RMT_TRUE;
+		status.error_state = RMT_ERROR_SELECT_SOCKET_FAILED;
 		return status;
 	}
 
 	status.can_read = FD_ISSET(tcp_socket->socket, &fd_read) != 0 ? RMT_TRUE : RMT_FALSE;
 	status.can_write = FD_ISSET(tcp_socket->socket, &fd_write) != 0 ? RMT_TRUE : RMT_FALSE;
-	status.has_errors = FD_ISSET(tcp_socket->socket, &fd_errors) != 0 ? RMT_TRUE : RMT_FALSE;
+	status.error_state = FD_ISSET(tcp_socket->socket, &fd_errors) != 0 ? RMT_ERROR_NONE : RMT_ERROR_SOCKET_HAS_ERRORS;
 	return status;
 }
 
 
-static TCPSocket* TCPSocket_AcceptConnection(TCPSocket* tcp_socket)
+static enum rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket** client_socket)
 {
 	SocketStatus status;
 	SOCKET s;
-	TCPSocket* client_socket;
-
-	assert(tcp_socket != NULL);
-
+	enum rmtError error;
+	
 	// Ensure there is an incoming connection
+	assert(tcp_socket != NULL);
 	status = TCPSocket_PollStatus(tcp_socket);
-	if (status.has_errors || !status.can_read)
-		return NULL;
+	if (status.error_state != RMT_ERROR_NONE || !status.can_read)
+		return status.error_state;
 
 	// Accept the connection
 	s = accept(tcp_socket->socket, 0, 0);
 	if (s == SOCKET_ERROR)
 	{
-		tcp_socket->error_state = RMT_ERROR_ACCEPT_CONNECTION_FAILED;
 		TCPSocket_Close(tcp_socket);
-		return NULL;
+		return RMT_ERROR_ACCEPT_CONNECTION_FAILED;
 	}
 
 	// Create a client socket for the new connection
-	client_socket = TCPSocket_Create();
-	if (client_socket == NULL)
+	assert(client_socket != NULL);
+	error = TCPSocket_Create(client_socket);
+	if (error != RMT_ERROR_NONE)
 	{
-		tcp_socket->error_state = RMT_ERROR_MALLOC_SOCKET_FAILED;
 		TCPSocket_Close(tcp_socket);
-		return NULL;
+		return error;
 	}
-	client_socket->socket = s;
+	(*client_socket)->socket = s;
 
-	return client_socket;
+	return RMT_ERROR_NONE;
 }
 
 
-static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
+static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	SocketStatus status;
 	char* cur_data = NULL;
@@ -357,10 +328,10 @@ static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, r
 
 	// Can't send if there are socket errors
 	status = TCPSocket_PollStatus(tcp_socket);
-	if (status.has_errors)
-		return SEND_ERROR;
+	if (status.error_state != RMT_ERROR_NONE)
+		return status.error_state;
 	if (!status.can_write)
-		return SEND_TIMEOUT;
+		return RMT_ERROR_SEND_SOCKET_TIMEOUT;
 
 	cur_data = (char*)data;
 	end_data = cur_data + length;
@@ -377,9 +348,8 @@ static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, r
 			DWORD error = WSAGetLastError();
 			if (error != WSAEWOULDBLOCK)
 			{
-				tcp_socket->error_state = RMT_ERROR_SEND_SOCKET_FAILED;
 				TCPSocket_Close(tcp_socket);
-				return SEND_ERROR;
+				return RMT_ERROR_SEND_SOCKET_FAILED;
 			}
 
 			// First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
@@ -403,7 +373,7 @@ static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, r
 			//
 			if (cur_ms - start_ms > timeout_ms)
 			{
-				return SEND_TIMEOUT;
+				return RMT_ERROR_SEND_SOCKET_TIMEOUT;
 			}
 		}
 		else
@@ -413,11 +383,11 @@ static enum SendResult TCPSocket_Send(TCPSocket* tcp_socket, const void* data, r
 		}
 	}
 
-	return SEND_SUCCESS;
+	return RMT_ERROR_NONE;
 }
 
 
-enum RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
+enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	SocketStatus status;
 	char* cur_data = NULL;
@@ -429,10 +399,10 @@ enum RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 leng
 
 	// Ensure there is data to receive
 	status = TCPSocket_PollStatus(tcp_socket);
-	if (status.has_errors)
-		return RECV_ERROR;
+	if (status.error_state != RMT_ERROR_NONE)
+		return status.error_state;
 	if (!status.can_read)
-		return RECV_NODATA;
+		return RMT_ERROR_RECV_SOCKET_NO_DATA;
 
 	cur_data = (char*)data;
 	end_data = cur_data + length;
@@ -448,9 +418,8 @@ enum RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 leng
 			DWORD error = WSAGetLastError();
 			if (error != WSAEWOULDBLOCK)
 			{
-				tcp_socket->error_state = RMT_ERROR_RECV_SOCKET_FAILED;
 				TCPSocket_Close(tcp_socket);
-				return RECV_ERROR;
+				return RMT_ERROR_RECV_SOCKET_FAILED;
 			}
 
 			// First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
@@ -473,7 +442,7 @@ enum RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 leng
 			//
 			if (cur_ms - start_ms > timeout_ms)
 			{
-				return RECV_TIMEOUT;
+				return RMT_ERROR_RECV_SOCKET_TIMEOUT;
 			}
 		}
 		else
@@ -483,7 +452,7 @@ enum RecvResult TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 leng
 		}
 	}
 
-	return RECV_SUCCESS;
+	return RMT_ERROR_NONE;
 }
 
 
@@ -1046,7 +1015,7 @@ strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
-   WebSocket Server
+   WebSockets
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
@@ -1142,22 +1111,22 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit
 	// Not really sure how to do this any better, as the termination requirement is \r\n\r\n
 	while (buffer_ptr - buffer < buffer_len)
 	{
-		enum RecvResult result = TCPSocket_Receive(tcp_socket, buffer_ptr, 1, 20);
-		if (result == RECV_ERROR)
-			return RMT_ERROR_WS_HANDSHAKE_RECV_FAILED;
+		enum rmtError error = TCPSocket_Receive(tcp_socket, buffer_ptr, 1, 20);
+		if (error == RMT_ERROR_RECV_SOCKET_FAILED)
+			return error;
 
 		// If there's a stall receiving the data, check for a handshake timeout
-		if (result == RECV_NODATA || result == RECV_TIMEOUT)
+		if (error == RMT_ERROR_RECV_SOCKET_NO_DATA || error == RMT_ERROR_RECV_SOCKET_TIMEOUT)
 		{
 			now_ms = GetLowResTimer();
 			if (now_ms - start_ms > 1000)
-				return RMT_ERROR_WS_HANDSHAKE_RECV_TIMEOUT;
+				return RMT_ERROR_RECV_SOCKET_TIMEOUT;
 
 			continue;
 		}
 
 		// Just in case new enums are added...
-		assert(result == RECV_SUCCESS);
+		assert(error == RMT_ERROR_NONE);
 
 		if (buffer_ptr - buffer >= 4)
 		{
@@ -1222,17 +1191,7 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit
 	if (strncat_s(response_buffer, response_buffer_len, "\r\n\r\n", 4) != EOK)
 		return RMT_ERROR_WS_HANDSHAKE_STRING_FAIL;
 
-	switch (TCPSocket_Send(tcp_socket, response_buffer, strnlen_s(response_buffer, response_buffer_len), 1000))
-	{
-		case SEND_SUCCESS:
-			return RMT_ERROR_NONE;
-		case SEND_TIMEOUT:
-			return RMT_ERROR_WS_HANDSHAKE_SEND_TIMEOUT;
-		case SEND_ERROR:
-			return RMT_ERROR_WS_HANDSHAKE_SEND_FAILED;
-	}
-
-	return RMT_ERROR_NONE;
+	return TCPSocket_Send(tcp_socket, response_buffer, strnlen_s(response_buffer, response_buffer_len), 1000);
 }
 
 
@@ -1260,6 +1219,8 @@ static WebSocket* WebSocket_Create()
 
 static WebSocket* WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode)
 {
+	enum rmtError error;
+
 	// Always try to allocate the web socket container, even if later creation of its resources fails
 	// Any errors are returned in the structure itself
 	WebSocket* web_socket = WebSocket_Create();
@@ -1267,13 +1228,12 @@ static WebSocket* WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode)
 		return NULL;
 
 	// Create the server's listening socket
-	web_socket->tcp_socket = TCPSocket_CreateServer(port);
-	if (web_socket->tcp_socket == NULL)
+	error = TCPSocket_CreateServer(port, &web_socket->tcp_socket);
+	if (error != RMT_ERROR_NONE)
 	{
-		web_socket->error_state = RMT_ERROR_MALLOC_SOCKET_FAILED;
+		web_socket->error_state = error;
 		return web_socket;
 	}
-
 	web_socket->mode = mode;
 
 	return web_socket;
@@ -1292,7 +1252,7 @@ static void WebSocket_Close(WebSocket* web_socket)
 
 	if (web_socket->tcp_socket != NULL)
 	{
-		TCPSocket_Destroy(web_socket->tcp_socket);
+		TCPSocket_Destroy(&web_socket->tcp_socket, RMT_ERROR_NONE);
 		web_socket->tcp_socket = NULL;
 	}
 }
@@ -1322,8 +1282,8 @@ static WebSocket* WebSocket_AcceptConnection(WebSocket* web_socket)
 	assert(web_socket != NULL);
 
 	// Is there a waiting connection?
-	tcp_socket = TCPSocket_AcceptConnection(web_socket->tcp_socket);
-	if (tcp_socket == 0)
+	error = TCPSocket_AcceptConnection(web_socket->tcp_socket, &tcp_socket);
+	if (error != RMT_ERROR_NONE || tcp_socket == NULL)
 		return NULL;
 
 	// Need a successful handshake between client/server before allowing the connection
@@ -1332,7 +1292,7 @@ static WebSocket* WebSocket_AcceptConnection(WebSocket* web_socket)
 	if (error != RMT_ERROR_NONE)
 	{
 		web_socket->error_state = error;
-		TCPSocket_Destroy(tcp_socket);
+		TCPSocket_Destroy(&tcp_socket, RMT_ERROR_NONE);
 		return NULL;
 	}
 
@@ -1363,7 +1323,7 @@ static void WriteSize(rmtU32 size, rmtU8* dest, rmtU32 dest_size, rmtU32 dest_of
 }
 
 
-static enum SendResult WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
+static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	SocketStatus status;
 	rmtU8 final_fragment, frame_type, frame_header[10];
@@ -1373,10 +1333,10 @@ static enum SendResult WebSocket_Send(WebSocket* web_socket, const void* data, r
 
 	// Can't send if there are socket errors
 	status = WebSocket_PollStatus(web_socket);
-	if (status.has_errors)
-		return SEND_ERROR;
+	if (status.error_state != RMT_ERROR_NONE)
+		return status.error_state;
 	if (!status.can_write)
-		return SEND_TIMEOUT;
+		return RMT_ERROR_SEND_SOCKET_TIMEOUT;
 
 	final_fragment = 0x1 << 7;
 	frame_type = (u8)web_socket->mode;
@@ -1426,6 +1386,7 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 {
 	// TODO: Specify infinite timeout?
 
+	enum rmtError error;
 	u8 msg_header[2] = { 0, 0 };
 	int msg_length, size_bytes_remaining, i;
 	rmtBool mask_present;
@@ -1433,7 +1394,8 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 	assert(web_socket != NULL);
 
 	// Get message header
-	if (TCPSocket_Receive(web_socket->tcp_socket, msg_header, 2, 20) != RECV_SUCCESS)
+	error = TCPSocket_Receive(web_socket->tcp_socket, msg_header, 2, 20);
+	if (error != RMT_ERROR_NONE)
 		return RMT_FALSE;
 
 	// Check for WebSocket Protocol disconnect
@@ -1463,7 +1425,8 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 	{
 		// Receive the wider bytes of the length
 		u8 size_bytes[4];
-		if (TCPSocket_Receive(web_socket->tcp_socket, size_bytes, size_bytes_remaining, 20) != RECV_SUCCESS)
+		error = TCPSocket_Receive(web_socket->tcp_socket, size_bytes, size_bytes_remaining, 20);
+		if (error != RMT_ERROR_NONE)
 		{
 			web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE;
 			return RMT_FALSE;
@@ -1479,7 +1442,8 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 	mask_present = (msg_header[1] & 0x80) != 0 ? RMT_TRUE : RMT_FALSE;
 	if (mask_present)
 	{
-		if (TCPSocket_Receive(web_socket->tcp_socket, web_socket->data_mask, 4, 20) != RECV_SUCCESS)
+		error = TCPSocket_Receive(web_socket->tcp_socket, web_socket->data_mask, 4, 20);
+		if (error != RMT_ERROR_NONE)
 		{
 			web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_MASK;
 			return RMT_FALSE;
@@ -1493,23 +1457,23 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 }
 
 
-enum RecvResult WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u32 timeout_ms)
+enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u32 timeout_ms)
 {
 	SocketStatus status;
 	char* cur_data;
 	char* end_data;
 	rmtU32 start_ms, now_ms;
 	rmtU32 bytes_to_read;
-	enum RecvResult result;
+	enum rmtError error;
 
 	assert(web_socket != NULL);
 
 	// Ensure there is data to receive
 	status = WebSocket_PollStatus(web_socket);
-	if (status.has_errors)
-		return RECV_ERROR;
+	if (status.error_state != RMT_ERROR_NONE)
+		return status.error_state;
 	if (!status.can_read)
-		return RECV_NODATA;
+		return RMT_ERROR_RECV_SOCKET_NO_DATA;
 
 	cur_data = (char*)data;
 	end_data = cur_data + length;
@@ -1524,24 +1488,24 @@ enum RecvResult WebSocket_Receive(WebSocket* web_socket, void* data, u32 length,
 			{
 				// Frame header potentially partially received so need to close
 				WebSocket_Close(web_socket);
-				return RECV_ERROR;
+				return RMT_ERROR_RECV_SOCKET_FAILED;
 			}
 		}
 
 		// Read as much required data as possible
 		bytes_to_read = web_socket->frame_bytes_remaining < length ? web_socket->frame_bytes_remaining : length;
-		result = TCPSocket_Receive(web_socket->tcp_socket, cur_data, bytes_to_read, 20);
-		if (result == RECV_ERROR)
-			return RECV_ERROR;
+		error = TCPSocket_Receive(web_socket->tcp_socket, cur_data, bytes_to_read, 20);
+		if (error == RMT_ERROR_RECV_SOCKET_FAILED)
+			return error;
 
 		// If there's a stall receiving the data, check for timeout
-		if (result == RECV_NODATA|| result == RECV_TIMEOUT)
+		if (error == RMT_ERROR_RECV_SOCKET_NO_DATA|| error == RMT_ERROR_RECV_SOCKET_TIMEOUT)
 		{
 			now_ms = GetLowResTimer();
 			if (now_ms - start_ms > timeout_ms)
 			{
-				web_socket->error_state = RMT_ERROR_WEBSOCKET_RECEIVE_TIMEOUT;
-				return RECV_TIMEOUT;
+				web_socket->error_state = RMT_ERROR_RECV_SOCKET_TIMEOUT;
+				return RMT_ERROR_RECV_SOCKET_TIMEOUT;
 			}
 
 			continue;
@@ -1562,7 +1526,7 @@ enum RecvResult WebSocket_Receive(WebSocket* web_socket, void* data, u32 length,
 		web_socket->frame_bytes_remaining -= bytes_to_read;
 	}
 
-	return RECV_SUCCESS;
+	return RMT_ERROR_NONE;
 }
 
 
