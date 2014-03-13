@@ -27,7 +27,7 @@ enum rmtError
 	RMT_ERROR_SOCKET_RECV_TIMEOUT,				// Timed out trying to receive data
 	RMT_ERROR_SOCKET_RECV_FAILED,				// Unrecoverable error occured while client/server tried to receive data
 
-	// WebSocket server errors
+	// WebSocket errors
 	RMT_ERROR_WEBSOCKET_MALLOC_FAIL,			// Malloc call for server or client web socket failed
 	RMT_ERROR_WEBSOCKET_HANDSHAKE_NOT_GET,		// WebSocket server handshake failed, not HTTP GET
 	RMT_ERROR_WEBSOCKET_HANDSHAKE_NO_VERSION,	// WebSocket server handshake failed, can't locate WebSocket version
@@ -43,10 +43,23 @@ enum rmtError
 	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_MASK,	// Partially received frame header data mask
 	RMT_ERROR_WEBSOCKET_RECEIVE_TIMEOUT,		// Timeout receiving frame header
 
+	RMT_ERROR_SERVER_MALLOC_FAIL,				// Malloc call for server failed
+
+	RMT_ERROR_MALLOC_FAIL,						// Malloc call for remotery failed
 };
 
 
-Remotery* rmt_Create();
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+enum rmtError rmt_Create(Remotery** remotery);
 void rmt_Destroy(Remotery* rmt);
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

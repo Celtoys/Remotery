@@ -1,5 +1,5 @@
 
-#include "remotery.h"
+#include "Remotery.h"
 
 
 
@@ -1508,6 +1508,76 @@ enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+   Network Server
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct
+{
+	WebSocket* listen_socket;
+
+	WebSocket* client_socket;
+} Server;
+
+
+static void Server_Destroy(Server* server);
+
+
+static enum rmtError Server_Create(rmtU16 port, Server** server)
+{
+	enum rmtError error;
+
+	assert(server != NULL);
+	*server = (Server*)malloc(sizeof(Server));
+	if (*server == NULL)
+		return RMT_ERROR_SERVER_MALLOC_FAIL;
+
+	// Initialise defaults
+	(*server)->listen_socket = NULL;
+	(*server)->client_socket = NULL;
+
+	// Create the listening WebSocket
+	error = WebSocket_CreateServer(port, WEBSOCKET_TEXT, &(*server)->listen_socket);
+	if (error != RMT_ERROR_NONE)
+	{
+		Server_Destroy(*server);
+		*server = NULL;
+		return error;
+	}
+
+	return RMT_ERROR_NONE;
+}
+
+
+static void Server_Destroy(Server* server)
+{
+	assert(server != NULL);
+
+	if (server->client_socket != NULL)
+		WebSocket_Destroy(server->client_socket);
+	if (server->listen_socket != NULL)
+		WebSocket_Destroy(server->listen_socket);
+
+	free(server);
+}
+
+
+static void Server_Update(Server* server)
+{
+	assert(server != NULL);
+
+	// Accept connections as long as there is no client connected
+	if (server->client_socket == NULL)
+		WebSocket_AcceptConnection(server->listen_socket, &server->client_socket);
+}
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    Remotery
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -1517,19 +1587,42 @@ enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u
 
 struct Remotery
 {
-	enum rmtError error_state;
+	Server* server;
 };
 
 
-Remotery* rmt_Create()
+enum rmtError rmt_Create(Remotery** remotery)
 {
-	Remotery* rmt = (Remotery*)malloc(sizeof(Remotery));
-	rmt->error_state = RMT_ERROR_NONE;
-	return rmt;
+	enum rmtError error;
+
+	assert(remotery != NULL);
+
+	*remotery = (Remotery*)malloc(sizeof(Remotery));
+	if (*remotery == NULL)
+		return RMT_ERROR_MALLOC_FAIL;
+
+	// Set default state
+	(*remotery)->server = NULL;
+
+	// Create the server
+	error = Server_Create(0x4597, &(*remotery)->server);
+	if (error != RMT_ERROR_NONE)
+	{
+		rmt_Destroy(*remotery);
+		*remotery = NULL;
+		return error;
+	}
+
+	return RMT_ERROR_NONE;
 }
 
 
 void rmt_Destroy(Remotery* rmt)
 {
 	assert(rmt != 0);
+
+	if (rmt->server != NULL)
+		Server_Destroy(rmt->server);
+	
+	free(rmt);
 }
