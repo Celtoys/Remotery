@@ -8,3 +8,12 @@ body
 
 	background-color: #AAA;
 }
+
+
+.LogText
+{
+	overflow:auto;
+	color: #BBB;
+	font: 9px Verdana;
+	margin: 2px;
+}

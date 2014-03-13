@@ -31,10 +31,8 @@ WM.Window = (function()
 		this.BodyNode = DOM.Node.FindWithClass(this.Node, "WindowBody");
 
 		// Setup the position and dimensions of the window
-		this.Position = [ x, y ];
-		this.Size = [ width, height ];
-		DOM.Node.SetPosition(this.Node, this.Position);
-		DOM.Node.SetSize(this.Node, this.Size);
+		this.SetPosition(x, y);
+		this.SetSize(width, height);
 
 		// Set the title text
 		this.TitleBarTextNode.innerHTML = title;
@@ -202,8 +200,7 @@ WM.Window = (function()
 		var mouse_pos = DOM.Event.GetMousePosition(evt);
 		var offset = this.Offset;
 		var pos = [ mouse_pos[0] - offset[0], mouse_pos[1] - offset[1] ];
-		this.Position = pos;
-		DOM.Node.SetPosition(this.Node, pos);
+		this.SetPosition(pos[0], pos[1]);
 
 		if (this.OnMove)
 			this.OnMove(this, pos);
@@ -219,6 +216,20 @@ WM.Window = (function()
 		DOM.Event.RemoveHandler(document, "mouseup", this.EndMoveDelegate);
 
 		DOM.Event.StopDefaultAction(evt);
+	}
+
+
+	Window.prototype.SetPosition = function(x, y)
+	{
+		this.Position = [ x, y ];
+		DOM.Node.SetPosition(this.Node, this.Position);
+	}
+
+
+	Window.prototype.SetSize = function(w, h)
+	{
+		this.Size = [ w, h ];
+		DOM.Node.SetSize(this.Node, this.Size);
 	}
 
 
