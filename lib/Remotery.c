@@ -201,7 +201,7 @@ static enum rmtError TCPSocket_Destroy(TCPSocket** tcp_socket, enum rmtError err
 	TCPSocket_Close(*tcp_socket);
 	ShutdownNetwork();
 
-	free(tcp_socket);
+	free(*tcp_socket);
 	*tcp_socket = NULL;
 
 	return error;
@@ -1477,10 +1477,13 @@ enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u
 		bytes_to_read = web_socket->frame_bytes_remaining < length ? web_socket->frame_bytes_remaining : length;
 		error = TCPSocket_Receive(web_socket->tcp_socket, cur_data, bytes_to_read, 20);
 		if (error == RMT_ERROR_SOCKET_RECV_FAILED)
+		{
+			WebSocket_Close(web_socket);
 			return error;
+		}
 
 		// If there's a stall receiving the data, check for timeout
-		if (error == RMT_ERROR_SOCKET_RECV_NO_DATA|| error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
+		if (error == RMT_ERROR_SOCKET_RECV_NO_DATA || error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
 		{
 			now_ms = GetLowResTimer();
 			if (now_ms - start_ms > timeout_ms)
@@ -1572,9 +1575,36 @@ static void Server_Update(Server* server)
 {
 	assert(server != NULL);
 
-	// Accept connections as long as there is no client connected
 	if (server->client_socket == NULL)
+	{
+		// Accept connections as long as there is no client connected
 		WebSocket_AcceptConnection(server->listen_socket, &server->client_socket);
+	}
+
+	else
+	{
+		// Check for any incoming messages
+		char message_first_byte;
+		enum rmtError error = WebSocket_Receive(server->client_socket, &message_first_byte, 1, 20);
+		if (error == RMT_ERROR_NONE)
+		{
+			// data available to read
+		}
+		else if (error == RMT_ERROR_SOCKET_RECV_NO_DATA)
+		{
+			// no data available
+		}
+		else if (error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
+		{
+			// data not available yet, can afford to ignore as we're only reading the first byte
+		}
+		else
+		{
+			// Anything else is an error that may have closed the connection
+			WebSocket_Destroy(server->client_socket);
+			server->client_socket = NULL;
+		}
+	}
 }
 
 
