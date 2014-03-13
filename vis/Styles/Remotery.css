@@ -17,3 +17,30 @@ body
 	font: 9px Verdana;
 	margin: 2px;
 }
+
+
+.PingContainer
+{
+	background-color: #F55;
+
+	/* Disable drop-shadow */
+	-webkit-box-shadow: none;
+	-moz-box-shadow: none;
+	box-shadow: none;
+
+
+	/* Add a curve to the bottom left so that it follows the edge of the window */
+	-webkit-border-bottom-left-radius: 4px;
+	-moz-border-radius-bottomleft: 4px;
+	border-bottom-left-radius: 4px;
+
+	-webkit-transition: background-color 0.25s;
+	-moz-transition: background-color 0.25s;
+	transition: background-color 0.25s;
+}
+
+
+.PingContainerActive
+{
+	background-color: #5F5;
+}

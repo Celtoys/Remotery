@@ -11,11 +11,15 @@ Remotery = (function()
 	{
 		this.WindowManager = new WM.WindowManager();
 
-		// Create all windows
+		// Create the console up front as everything reports to it
 		this.Console = new Console(this.WindowManager);
 
+		// Connect to the server
 		this.Server = new WebSocketConnection(this.Console);
 		this.Server.Connect("ws://127.0.0.1:17815/remotery");
+
+		// Create required windows
+		this.TitleWindow = new TitleWindow(this.WindowManager, this.Server);
 
 		// Hook up resize event handler
 		DOM.Event.AddHandler(window, "resize", Bind(OnResizeWindow, this));
@@ -28,7 +32,10 @@ Remotery = (function()
 	function OnResizeWindow(self)
 	{
 		// Resize windows
-		self.Console.WindowResized(window.innerWidth, window.innerHeight);
+		var w = window.innerWidth;
+		var h = window.innerHeight;
+		self.Console.WindowResized(w, h);
+		self.TitleWindow.WindowResized(w, h);
 	}
 
 

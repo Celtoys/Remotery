@@ -1526,6 +1526,8 @@ typedef struct
 	WebSocket* listen_socket;
 
 	WebSocket* client_socket;
+
+	rmtU32 last_ping_time;
 } Server;
 
 
@@ -1544,6 +1546,7 @@ static enum rmtError Server_Create(rmtU16 port, Server** server)
 	// Initialise defaults
 	(*server)->listen_socket = NULL;
 	(*server)->client_socket = NULL;
+	(*server)->last_ping_time = 0;
 
 	// Create the listening WebSocket
 	error = WebSocket_CreateServer(port, WEBSOCKET_TEXT, &(*server)->listen_socket);
@@ -1583,9 +1586,11 @@ static void Server_Update(Server* server)
 
 	else
 	{
+		rmtU32 cur_time;
+
 		// Check for any incoming messages
 		char message_first_byte;
-		enum rmtError error = WebSocket_Receive(server->client_socket, &message_first_byte, 1, 20);
+		enum rmtError error = WebSocket_Receive(server->client_socket, &message_first_byte, 1, 0);
 		if (error == RMT_ERROR_NONE)
 		{
 			// data available to read
@@ -1603,6 +1608,21 @@ static void Server_Update(Server* server)
 			// Anything else is an error that may have closed the connection
 			WebSocket_Destroy(server->client_socket);
 			server->client_socket = NULL;
+		}
+
+		// Send pings to the client every second
+		cur_time = GetLowResTimer();
+		if (cur_time - server->last_ping_time > 1000)
+		{
+			const char* ping_message = "{ \"id\": \"PING\" }";
+			error = WebSocket_Send(server->client_socket, ping_message, strlen(ping_message), 20);
+			if (error == RMT_ERROR_SOCKET_SEND_FAIL)
+			{
+				WebSocket_Destroy(server->client_socket);
+				server->client_socket = NULL;
+			}
+
+			server->last_ping_time = cur_time;
 		}
 	}
 }
