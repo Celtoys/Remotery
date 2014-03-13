@@ -93,8 +93,6 @@ rmtU32 GetLowResTimer()
 
 typedef struct
 {
-	enum rmtError error_state;
-
 	SOCKET socket;
 } TCPSocket;
 
@@ -1623,6 +1621,6 @@ void rmt_Destroy(Remotery* rmt)
 
 	if (rmt->server != NULL)
 		Server_Destroy(rmt->server);
-	
+
 	free(rmt);
 }
