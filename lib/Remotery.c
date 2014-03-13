@@ -1028,8 +1028,6 @@ enum WebSocketMode
 
 typedef struct
 {
-	enum rmtError error_state;
-
 	TCPSocket* tcp_socket;
 
 	enum WebSocketMode mode;
@@ -1042,6 +1040,9 @@ typedef struct
 	rmtU8* frame_data_cache;
 	rmtU32 frame_data_cache_size;
 } WebSocket;
+
+
+static void WebSocket_Destroy(WebSocket* web_socket);
 
 
 static char* GetField(char* buffer, rsize_t buffer_length, const char* field_name)
@@ -1191,48 +1192,48 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit
 }
 
 
-static WebSocket* WebSocket_Create()
+static enum rmtError WebSocket_Create(WebSocket** web_socket)
 {
-	WebSocket* web_socket = (WebSocket*)malloc(sizeof(WebSocket));
+	*web_socket = (WebSocket*)malloc(sizeof(WebSocket));
 	if (web_socket == NULL)
-		return NULL;
+		return RMT_ERROR_WEBSOCKET_MALLOC_FAIL;
 
-	web_socket->error_state = RMT_ERROR_NONE;
-	web_socket->tcp_socket = NULL;
-	web_socket->mode = WEBSOCKET_NONE;
-	web_socket->frame_bytes_remaining = 0;
-	web_socket->mask_offset = 0;
-	web_socket->data_mask[0] = 0;
-	web_socket->data_mask[1] = 0;
-	web_socket->data_mask[2] = 0;
-	web_socket->data_mask[3] = 0;
-	web_socket->frame_data_cache = NULL;
-	web_socket->frame_data_cache_size = 0;
+	// Set default state
+	(*web_socket)->tcp_socket = NULL;
+	(*web_socket)->mode = WEBSOCKET_NONE;
+	(*web_socket)->frame_bytes_remaining = 0;
+	(*web_socket)->mask_offset = 0;
+	(*web_socket)->data_mask[0] = 0;
+	(*web_socket)->data_mask[1] = 0;
+	(*web_socket)->data_mask[2] = 0;
+	(*web_socket)->data_mask[3] = 0;
+	(*web_socket)->frame_data_cache = NULL;
+	(*web_socket)->frame_data_cache_size = 0;
 
-	return web_socket;
+	return RMT_ERROR_NONE;
 }
 
 
-static WebSocket* WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode)
+static enum rmtError WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode, WebSocket** web_socket)
 {
 	enum rmtError error;
 
-	// Always try to allocate the web socket container, even if later creation of its resources fails
-	// Any errors are returned in the structure itself
-	WebSocket* web_socket = WebSocket_Create();
-	if (web_socket == NULL)
-		return NULL;
+	assert(web_socket != NULL);
+
+	error = WebSocket_Create(web_socket);
+	if (error != RMT_ERROR_NONE)
+		return error;
 
 	// Create the server's listening socket
-	error = TCPSocket_CreateServer(port, &web_socket->tcp_socket);
+	error = TCPSocket_CreateServer(port, &(*web_socket)->tcp_socket);
 	if (error != RMT_ERROR_NONE)
 	{
-		web_socket->error_state = error;
-		return web_socket;
+		WebSocket_Destroy(*web_socket);
+		*web_socket = NULL;
+		return error;
 	}
-	web_socket->mode = mode;
 
-	return web_socket;
+	return RMT_ERROR_NONE;
 }
 
 
@@ -1269,41 +1270,33 @@ static SocketStatus WebSocket_PollStatus(WebSocket* web_socket)
 }
 
 
-static WebSocket* WebSocket_AcceptConnection(WebSocket* web_socket)
+static enum rmtError WebSocket_AcceptConnection(WebSocket* web_socket, WebSocket** client_socket)
 {
 	TCPSocket* tcp_socket = NULL;
-	WebSocket* client_socket = NULL;
 	enum rmtError error;
 
-	assert(web_socket != NULL);
-
 	// Is there a waiting connection?
+	assert(web_socket != NULL);
 	error = TCPSocket_AcceptConnection(web_socket->tcp_socket, &tcp_socket);
 	if (error != RMT_ERROR_NONE || tcp_socket == NULL)
-		return NULL;
+		return error;
 
 	// Need a successful handshake between client/server before allowing the connection
 	// TODO: Specify limit_host
 	error = WebSocketHandshake(tcp_socket, NULL);
 	if (error != RMT_ERROR_NONE)
-	{
-		web_socket->error_state = error;
-		TCPSocket_Destroy(&tcp_socket, RMT_ERROR_NONE);
-		return NULL;
-	}
+		return TCPSocket_Destroy(&tcp_socket, error);
 
 	// Allocate and return a new client socket
-	client_socket = WebSocket_Create();
-	if (client_socket == NULL)
-	{
-		web_socket->error_state = RMT_ERROR_WEBSOCKET_MALLOC_FAIL;
-		return NULL;
-	}
+	assert(client_socket != NULL);
+	error = WebSocket_Create(client_socket);
+	if (error != RMT_ERROR_NONE)
+		return TCPSocket_Destroy(&tcp_socket, error);
 
-	client_socket->tcp_socket = tcp_socket;
-	client_socket->mode = web_socket->mode;
+	(*client_socket)->tcp_socket = tcp_socket;
+	(*client_socket)->mode = web_socket->mode;
 
-	return client_socket;
+	return RMT_ERROR_NONE;
 }
 
 
@@ -1378,7 +1371,7 @@ static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmt
 }
 
 
-static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
+static enum rmtError ReceiveFrameHeader(WebSocket* web_socket)
 {
 	// TODO: Specify infinite timeout?
 
@@ -1392,21 +1385,15 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 	// Get message header
 	error = TCPSocket_Receive(web_socket->tcp_socket, msg_header, 2, 20);
 	if (error != RMT_ERROR_NONE)
-		return RMT_FALSE;
+		return error;
 
 	// Check for WebSocket Protocol disconnect
 	if (msg_header[0] == 0x88)
-	{
-		web_socket->error_state = RMT_ERROR_WEBSOCKET_DISCONNECTED;
-		return RMT_FALSE;
-	}
+		return RMT_ERROR_WEBSOCKET_DISCONNECTED;
 
 	// Check that the client isn't sending messages we don't understand
 	if (msg_header[0] != 0x81 && msg_header[0] != 0x82)
-	{
-		web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER;
-		return RMT_FALSE;
-	}
+		return RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER;
 
 	// Get message length and check to see if it's a marker for a wider length
 	msg_length = msg_header[1] & 0x7F;
@@ -1423,10 +1410,7 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 		u8 size_bytes[4];
 		error = TCPSocket_Receive(web_socket->tcp_socket, size_bytes, size_bytes_remaining, 20);
 		if (error != RMT_ERROR_NONE)
-		{
-			web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE;
-			return RMT_FALSE;
-		}
+			return RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE;
 
 		// Calculate new length, MSB first
 		msg_length = 0;
@@ -1440,16 +1424,13 @@ static rmtBool ReceiveFrameHeader(WebSocket* web_socket)
 	{
 		error = TCPSocket_Receive(web_socket->tcp_socket, web_socket->data_mask, 4, 20);
 		if (error != RMT_ERROR_NONE)
-		{
-			web_socket->error_state = RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_MASK;
-			return RMT_FALSE;
-		}
+			return error;
 	}
 
 	web_socket->frame_bytes_remaining = msg_length;
 	web_socket->mask_offset = 0;
 
-	return RMT_TRUE;
+	return RMT_ERROR_NONE;
 }
 
 
@@ -1480,11 +1461,12 @@ enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u
 		// Get next WebSocket frame if we've run out of data to read from the socket
 		if (web_socket->frame_bytes_remaining == 0)
 		{
-			if (ReceiveFrameHeader(web_socket) == RMT_FALSE)
+			error = ReceiveFrameHeader(web_socket);
+			if (error != RMT_ERROR_NONE)
 			{
 				// Frame header potentially partially received so need to close
 				WebSocket_Close(web_socket);
-				return RMT_ERROR_SOCKET_RECV_FAILED;
+				return error;
 			}
 		}
 
@@ -1499,11 +1481,7 @@ enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u
 		{
 			now_ms = GetLowResTimer();
 			if (now_ms - start_ms > timeout_ms)
-			{
-				web_socket->error_state = RMT_ERROR_SOCKET_RECV_TIMEOUT;
 				return RMT_ERROR_SOCKET_RECV_TIMEOUT;
-			}
-
 			continue;
 		}
 
