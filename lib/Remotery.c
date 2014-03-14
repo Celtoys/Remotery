@@ -48,16 +48,6 @@
 #endif
 
 
-typedef unsigned int rmtBool;
-#define RMT_TRUE ((rmtBool)1)
-#define RMT_FALSE ((rmtBool)0)
-
-
-typedef unsigned char rmtU8;
-typedef unsigned short rmtU16;
-typedef unsigned int rmtU32;
-
-
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -1576,6 +1566,56 @@ static void Server_Destroy(Server* server)
 }
 
 
+static const char log_message[] = "{ \"id\": \"LOG\", \"text\": \"";
+
+
+static void Server_LogText(Server* server, const char* text)
+{
+	assert(server != NULL);
+	if (server->client_socket != NULL)
+	{
+		int start_offset, prev_offset, i;
+
+		// Start the line buffer off with the JSON message markup
+		char line_buffer[1024] = { 0 };
+		strncat_s(line_buffer, sizeof(line_buffer), log_message, sizeof(log_message));
+		start_offset = strnlen_s(line_buffer, sizeof(line_buffer) - 1);
+
+		// There might be newlines in the buffer, so split them into multiple network calls
+		// TODO: Add some escaping
+		prev_offset = start_offset;
+		for (i = 0; text[i] != 0; i++)
+		{
+			// Line wrap when too long or newline encountered
+			if (prev_offset == sizeof(line_buffer) - 3 || text[i] == '\n')
+			{
+				// End message and send
+				line_buffer[prev_offset++] = '\"';
+				line_buffer[prev_offset++] = '}';
+				line_buffer[prev_offset] = 0;
+				WebSocket_Send(server->client_socket, line_buffer, prev_offset, 20);
+
+				// Restart line
+				prev_offset = start_offset;
+			}
+
+			if (text[i] != '\n')
+				line_buffer[prev_offset++] = text[i];
+		}
+
+		// Send the last line
+		if (prev_offset > start_offset)
+		{
+			assert(prev_offset < sizeof(line_buffer) - 3);
+			line_buffer[prev_offset++] = '\"';
+			line_buffer[prev_offset++] = '}';
+			line_buffer[prev_offset] = 0;
+			WebSocket_Send(server->client_socket, line_buffer, prev_offset, 20);
+		}
+	}
+}
+
+
 static void Server_Update(Server* server)
 {
 	rmtU32 cur_time;
@@ -1633,6 +1673,13 @@ static void Server_Update(Server* server)
 }
 
 
+static rmtBool Server_IsClientConnected(Server* server)
+{
+	assert(server != NULL);
+	return server->client_socket != NULL ? RMT_TRUE : RMT_FALSE;
+}
+
+
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -1686,8 +1733,22 @@ void rmt_Destroy(Remotery* rmt)
 }
 
 
+void rmt_LogText(Remotery* rmt, const char* text)
+{
+	assert(rmt != NULL);
+	Server_LogText(rmt->server, text);
+}
+
+
 void rmt_UpdateServer(Remotery* rmt)
 {
 	assert(rmt != NULL);
 	Server_Update(rmt->server);
+}
+
+
+rmtBool rmt_IsClientConnected(Remotery* rmt)
+{
+	assert(rmt != NULL);
+	return Server_IsClientConnected(rmt->server);
 }

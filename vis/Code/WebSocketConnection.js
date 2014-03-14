@@ -1,19 +1,17 @@
 
 WebSocketConnection = (function()
 {
-	function WebSocketConnection(console)
+	function WebSocketConnection()
 	{
 		this.MessageHandlers = { };
 		this.Socket = null;
-		this.Console = console;
-
-		Log(this, "WebSocketConnection Created");
+		this.Console = null;
 	}
 
 
-	function Log(self, message)
+	WebSocketConnection.prototype.SetConsole = function(console)
 	{
-		self.Console.Log(message);
+		this.Console = console;
 	}
 
 
@@ -69,13 +67,19 @@ WebSocketConnection = (function()
 	}
 
 
-	function CallMessageHandlers(self, message_name)
+	function Log(self, message)
+	{
+		self.Console.Log(message);
+	}
+
+
+	function CallMessageHandlers(self, message_name, message)
 	{
 		if (message_name in self.MessageHandlers)
 		{
 			var handlers = self.MessageHandlers[message_name];
 			for (var i in handlers)
-				handlers[i](self);
+				handlers[i](self, message);
 		}
 	}
 
@@ -111,7 +115,7 @@ WebSocketConnection = (function()
 	{
 		var message = JSON.parse(event.data);
 		if ("id" in message)
-			CallMessageHandlers(self, message.id);
+			CallMessageHandlers(self, message.id, message);
 	}
 
 

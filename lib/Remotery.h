@@ -49,6 +49,16 @@ enum rmtError
 };
 
 
+typedef unsigned int rmtBool;
+#define RMT_TRUE ((rmtBool)1)
+#define RMT_FALSE ((rmtBool)0)
+
+
+typedef unsigned char rmtU8;
+typedef unsigned short rmtU16;
+typedef unsigned int rmtU32;
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -57,7 +67,11 @@ extern "C" {
 enum rmtError rmt_Create(Remotery** remotery);
 void rmt_Destroy(Remotery* rmt);
 
+void rmt_LogText(Remotery* rmt, const char* text);
+
 void rmt_UpdateServer(Remotery* rmt);
+
+rmtBool rmt_IsClientConnected(Remotery* rmt);
 
 
 #ifdef __cplusplus
