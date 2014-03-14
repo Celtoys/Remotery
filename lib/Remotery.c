@@ -140,13 +140,19 @@ static void ShutdownNetwork()
 
 static enum rmtError TCPSocket_Create(TCPSocket** tcp_socket)
 {
+	enum rmtError error;
+	
 	assert(tcp_socket != NULL);
 
-	// Allocate an initialise
+	// Allocate and initialise
 	*tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
 	if (*tcp_socket == NULL)
 		return RMT_ERROR_SOCKET_MALLOC_FAIL;
 	(*tcp_socket)->socket = INVALID_SOCKET;
+
+	error = InitialiseNetwork();
+	if (error != RMT_ERROR_NONE)
+		return TCPSocket_Destroy(tcp_socket, error);
 
 	return RMT_ERROR_NONE;
 }
@@ -162,10 +168,6 @@ static enum rmtError TCPSocket_CreateServer(rmtU16 port, TCPSocket** tcp_socket)
 	enum rmtError error = TCPSocket_Create(tcp_socket);
 	if (error != RMT_ERROR_NONE)
 		return error;
-
-	error = InitialiseNetwork();
-	if (error != RMT_ERROR_NONE)
-		return TCPSocket_Destroy(tcp_socket, error);
 
 	// Try to create the socket
 	s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
