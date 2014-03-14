@@ -61,7 +61,7 @@ WebSocketConnection = (function()
 
 	WebSocketConnection.prototype.Disconnect = function()
 	{
-		Log(this, "Disconnecting from " + address);
+		Log(this, "Disconnecting");
 		if (this.Connected())
 			this.Socket.close();
 	}

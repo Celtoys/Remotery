@@ -36,6 +36,15 @@ body
 }
 
 
+/* Override default edit box style to remove 3D effect */
+.EditBox
+{
+	border: none;
+	box-shadow: none;
+	width:200;
+}
+
+
 
 .ConsoleText
 {

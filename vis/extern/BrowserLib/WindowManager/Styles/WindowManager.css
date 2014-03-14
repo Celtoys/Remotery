@@ -101,7 +101,7 @@
 
 
 /* ------------------------------------------------------------------------------------------------------------------ */
-/* Treeview Styles                                                                                                   */
+/* Treeview Styles                                                                                                    */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
@@ -232,3 +232,43 @@
 }
 
 
+ 
+/* ------------------------------------------------------------------------------------------------------------------ */
+/* Treeview Styles                                                                                                    */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+
+
+.EditBoxContainer
+{
+	position: absolute;
+	padding:2px 10px 2px 10px;
+}
+
+.EditBoxLabel
+{
+	float:left;
+	padding: 3px 4px 4px 4px;
+	font: 9px Verdana;
+}
+
+.EditBox
+{
+	float:left;
+
+	background:#666;
+	border: 1px solid;
+	border-radius: 6px;
+	padding: 3px 4px 3px 4px;
+	height: 20px;
+
+	box-shadow: 1px 1px 1px #222 inset;
+
+	transition: all 0.3s ease-in-out;
+}
+
+.EditBox:focus
+{
+	background:#FFF;
+	outline:0;
+}
