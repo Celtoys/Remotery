@@ -34,7 +34,7 @@ Remotery = (function()
 			self.Server.Connect("ws://127.0.0.1:17815/remotery");
 
 		// Always schedule another check
-		window.setTimeout(Bind(AutoConnect, self), 5000);
+		window.setTimeout(Bind(AutoConnect, self), 2000);
 	}
 
 
