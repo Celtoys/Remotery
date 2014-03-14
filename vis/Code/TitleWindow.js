@@ -3,8 +3,8 @@ TitleWindow = (function()
 {
 	function TitleWindow(wm, server)
 	{
-		this.Window = wm.AddWindow("Remotery", 10, 10, 100, 100);
-		this.PingContainer = this.Window.AddControlNew(new WM.Container(5, 5, 10, 20));
+		this.Window = wm.AddWindow("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Remotery", 10, 10, 100, 100);
+		this.PingContainer = this.Window.AddControlNew(new WM.Container(4, -13, 10, 10));
 		DOM.Node.AddClass(this.PingContainer.Node, "PingContainer");
 		this.Window.ShowNoAnim();
 
@@ -20,8 +20,8 @@ TitleWindow = (function()
 
 	function OnPing(self, server)
 	{
+		// Set the ping container as active and take it off half a second later
 		DOM.Node.AddClass(self.PingContainer.Node, "PingContainerActive");
-
 		window.setTimeout(Bind(function(self)
 		{
 			DOM.Node.RemoveClass(self.PingContainer.Node, "PingContainerActive");

@@ -10,6 +10,33 @@ body
 }
 
 
+/* Override default window styles to remove 3D effect */
+.Window
+{
+	background: #555;
+	box-shadow: none;
+	border-radius: 3px;
+}
+.WindowTitleBar
+{
+	border-bottom: none;
+	border-radius: 0px;
+}
+.WindowBody
+{
+	border-top: none;
+}
+
+
+/* Override default container style to remove 3D effect */
+.Container
+{
+	border: none;
+	box-shadow: none;
+}
+
+
+
 .ConsoleText
 {
 	overflow:auto;
@@ -22,25 +49,17 @@ body
 .PingContainer
 {
 	background-color: #F55;
+	border-radius: 2px;
 
-	/* Disable drop-shadow */
-	-webkit-box-shadow: none;
-	-moz-box-shadow: none;
-	box-shadow: none;
-
-
-	/* Add a curve to the bottom left so that it follows the edge of the window */
-	-webkit-border-bottom-left-radius: 4px;
-	-moz-border-radius-bottomleft: 4px;
-	border-bottom-left-radius: 4px;
-
-	-webkit-transition: background-color 0.25s;
-	-moz-transition: background-color 0.25s;
-	transition: background-color 0.25s;
+	/* Transition from green is gradual */
+	transition: background-color 0.25s ease-in;
 }
 
 
 .PingContainerActive
 {
 	background-color: #5F5;
+
+	/* Transition to green is instant */
+	transition: none;
 }
