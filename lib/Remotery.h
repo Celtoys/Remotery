@@ -64,6 +64,9 @@ extern "C" {
 #endif
 
 
+// Can call remotery functions on a null pointer
+
+
 enum rmtError rmt_Create(Remotery** remotery);
 void rmt_Destroy(Remotery* rmt);
 

@@ -1724,7 +1724,8 @@ enum rmtError rmt_Create(Remotery** remotery)
 
 void rmt_Destroy(Remotery* rmt)
 {
-	assert(rmt != NULL);
+	if (rmt == NULL)
+		return;
 
 	if (rmt->server != NULL)
 		Server_Destroy(rmt->server);
@@ -1735,20 +1736,21 @@ void rmt_Destroy(Remotery* rmt)
 
 void rmt_LogText(Remotery* rmt, const char* text)
 {
-	assert(rmt != NULL);
-	Server_LogText(rmt->server, text);
+	if (rmt != NULL)
+		Server_LogText(rmt->server, text);
 }
 
 
 void rmt_UpdateServer(Remotery* rmt)
 {
-	assert(rmt != NULL);
-	Server_Update(rmt->server);
+	if (rmt != NULL)
+		Server_Update(rmt->server);
 }
 
 
 rmtBool rmt_IsClientConnected(Remotery* rmt)
 {
-	assert(rmt != NULL);
-	return Server_IsClientConnected(rmt->server);
+	if (rmt != NULL)
+		return Server_IsClientConnected(rmt->server);
+	return RMT_FALSE;
 }
