@@ -1582,12 +1582,13 @@ static void Server_LogText(Server* server, const char* text)
 		start_offset = strnlen_s(line_buffer, sizeof(line_buffer) - 1);
 
 		// There might be newlines in the buffer, so split them into multiple network calls
-		// TODO: Add some escaping
 		prev_offset = start_offset;
 		for (i = 0; text[i] != 0; i++)
 		{
+			char c = text[i];
+
 			// Line wrap when too long or newline encountered
-			if (prev_offset == sizeof(line_buffer) - 3 || text[i] == '\n')
+			if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
 			{
 				// End message and send
 				line_buffer[prev_offset++] = '\"';
@@ -1599,8 +1600,29 @@ static void Server_LogText(Server* server, const char* text)
 				prev_offset = start_offset;
 			}
 
-			if (text[i] != '\n')
-				line_buffer[prev_offset++] = text[i];
+			// Safe to insert 2 characters here as previous check would split lines if not enough space left
+			switch (c)
+			{
+				// Skip newline, dealt with above
+				case '\n':
+					break;
+
+				// Escape these
+				case '\\':
+					line_buffer[prev_offset++] = '\\';
+					line_buffer[prev_offset++] = '\\';
+					break;
+
+				case '\"':
+					line_buffer[prev_offset++] = '\\';
+					line_buffer[prev_offset++] = '\"';
+					break;
+
+				// Add the rest
+				default:
+					line_buffer[prev_offset++] = c;
+					break;
+			}
 		}
 
 		// Send the last line
