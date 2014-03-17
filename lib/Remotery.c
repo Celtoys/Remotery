@@ -13,18 +13,33 @@
 
 
 
+//
+// Compiler identification
+//
 #if defined(_MSC_VER)
 	#define RMT_COMPILER_MSVC
+#elif defined(__GNUC__)
+	#define RMT_COMPILER_GNUC
+#elif defined(__clang__)
+	#define RMT_COMPILER_CLANG
 #endif
 
+
+//
+// Platform identification
+//
 #if defined(_WINDOWS) || defined(_WIN32)
 	#define RMT_PLATFORM_WINDOWS
-#elif defined(__linux__) || defined(__APPLE__)
-	#define RMT_PLATFORM_POSIX
+#elif defined(__linux__)
+	#define RMT_PLATFORM_LINUX
+#else defined(__APPLE__)
+	#define RMT_PLATFORM_MACOS
 #endif
 
 
+//
 // Required CRT dependencies
+//
 #define RMT_USE_TINYCRT
 #ifdef RMT_USE_TINYCRT
 
@@ -35,11 +50,26 @@
 	#include <sal.h>
 	#include <specstrings.h>
 
+	extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
+	#pragma intrinsic(_InterlockedCompareExchange)
+
 #else
 
 	#include <malloc.h>
 	#include <assert.h>
 
+#endif
+
+
+//
+// Thread-local storage markers
+//
+#if defined(RMT_COMPILER_MSVC)
+	#define RMT_THREAD_LOCAL __declspec(thread)
+#elif defined(__clcpp_parse__)
+	#define RMT_THREAD_LOCAL										// clReflect targets don't support thread local
+#elif defined(RMT_COMPILER_GNUC) || defined(RMT_COMPILER_CLANG)
+	#define RMT_THREAD_LOCAL __thread
 #endif
 
 
@@ -63,10 +93,51 @@
 // Get millisecond timer value that has only one guarantee: multiple calls are consistently comparable.
 // On some platforms, even though this returns milliseconds, the timer may be far less accurate.
 //
-rmtU32 GetLowResTimer()
+rmtU32 msTimer_Get()
 {
 	#ifdef RMT_PLATFORM_WINDOWS
 		return (rmtU32)GetTickCount();
+	#endif
+}
+
+
+//
+// Micro-second accuracy high performance counter
+//
+typedef struct
+{
+	LARGE_INTEGER counter_start;
+	double counter_scale;
+} usTimer;
+
+
+void usTimer_Init(usTimer* timer)
+{
+	#if defined(RMT_PLATFORM_WINDOWS)
+		LARGE_INTEGER performance_frequency;
+
+		assert(timer != NULL);
+
+		// Calculate the scale from performance counter to microseconds
+		QueryPerformanceFrequency(&performance_frequency);
+		timer->counter_scale = 1000000.0 / performance_frequency.QuadPart;
+
+		// Record the offset for each read of the counter
+		QueryPerformanceCounter(&timer->counter_start);
+	#endif
+}
+
+
+rmtU64 usTimer_Get(usTimer* timer)
+{
+	#if defined(RMT_PLATFORM_WINDOWS)
+		LARGE_INTEGER performance_count;
+
+		assert(timer != NULL);
+
+		// Read counter and convert to microseconds
+		QueryPerformanceCounter(&performance_count);
+		return (rmtU64)((performance_count.QuadPart - timer->counter_start.QuadPart) * timer->counter_scale);
 	#endif
 }
 
@@ -137,7 +208,7 @@ static enum rmtError TCPSocket_Create(TCPSocket** tcp_socket)
 	// Allocate and initialise
 	*tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
 	if (*tcp_socket == NULL)
-		return RMT_ERROR_SOCKET_MALLOC_FAIL;
+		return RMT_ERROR_MALLOC_FAIL;
 	(*tcp_socket)->socket = INVALID_SOCKET;
 
 	error = InitialiseNetwork();
@@ -322,7 +393,7 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
 	cur_data = (char*)data;
 	end_data = cur_data + length;
 
-	start_ms = GetLowResTimer();
+	start_ms = msTimer_Get();
 	while (cur_data < end_data)
 	{
 		// Attempt to send the remaining chunk of data
@@ -339,7 +410,7 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
 			}
 
 			// First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
-			cur_ms = GetLowResTimer();
+			cur_ms = msTimer_Get();
 			if (cur_ms < start_ms)
 			{
 				start_ms = cur_ms;
@@ -394,7 +465,7 @@ enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length
 	end_data = cur_data + length;
 
 	// Loop until all data has been received
-	start_ms = GetLowResTimer();
+	start_ms = msTimer_Get();
 	while (cur_data < end_data)
 	{
 		int bytes_received = recv(tcp_socket->socket, cur_data, end_data - cur_data, 0);
@@ -409,7 +480,7 @@ enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length
 			}
 
 			// First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
-			cur_ms = GetLowResTimer();
+			cur_ms = msTimer_Get();
 			if (cur_ms < start_ms)
 			{
 				start_ms = cur_ms;
@@ -700,6 +771,107 @@ void Base64_Encode(const rmtU8* in_bytes, rmtU32 length, rmtU8* out_bytes)
 	// Null terminate
 	out_bytes[encoded_length] = 0;
 }
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   MurmurHash3
+   https://code.google.com/p/smhasher
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+//-----------------------------------------------------------------------------
+// MurmurHash3 was written by Austin Appleby, and is placed in the public
+// domain. The author hereby disclaims copyright to this source code.
+//-----------------------------------------------------------------------------
+
+
+rmtU32 rotl32(rmtU32 x, rmtS8 r)
+{
+	return (x << r) | (x >> (32 - r));
+}
+
+
+// Block read - if your platform needs to do endian-swapping or can only
+// handle aligned reads, do the conversion here
+rmtU32 getblock32(const rmtU32* p, int i)
+{
+	return p[i];
+}
+
+
+// Finalization mix - force all bits of a hash block to avalanche
+rmtU32 fmix32(rmtU32 h)
+{
+	h ^= h >> 16;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+	return h;
+}
+
+
+rmtU32 MurmurHash3_x86_32(const void* key, int len, rmtU32 seed)
+{
+	const rmtU8* data = (const rmtU8*)key;
+	const int nblocks = len / 4;
+
+	rmtU32 h1 = seed;
+
+	const rmtU32 c1 = 0xcc9e2d51;
+	const rmtU32 c2 = 0x1b873593;
+
+	int i;
+
+	const rmtU32 * blocks = (const rmtU32 *)(data + nblocks*4);
+	const rmtU8 * tail = (const rmtU8*)(data + nblocks*4);
+
+	rmtU32 k1 = 0;
+
+	//----------
+	// body
+
+	for (i = -nblocks; i; i++)
+	{
+		rmtU32 k1 = getblock32(blocks,i);
+
+		k1 *= c1;
+		k1 = rotl32(k1,15);
+		k1 *= c2;
+
+		h1 ^= k1;
+		h1 = rotl32(h1,13); 
+		h1 = h1*5+0xe6546b64;
+	}
+
+	//----------
+	// tail
+
+	switch(len & 3)
+	{
+	case 3: k1 ^= tail[2] << 16;
+	case 2: k1 ^= tail[1] << 8;
+	case 1: k1 ^= tail[0];
+		k1 *= c1;
+		k1 = rotl32(k1,15);
+		k1 *= c2;
+		h1 ^= k1;
+	};
+
+	//----------
+	// finalization
+
+	h1 ^= len;
+
+	h1 = fmix32(h1);
+
+	return h1;
+} 
 
 
 
@@ -1038,7 +1210,7 @@ typedef struct
 static void WebSocket_Destroy(WebSocket* web_socket);
 
 
-static char* GetField(char* buffer, rsize_t buffer_length, const char* field_name)
+static char* GetField(char* buffer, rsize_t buffer_length, rmtPStr field_name)
 {
 	char* field = NULL;
 	char* buffer_end = buffer + buffer_length - 1;
@@ -1074,7 +1246,7 @@ static const char websocket_response[] =
 	"Sec-WebSocket-Accept: ";
 
 
-static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit_host)
+static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
 {
 	rmtU32 start_ms, now_ms;
 
@@ -1095,7 +1267,7 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit
 
 	assert(tcp_socket != NULL);
 
-	start_ms = GetLowResTimer();
+	start_ms = msTimer_Get();
 
 	// Really inefficient way of receiving the handshake data from the browser
 	// Not really sure how to do this any better, as the termination requirement is \r\n\r\n
@@ -1108,7 +1280,7 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, const char* limit
 		// If there's a stall receiving the data, check for a handshake timeout
 		if (error == RMT_ERROR_SOCKET_RECV_NO_DATA || error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
 		{
-			now_ms = GetLowResTimer();
+			now_ms = msTimer_Get();
 			if (now_ms - start_ms > 1000)
 				return RMT_ERROR_SOCKET_RECV_TIMEOUT;
 
@@ -1189,7 +1361,7 @@ static enum rmtError WebSocket_Create(WebSocket** web_socket)
 {
 	*web_socket = (WebSocket*)malloc(sizeof(WebSocket));
 	if (web_socket == NULL)
-		return RMT_ERROR_WEBSOCKET_MALLOC_FAIL;
+		return RMT_ERROR_MALLOC_FAIL;
 
 	// Set default state
 	(*web_socket)->tcp_socket = NULL;
@@ -1323,7 +1495,7 @@ static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmt
 		return RMT_ERROR_SOCKET_SEND_TIMEOUT;
 
 	final_fragment = 0x1 << 7;
-	frame_type = (u8)web_socket->mode;
+	frame_type = (rmtU8)web_socket->mode;
 	frame_header[0] = final_fragment | frame_type;
 
 	// Construct the frame header, correctly applying the narrowest size
@@ -1371,7 +1543,7 @@ static enum rmtError ReceiveFrameHeader(WebSocket* web_socket)
 	// TODO: Specify infinite timeout?
 
 	enum rmtError error;
-	u8 msg_header[2] = { 0, 0 };
+	rmtU8 msg_header[2] = { 0, 0 };
 	int msg_length, size_bytes_remaining, i;
 	rmtBool mask_present;
 
@@ -1402,7 +1574,7 @@ static enum rmtError ReceiveFrameHeader(WebSocket* web_socket)
 	if (size_bytes_remaining > 0)
 	{
 		// Receive the wider bytes of the length
-		u8 size_bytes[4];
+		rmtU8 size_bytes[4];
 		error = TCPSocket_Receive(web_socket->tcp_socket, size_bytes, size_bytes_remaining, 20);
 		if (error != RMT_ERROR_NONE)
 			return RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE;
@@ -1429,7 +1601,7 @@ static enum rmtError ReceiveFrameHeader(WebSocket* web_socket)
 }
 
 
-enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u32 timeout_ms)
+enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	SocketStatus status;
 	char* cur_data;
@@ -1450,7 +1622,7 @@ enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u
 	cur_data = (char*)data;
 	end_data = cur_data + length;
 
-	start_ms = GetLowResTimer();
+	start_ms = msTimer_Get();
 	while (cur_data < end_data)
 	{
 		// Get next WebSocket frame if we've run out of data to read from the socket
@@ -1477,19 +1649,19 @@ enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, u32 length, u
 		// If there's a stall receiving the data, check for timeout
 		if (error == RMT_ERROR_SOCKET_RECV_NO_DATA || error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
 		{
-			now_ms = GetLowResTimer();
+			now_ms = msTimer_Get();
 			if (now_ms - start_ms > timeout_ms)
 				return RMT_ERROR_SOCKET_RECV_TIMEOUT;
 			continue;
 		}
 
 		// Apply data mask
-		if (*(u32*)web_socket->data_mask != 0)
+		if (*(rmtU32*)web_socket->data_mask != 0)
 		{
 			rmtU32 i;
 			for (i = 0; i < bytes_to_read; i++)
 			{
-				*((u8*)cur_data + i) ^= web_socket->data_mask[web_socket->mask_offset & 3];
+				*((rmtU8*)cur_data + i) ^= web_socket->data_mask[web_socket->mask_offset & 3];
 				web_socket->mask_offset++;
 			}
 		}
@@ -1533,7 +1705,7 @@ static enum rmtError Server_Create(rmtU16 port, Server** server)
 	assert(server != NULL);
 	*server = (Server*)malloc(sizeof(Server));
 	if (*server == NULL)
-		return RMT_ERROR_SERVER_MALLOC_FAIL;
+		return RMT_ERROR_MALLOC_FAIL;
 
 	// Initialise defaults
 	(*server)->listen_socket = NULL;
@@ -1569,7 +1741,7 @@ static void Server_Destroy(Server* server)
 static const char log_message[] = "{ \"id\": \"LOG\", \"text\": \"";
 
 
-static void Server_LogText(Server* server, const char* text)
+static void Server_LogText(Server* server, rmtPStr text)
 {
 	assert(server != NULL);
 	if (server->client_socket != NULL)
@@ -1678,10 +1850,10 @@ static void Server_Update(Server* server)
 	if (server->client_socket != NULL)
 	{
 		// Send pings to the client every second
-		cur_time = GetLowResTimer();
+		cur_time = msTimer_Get();
 		if (cur_time - server->last_ping_time > 1000)
 		{
-			const char* ping_message = "{ \"id\": \"PING\" }";
+			rmtPStr ping_message = "{ \"id\": \"PING\" }";
 			enum rmtError error = WebSocket_Send(server->client_socket, ping_message, strlen(ping_message), 20);
 			if (error == RMT_ERROR_SOCKET_SEND_FAIL)
 			{
@@ -1702,6 +1874,113 @@ static rmtBool Server_IsClientConnected(Server* server)
 }
 
 
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Reusable Object Allocator
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+//
+// All objects that require free-list-backed allocation need to inherit from this type.
+//
+typedef struct ObjectLink
+{
+	struct ObjectLink* next;
+} ObjectLink;
+
+
+typedef struct
+{
+	// Size of objects to allocate
+	rmtU32 object_size;
+
+	// Number of objects in the free list
+	rmtU32 nb_free;
+
+	// Number of objects used by callers
+	rmtU32 nb_inuse;
+
+	// Total allocation count
+	rmtU32 nb_allocated;
+
+	ObjectLink* first_free;
+} ObjectAllocator;
+
+
+enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 object_size)
+{
+	assert(allocator != NULL);
+	*allocator = (ObjectAllocator*)malloc(sizeof(ObjectAllocator));
+	if (*allocator == NULL)
+		return RMT_ERROR_MALLOC_FAIL;
+
+	(*allocator)->object_size = object_size;
+	(*allocator)->nb_free = 0;
+	(*allocator)->nb_inuse = 0;
+	(*allocator)->nb_allocated = 0;
+	(*allocator)->first_free = NULL;
+
+	return RMT_ERROR_NONE;
+}
+
+
+enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
+{
+	assert(allocator != NULL);
+	assert(object != NULL);
+
+	// Allocate objects on-demand
+	if (allocator->first_free == NULL)
+	{
+		*object = malloc(allocator->object_size);
+		if (*object == NULL)
+			return RMT_ERROR_MALLOC_FAIL;
+		((ObjectLink*)object)->next = NULL;
+		allocator->nb_allocated++;
+	}
+	else
+	{
+		// Or pull available ones from the free list
+		ObjectLink* link = (ObjectLink*)allocator->first_free;
+		allocator->first_free = (ObjectLink*)link->next;
+		*object = link;
+	}
+
+	allocator->nb_inuse++;
+
+	return RMT_ERROR_NONE;
+}
+
+
+void ObjectAllocator_Free(ObjectAllocator* allocator, void* object)
+{
+	// Add back to the free-list
+	assert(allocator != NULL);
+	((ObjectLink*)object)->next = (struct ObjectLink*)allocator->first_free;
+	allocator->first_free = (ObjectLink*)object;
+	allocator->nb_inuse--;
+	allocator->nb_free++;
+}
+
+
+void ObjectAllocator_Destroy(ObjectAllocator* allocator)
+{
+	// Ensure everything has been released to the allocator
+	assert(allocator->nb_inuse == 0);
+
+	// Destroy all objects released to the allocator
+	assert(allocator != NULL);
+	while (allocator->first_free != NULL)
+		ObjectAllocator_Free(allocator, allocator->first_free);
+}
+
+
+
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -1710,6 +1989,236 @@ static rmtBool Server_IsClientConnected(Server* server)
 ------------------------------------------------------------------------------------------------------------------------
 */
 
+
+
+rmtBool CompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
+{
+	#if defined(RMT_PLATFORM_WINDOWS)
+		return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
+	#elif defined(RMT_PLATFORM_LINUX)
+		return __sync_bool_compare_and_swap((long volatile*)ptr, (long)old_ptr, (long)new_ptr) ? RMT_TRUE : RMT_FALSE;
+	#elif defined(RMT_PLATFORM_MACOS)
+		return OSAtomicCompareAndSwapPtr((long)old_ptr, (long)new_ptr, (long volatile*)ptr) ? RMT_TRUE : RMT_FALSE;
+	#endif
+}
+
+
+typedef struct CPUSample
+{
+	// Sample name and unique hash
+	rmtPStr name;
+	rmtU32 name_hash;
+
+	// Links to related samples in the tree
+	struct CPUSample* parent;
+	struct CPUSample* first_child;
+	struct CPUSample* last_child;
+	struct CPUSample* next_sibling;
+
+	// Keep track of child count to distinguish from repeated calls to the same function at the same stack level
+	// This is also mixed with the callstack hash to allow consistent addressing of any point in the tree
+	rmtU32 nb_children;
+
+	// Start and end of the sample in microseconds
+	rmtU64 start_us;
+	rmtU64 end_us;
+
+} CPUSample;
+
+
+void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_hash, CPUSample* parent)
+{
+	sample->name = name;
+	sample->name_hash = name_hash;
+	sample->parent = parent;
+	sample->first_child = NULL;
+	sample->last_child = NULL;
+	sample->next_sibling = NULL;
+	sample->nb_children = 0;
+	sample->start_us = 0;
+	sample->end_us = 0;
+}
+
+
+typedef struct ThreadSampler
+{
+	// Sample allocator for all samples in this thread
+	ObjectAllocator* sample_allocator;
+
+	// Root sample for all samples created by this thread
+	CPUSample* root_sample;
+
+	// Most recently pushed sample
+	CPUSample* current_parent_sample;
+
+	usTimer timer;
+
+	// Next in the global list of active thread samplers
+	struct ThreadSampler* volatile next;
+} ThreadSampler;
+
+
+//
+// Global linked list of all known threads being sampled
+//
+ThreadSampler* volatile g_FirstThreadSampler;
+
+
+//
+// Pointer to this thread's profiling data
+//
+RMT_THREAD_LOCAL ThreadSampler* g_ThreadSampler = NULL;
+
+
+//
+// This is used to mark thread sampler that has been deleted after the server shuts down.
+// While this provides an extra level of protection against client code which *may* try to sample after the
+// server has shutdown, a shutdown could still occur mid-call.
+// TODO: Worth adding a mutex to fix this problem?
+//
+static ThreadSampler* g_DeadThreadSampler = (ThreadSampler*)0xFFFFFFFF;
+
+
+static enum rmtError ThreadSampler_Get(ThreadSampler** thread_sampler)
+{
+	// Is there a ThreaData object associated with this thread?
+	ThreadSampler* ts = g_ThreadSampler;
+	if (ts == NULL)
+	{
+		enum rmtError error;
+
+		// Allocate on-demand
+		ts = (ThreadSampler*)malloc(sizeof(ThreadSampler));
+		if (ts == NULL)
+			return RMT_ERROR_MALLOC_FAIL;
+
+		// Set defaults
+		ts->sample_allocator = NULL;
+		ts->root_sample = NULL;
+		ts->current_parent_sample = NULL;
+		ts->next = NULL;
+
+		// Create the sample allocator
+		error = ObjectAllocator_Create(&ts->sample_allocator, sizeof(CPUSample));
+		if (error != RMT_ERROR_NONE)
+			return error;
+
+		// Create a root sample that's around for the lifetime of the thread
+		error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)&ts->root_sample);
+		if (error != RMT_ERROR_NONE)
+			return error;
+		CPUSample_SetDefaults(ts->root_sample, "<Root Sample>", 0, NULL);
+
+		// Kick-off the timer
+		usTimer_Init(&ts->timer);
+
+		// Add to the beginning of the global linked list of thread samplers
+		while (1)
+		{
+			ThreadSampler* old_ts = g_FirstThreadSampler;
+			ts->next = old_ts;
+
+			// If the old value is what we expect it to be then no other thread has
+			// changed it since this thread sampler was used as a candidate first list item
+			if (CompareAndSwapPointer((long* volatile*)&g_FirstThreadSampler, (long*)old_ts, (long*)ts) == RMT_TRUE)
+				break;
+		}
+
+		g_ThreadSampler = ts;
+	}
+
+	else if (ts == g_DeadThreadSampler)
+	{
+		return RMT_ERROR_ACCESSING_DELETED_THREADSAMPLER;
+	}
+
+	assert(thread_sampler != NULL);
+	*thread_sampler = ts;
+	return RMT_ERROR_NONE;
+}
+
+
+static void ThreadSampler_DestroyAll()
+{
+	// Keep popping thread samplers off the linked list until they're all gone
+	while (g_ThreadSampler != NULL)
+	{
+		ThreadSampler* ts;
+
+		while (1)
+		{
+			ThreadSampler* old_ts = g_ThreadSampler;
+			ThreadSampler* next_ts = old_ts->next;
+
+			if (CompareAndSwapPointer((long* volatile*)&g_FirstThreadSampler, (long*)old_ts, (long*)next_ts) == RMT_TRUE)
+				break;
+		}
+
+		// Mark the thread sampler as dead
+		ts = g_ThreadSampler;
+		g_ThreadSampler = g_DeadThreadSampler;
+
+		// Release the thread sampler
+		ObjectAllocator_Free(ts->sample_allocator, ts->root_sample);
+		ObjectAllocator_Destroy(ts->sample_allocator);
+		free(ts);
+	}
+}
+
+
+static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 name_hash, CPUSample** sample)
+{
+	CPUSample* parent;
+	enum rmtError error;
+
+	// As each thread has a root sample node allocated, a parent must always be present
+	assert(ts->current_parent_sample != NULL);
+	parent = ts->current_parent_sample;
+
+	if (parent->last_child != NULL && parent->last_child->name_hash == name_hash)
+	{
+		// TODO: Collapse siblings with flag exception?
+	}
+	if (parent->name_hash == name_hash)
+	{
+		// TODO: Collapse recursion on flag?
+	}
+
+	// Allocate a new sample
+	assert(ts != NULL);
+	error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)&sample);
+	if (error != RMT_ERROR_NONE)
+		return error;
+	CPUSample_SetDefaults(*sample, name, name_hash, parent);
+
+	// Add sample to its parent
+	parent->nb_children++;
+	if (parent->first_child == NULL)
+	{
+		parent->first_child = *sample;
+		parent->last_child = *sample;
+	}
+	else
+	{
+		assert(parent->last_child != NULL);
+		parent->last_child->next_sibling = *sample;
+		parent->last_child = *sample;
+	}
+
+	// Make this sample the new parent of any newly created samples
+	ts->current_parent_sample = *sample;
+
+	return RMT_ERROR_NONE;
+}
+
+
+static void ThreadSample_Pop(ThreadSampler* ts, CPUSample* sample)
+{
+	assert(ts != NULL);
+	assert(sample != NULL);
+	assert(sample != ts->root_sample);
+	ts->current_parent_sample = sample->parent;
+}
 
 
 struct Remotery
@@ -1749,6 +2258,8 @@ void rmt_Destroy(Remotery* rmt)
 	if (rmt == NULL)
 		return;
 
+	ThreadSampler_DestroyAll();
+
 	if (rmt->server != NULL)
 		Server_Destroy(rmt->server);
 
@@ -1756,7 +2267,7 @@ void rmt_Destroy(Remotery* rmt)
 }
 
 
-void rmt_LogText(Remotery* rmt, const char* text)
+void rmt_LogText(Remotery* rmt, rmtPStr text)
 {
 	if (rmt != NULL)
 		Server_LogText(rmt->server, text);
@@ -1776,3 +2287,67 @@ rmtBool rmt_IsClientConnected(Remotery* rmt)
 		return Server_IsClientConnected(rmt->server);
 	return RMT_FALSE;
 }
+
+
+rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
+{
+	// Hash cache provided?
+	if (hash_cache != NULL)
+	{
+		// Calculate the hash first time round only
+		if (*hash_cache == 0)
+		{
+			assert(name != NULL);
+			*hash_cache = MurmurHash3_x86_32(name, strnlen_s(name, 256), 0);
+		}
+
+		return *hash_cache;
+	}
+
+	// Have to recalculate every time when no cache storage exists
+	return MurmurHash3_x86_32(name, strnlen_s(name, 256), 0);
+}
+
+
+void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
+{
+	rmtU32 name_hash = 0;
+	ThreadSampler* ts;
+	CPUSample* sample;
+
+	if (rmt != NULL)
+		return;
+
+	// Get data for this thread
+	if (ThreadSampler_Get(&ts) != RMT_ERROR_NONE)
+		return;
+
+	name_hash = GetNameHash(name, hash_cache);
+
+	// TODO: Time how long the bits outside here cost and subtract them from the parent
+
+	if (ThreadSampler_Push(ts, name, name_hash, &sample) != RMT_ERROR_NONE)
+		return;
+
+	sample->start_us = usTimer_Get(&ts->timer);
+}
+
+
+void rmt_EndSPUSample(Remotery* rmt)
+{
+	ThreadSampler* ts;
+	CPUSample* sample;
+
+	if (rmt != NULL)
+		return;
+
+	// Get data for this thread
+	if (ThreadSampler_Get(&ts) != RMT_ERROR_NONE)
+		return;
+
+	sample = ts->current_parent_sample;
+	sample->end_us = usTimer_Get(&ts->timer);
+
+	ThreadSample_Pop(ts, sample);
+}
+
