@@ -2325,6 +2325,9 @@ typedef struct CPUSample
 	rmtPStr name;
 	rmtU32 name_hash;
 
+	// Unique, persistent ID among all samples
+	rmtU32 unique_id;
+
 	// Links to related samples in the tree
 	struct CPUSample* parent;
 	struct CPUSample* first_child;
@@ -2346,6 +2349,7 @@ static void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_h
 {
 	sample->name = name;
 	sample->name_hash = name_hash;
+	sample->unique_id = 0;
 	sample->parent = parent;
 	sample->first_child = NULL;
 	sample->last_child = NULL;
@@ -2587,6 +2591,7 @@ static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 
 {
 	CPUSample* parent;
 	enum rmtError error;
+	rmtU32 hash_src[3];
 
 	// As each thread has a root sample node allocated, a parent must always be present
 	assert(ts->current_parent_sample != NULL);
@@ -2607,6 +2612,12 @@ static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 
 	if (error != RMT_ERROR_NONE)
 		return error;
 	CPUSample_SetDefaults(*sample, name, name_hash, parent);
+
+	// Generate a unique ID for this sample in the tree
+	hash_src[0] = parent->name_hash;
+	hash_src[1] = parent->nb_children;
+	hash_src[2] = (*sample)->name_hash;
+	(*sample)->unique_id = MurmurHash3_x86_32(hash_src, sizeof(hash_src), 0);
 
 	// Add sample to its parent
 	parent->nb_children++;
