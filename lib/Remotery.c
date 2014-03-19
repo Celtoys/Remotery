@@ -32,8 +32,10 @@
 	#define RMT_PLATFORM_WINDOWS
 #elif defined(__linux__)
 	#define RMT_PLATFORM_LINUX
+	#define RMT_PLATFORM_POSIX
 #else defined(__APPLE__)
 	#define RMT_PLATFORM_MACOS
+	#define RMT_PLATFORM_POSIX
 #endif
 
 
@@ -58,18 +60,10 @@
 	#include <malloc.h>
 	#include <assert.h>
 
-#endif
+	#if defined(RMT_PLATFORM_POSIX)
+		#include <pthreads.h>
+	#endif
 
-
-//
-// Thread-local storage markers
-//
-#if defined(RMT_COMPILER_MSVC)
-	#define RMT_THREAD_LOCAL __declspec(thread)
-#elif defined(__clcpp_parse__)
-	#define RMT_THREAD_LOCAL										// clReflect targets don't support thread local
-#elif defined(RMT_COMPILER_GNUC) || defined(RMT_COMPILER_CLANG)
-	#define RMT_THREAD_LOCAL __thread
 #endif
 
 
@@ -93,7 +87,7 @@
 // Get millisecond timer value that has only one guarantee: multiple calls are consistently comparable.
 // On some platforms, even though this returns milliseconds, the timer may be far less accurate.
 //
-rmtU32 msTimer_Get()
+static rmtU32 msTimer_Get()
 {
 	#ifdef RMT_PLATFORM_WINDOWS
 		return (rmtU32)GetTickCount();
@@ -111,7 +105,7 @@ typedef struct
 } usTimer;
 
 
-void usTimer_Init(usTimer* timer)
+static void usTimer_Init(usTimer* timer)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
 		LARGE_INTEGER performance_frequency;
@@ -128,7 +122,7 @@ void usTimer_Init(usTimer* timer)
 }
 
 
-rmtU64 usTimer_Get(usTimer* timer)
+static rmtU64 usTimer_Get(usTimer* timer)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
 		LARGE_INTEGER performance_count;
@@ -139,6 +133,96 @@ rmtU64 usTimer_Get(usTimer* timer)
 		QueryPerformanceCounter(&performance_count);
 		return (rmtU64)((performance_count.QuadPart - timer->counter_start.QuadPart) * timer->counter_scale);
 	#endif
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Platform-specific threading
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+#define TLS_INVALID_HANDLE 0xFFFFFFFF
+
+
+static enum rmtError tlsAlloc(rmtU32* handle)
+{
+	assert(handle != NULL);
+
+#if defined(RMT_PLATFORM_WINDOWS)
+
+	*handle = (rmtU32)TlsAlloc();
+	if (*handle == TLS_OUT_OF_INDEXES)
+	{
+		*handle = TLS_INVALID_HANDLE;
+		return RMT_ERROR_TLS_ALLOC_FAIL;
+	}
+
+#elif defined(RMT_PLATFORM_POSIX)
+
+	assert(sizeof(rmtU32) == sizeof(pthread_key_t));
+	if (pthread_key_create((pthread_key_t*)handle, NULL) != 0)
+	{
+		*handle = TLS_INVALID_HANDLE;
+		return RMT_ERROR_TLS_ALLOC_FAIL;
+	}
+
+#endif
+
+	return RMT_ERROR_NONE;
+}
+
+
+static void tlsFree(rmtU32 handle)
+{
+	assert(handle != TLS_INVALID_HANDLE);
+
+#if defined(RMT_PLATFORM_WINDOWS)
+
+	TlsFree(handle);
+
+#elif defined(RMT_PLATFORM_POSIX)
+
+	pthread_key_delete((pthread_key_t)handle);
+
+#endif
+}
+
+
+static void tlsSet(rmtU32 handle, void* value)
+{
+	assert(handle != TLS_INVALID_HANDLE);
+
+#if defined(RMT_PLATFORM_WINDOWS)
+
+	TlsSetValue(handle, value);
+
+#elif defined(RMT_PLATFORM_POSIX)
+
+	pthread_setspecific((pthread_key_t)handle, value);
+
+#endif
+}
+
+
+static void* tlsGet(rmtU32 handle)
+{
+	assert(handle != TLS_INVALID_HANDLE);
+
+#if defined(RMT_PLATFORM_WINDOWS)
+
+	return TlsGetValue(handle);
+
+#elif defined(RMT_PLATFORM_POSIX)
+
+	return pthread_getspecific((pthread_key_t)handle);
+
+#endif
 }
 
 
@@ -1940,7 +2024,7 @@ enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
 		*object = malloc(allocator->object_size);
 		if (*object == NULL)
 			return RMT_ERROR_MALLOC_FAIL;
-		((ObjectLink*)object)->next = NULL;
+		((ObjectLink*)(*object))->next = NULL;
 		allocator->nb_allocated++;
 	}
 	else
@@ -2005,6 +2089,9 @@ rmtBool CompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
 
 typedef struct CPUSample
 {
+	// Inherit so that samples can be quickly allocated
+	ObjectLink base;
+
 	// Sample name and unique hash
 	rmtPStr name;
 	rmtU32 name_hash;
@@ -2058,31 +2145,24 @@ typedef struct ThreadSampler
 } ThreadSampler;
 
 
-//
-// Global linked list of all known threads being sampled
-//
-ThreadSampler* volatile g_FirstThreadSampler;
-
-
-//
-// Pointer to this thread's profiling data
-//
-RMT_THREAD_LOCAL ThreadSampler* g_ThreadSampler = NULL;
-
-
-//
-// This is used to mark thread sampler that has been deleted after the server shuts down.
-// While this provides an extra level of protection against client code which *may* try to sample after the
-// server has shutdown, a shutdown could still occur mid-call.
-// TODO: Worth adding a mutex to fix this problem?
-//
-static ThreadSampler* g_DeadThreadSampler = (ThreadSampler*)0xFFFFFFFF;
-
-
-static enum rmtError ThreadSampler_Get(ThreadSampler** thread_sampler)
+struct Remotery
 {
-	// Is there a ThreaData object associated with this thread?
-	ThreadSampler* ts = g_ThreadSampler;
+	Server* server;
+
+	rmtU32 thread_sampler_tls_handle;
+
+	// Linked list of all known threads being sampled
+	ThreadSampler* volatile first_thread_sampler;
+};
+
+
+static enum rmtError ThreadSampler_Get(Remotery* rmt, ThreadSampler** thread_sampler)
+{
+	ThreadSampler* ts;
+
+	// Is there a thread sampler associated with this thread yet?
+	assert(rmt != NULL);
+	ts = (ThreadSampler*)tlsGet(rmt->thread_sampler_tls_handle);
 	if (ts == NULL)
 	{
 		enum rmtError error;
@@ -2108,6 +2188,7 @@ static enum rmtError ThreadSampler_Get(ThreadSampler** thread_sampler)
 		if (error != RMT_ERROR_NONE)
 			return error;
 		CPUSample_SetDefaults(ts->root_sample, "<Root Sample>", 0, NULL);
+		ts->current_parent_sample = ts->root_sample;
 
 		// Kick-off the timer
 		usTimer_Init(&ts->timer);
@@ -2115,21 +2196,16 @@ static enum rmtError ThreadSampler_Get(ThreadSampler** thread_sampler)
 		// Add to the beginning of the global linked list of thread samplers
 		while (1)
 		{
-			ThreadSampler* old_ts = g_FirstThreadSampler;
+			ThreadSampler* old_ts = rmt->first_thread_sampler;
 			ts->next = old_ts;
 
 			// If the old value is what we expect it to be then no other thread has
 			// changed it since this thread sampler was used as a candidate first list item
-			if (CompareAndSwapPointer((long* volatile*)&g_FirstThreadSampler, (long*)old_ts, (long*)ts) == RMT_TRUE)
+			if (CompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)ts) == RMT_TRUE)
 				break;
 		}
 
-		g_ThreadSampler = ts;
-	}
-
-	else if (ts == g_DeadThreadSampler)
-	{
-		return RMT_ERROR_ACCESSING_DELETED_THREADSAMPLER;
+		tlsSet(rmt->thread_sampler_tls_handle, ts);
 	}
 
 	assert(thread_sampler != NULL);
@@ -2138,25 +2214,34 @@ static enum rmtError ThreadSampler_Get(ThreadSampler** thread_sampler)
 }
 
 
-static void ThreadSampler_DestroyAll()
+static void ThreadSampler_DestroyAll(Remotery* rmt)
 {
+	// If the handle failed to create in the first place then it shouldn't be possible to create thread samplers
+	assert(rmt != NULL);
+	if (rmt->thread_sampler_tls_handle == TLS_INVALID_HANDLE)
+	{
+		assert(rmt->first_thread_sampler == NULL);
+		return;
+	}
+
 	// Keep popping thread samplers off the linked list until they're all gone
-	while (g_ThreadSampler != NULL)
+	// This does not make any assumptions, making it possible for thread samplers to be created while they're all
+	// deleted. While this is erroneous calling code, this will prevent a confusing crash.
+	while (rmt->first_thread_sampler != NULL)
 	{
 		ThreadSampler* ts;
 
 		while (1)
 		{
-			ThreadSampler* old_ts = g_ThreadSampler;
+			ThreadSampler* old_ts = rmt->first_thread_sampler;
 			ThreadSampler* next_ts = old_ts->next;
 
-			if (CompareAndSwapPointer((long* volatile*)&g_FirstThreadSampler, (long*)old_ts, (long*)next_ts) == RMT_TRUE)
+			if (CompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)next_ts) == RMT_TRUE)
+			{
+				ts = old_ts;
 				break;
+			}
 		}
-
-		// Mark the thread sampler as dead
-		ts = g_ThreadSampler;
-		g_ThreadSampler = g_DeadThreadSampler;
 
 		// Release the thread sampler
 		ObjectAllocator_Free(ts->sample_allocator, ts->root_sample);
@@ -2186,7 +2271,7 @@ static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 
 
 	// Allocate a new sample
 	assert(ts != NULL);
-	error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)&sample);
+	error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)sample);
 	if (error != RMT_ERROR_NONE)
 		return error;
 	CPUSample_SetDefaults(*sample, name, name_hash, parent);
@@ -2221,12 +2306,6 @@ static void ThreadSample_Pop(ThreadSampler* ts, CPUSample* sample)
 }
 
 
-struct Remotery
-{
-	Server* server;
-};
-
-
 enum rmtError rmt_Create(Remotery** remotery)
 {
 	enum rmtError error;
@@ -2239,6 +2318,17 @@ enum rmtError rmt_Create(Remotery** remotery)
 
 	// Set default state
 	(*remotery)->server = NULL;
+	(*remotery)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
+	(*remotery)->first_thread_sampler = NULL;
+
+	// Allocate a TLS handle for the thread sampler
+	error = tlsAlloc(&(*remotery)->thread_sampler_tls_handle);
+	if (error != RMT_ERROR_NONE)
+	{
+		rmt_Destroy(*remotery);
+		*remotery = NULL;
+		return error;
+	}
 
 	// Create the server
 	error = Server_Create(0x4597, &(*remotery)->server);
@@ -2258,10 +2348,19 @@ void rmt_Destroy(Remotery* rmt)
 	if (rmt == NULL)
 		return;
 
-	ThreadSampler_DestroyAll();
+	ThreadSampler_DestroyAll(rmt);
 
 	if (rmt->server != NULL)
+	{
 		Server_Destroy(rmt->server);
+		rmt->server = NULL;
+	}
+
+	if (rmt->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
+	{
+		tlsFree(rmt->thread_sampler_tls_handle);
+		rmt->thread_sampler_tls_handle = NULL;
+	}
 
 	free(rmt);
 }
@@ -2315,11 +2414,11 @@ void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
 	ThreadSampler* ts;
 	CPUSample* sample;
 
-	if (rmt != NULL)
+	if (rmt == NULL)
 		return;
 
 	// Get data for this thread
-	if (ThreadSampler_Get(&ts) != RMT_ERROR_NONE)
+	if (ThreadSampler_Get(rmt, &ts) != RMT_ERROR_NONE)
 		return;
 
 	name_hash = GetNameHash(name, hash_cache);
@@ -2333,16 +2432,16 @@ void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void rmt_EndSPUSample(Remotery* rmt)
+void rmt_EndCPUSample(Remotery* rmt)
 {
 	ThreadSampler* ts;
 	CPUSample* sample;
 
-	if (rmt != NULL)
+	if (rmt == NULL)
 		return;
 
 	// Get data for this thread
-	if (ThreadSampler_Get(&ts) != RMT_ERROR_NONE)
+	if (ThreadSampler_Get(rmt, &ts) != RMT_ERROR_NONE)
 		return;
 
 	sample = ts->current_parent_sample;

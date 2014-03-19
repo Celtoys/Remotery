@@ -32,6 +32,7 @@ enum rmtError
 
 	// System errors
 	RMT_ERROR_MALLOC_FAIL,						// Malloc call within remotery failed
+	RMT_ERROR_TLS_ALLOC_FAIL,					// Attempt to allocate thread local storage failed
 
 	// Network TCP/IP socket errors
 	RMT_ERROR_SOCKET_INIT_NETWORK_FAIL,			// Network initialisation failure (e.g. on Win32, WSAStartup fails)
@@ -63,8 +64,6 @@ enum rmtError
 	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE,	// Partially received wide frame header size
 	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_MASK,	// Partially received frame header data mask
 	RMT_ERROR_WEBSOCKET_RECEIVE_TIMEOUT,		// Timeout receiving frame header
-
-	RMT_ERROR_ACCESSING_DELETED_THREADSAMPLER,	// The server has shutdown but the client is still calling into remotery
 };
 
 
