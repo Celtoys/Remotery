@@ -1,4 +1,12 @@
 
+//
+// TODO:
+//
+//    * There's lots of useless casting going on here that doesn't need to be done in C. I'm doing, however, because
+//      I have clReflect scanning this as a C++ file.
+//    * Support partial tree sending. This would help job systems that are difficult to explicitly break into frames.
+//
+
 #include "Remotery.h"
 
 
@@ -70,6 +78,19 @@
 #ifdef RMT_PLATFORM_WINDOWS
 	#include <winsock2.h>
 #endif
+
+
+
+rmtU64 min(rmtS64 a, rmtS64 b)
+{
+	return a < b ? a : b;
+}
+
+
+rmtU64 max(rmtS64 a, rmtS64 b)
+{
+	return a > b ? a : b;
+}
 
 
 
@@ -223,6 +244,514 @@ static void* tlsGet(rmtU32 handle)
 	return pthread_getspecific((pthread_key_t)handle);
 
 #endif
+}
+
+
+static rmtBool CompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
+{
+	#if defined(RMT_PLATFORM_WINDOWS)
+		return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
+	#elif defined(RMT_PLATFORM_LINUX)
+		return __sync_bool_compare_and_swap((long volatile*)ptr, (long)old_ptr, (long)new_ptr) ? RMT_TRUE : RMT_FALSE;
+	#elif defined(RMT_PLATFORM_MACOS)
+		return OSAtomicCompareAndSwapPtr((long)old_ptr, (long)new_ptr, (long volatile*)ptr) ? RMT_TRUE : RMT_FALSE;
+	#endif
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Safe C Library excerpts
+   http://sourceforge.net/projects/safeclib/
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+/*------------------------------------------------------------------
+ *
+ * November 2008, Bo Berry
+ *
+ * Copyright (c) 2008-2011 by Cisco Systems, Inc
+ * All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ *------------------------------------------------------------------
+ */
+
+
+// NOTE: Microsoft also has its own version of these functions so I'm do some hacky PP to remove them
+#define strnlen_s strnlen_s_safe_c
+
+
+#define RSIZE_MAX_STR (4UL << 10)	/* 4KB */
+#define RCNEGATE(x) x
+
+
+#define EOK             ( 0 )
+#define ESNULLP         ( 400 )       /* null ptr                    */
+#define ESZEROL         ( 401 )       /* length is zero              */
+#define ESLEMAX         ( 403 )       /* length exceeds max          */
+#define ESOVRLP         ( 404 )       /* overlap undefined           */
+#define ESNOSPC         ( 406 )       /* not enough space for s2     */
+#define ESUNTERM        ( 407 )       /* unterminated string         */
+#define ESNOTFND        ( 409 )       /* not found                   */
+
+#ifndef _ERRNO_T_DEFINED
+#define _ERRNO_T_DEFINED
+typedef int errno_t;
+#endif
+
+
+typedef unsigned int rsize_t;
+
+
+static rsize_t
+strnlen_s (const char *dest, rsize_t dmax)
+{
+    rsize_t count;
+
+    if (dest == NULL) {
+        return RCNEGATE(0);
+    }
+
+    if (dmax == 0) {
+        return RCNEGATE(0);
+    }
+
+    if (dmax > RSIZE_MAX_STR) {
+        return RCNEGATE(0);
+    }
+
+    count = 0;
+    while (*dest && dmax) {
+        count++;
+        dmax--;
+        dest++;
+    }
+
+    return RCNEGATE(count);
+}
+
+
+static errno_t
+strstr_s (char *dest, rsize_t dmax,
+          const char *src, rsize_t slen, char **substring)
+{
+    rsize_t len;
+    rsize_t dlen;
+    int i;
+
+    if (substring == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+    *substring = NULL;
+
+    if (dest == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (dmax == 0) {
+        return RCNEGATE(ESZEROL);
+    }
+
+    if (dmax > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    if (src == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (slen == 0) {
+        return RCNEGATE(ESZEROL);
+    }
+
+    if (slen > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    /*
+     * src points to a string with zero length, or
+     * src equals dest, return dest
+     */
+    if (*src == '\0' || dest == src) {
+        *substring = dest;
+        return RCNEGATE(EOK);
+    }
+
+    while (*dest && dmax) {
+        i = 0;
+        len = slen;
+        dlen = dmax;
+
+        while (src[i] && dlen) {
+
+            /* not a match, not a substring */
+            if (dest[i] != src[i]) {
+                break;
+            }
+
+            /* move to the next char */
+            i++;
+            len--;
+            dlen--;
+
+            if (src[i] == '\0' || !len) {
+                *substring = dest;
+                return RCNEGATE(EOK);
+            }
+        }
+        dest++;
+        dmax--;
+    }
+
+    /*
+     * substring was not found, return NULL
+     */
+    *substring = NULL;
+    return RCNEGATE(ESNOTFND);
+}
+
+
+static errno_t
+strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
+{
+    rsize_t orig_dmax;
+    char *orig_dest;
+    const char *overlap_bumper;
+
+    if (dest == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (src == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (slen > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    if (dmax == 0) {
+        return RCNEGATE(ESZEROL);
+    }
+
+    if (dmax > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    /* hold base of dest in case src was not copied */
+    orig_dmax = dmax;
+    orig_dest = dest;
+
+    if (dest < src) {
+        overlap_bumper = src;
+
+        /* Find the end of dest */
+        while (*dest != '\0') {
+
+            if (dest == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            dest++;
+            dmax--;
+            if (dmax == 0) {
+                return RCNEGATE(ESUNTERM);
+            }
+        }
+
+        while (dmax > 0) {
+            if (dest == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            /*
+             * Copying truncated before the source null is encountered
+             */
+            if (slen == 0) {
+                *dest = '\0';
+                return RCNEGATE(EOK);
+            }
+
+            *dest = *src;
+            if (*dest == '\0') {
+                return RCNEGATE(EOK);
+            }
+
+            dmax--;
+            slen--;
+            dest++;
+            src++;
+        }
+
+    } else {
+        overlap_bumper = dest;
+
+        /* Find the end of dest */
+        while (*dest != '\0') {
+
+            /*
+             * NOTE: no need to check for overlap here since src comes first
+             * in memory and we're not incrementing src here.
+             */
+            dest++;
+            dmax--;
+            if (dmax == 0) {
+                return RCNEGATE(ESUNTERM);
+            }
+        }
+
+        while (dmax > 0) {
+            if (src == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            /*
+             * Copying truncated
+             */
+            if (slen == 0) {
+                *dest = '\0';
+                return RCNEGATE(EOK);
+            }
+
+            *dest = *src;
+            if (*dest == '\0') {
+                return RCNEGATE(EOK);
+            }
+
+            dmax--;
+            slen--;
+            dest++;
+            src++;
+        }
+    }
+
+    /*
+     * the entire src was not copied, so the string will be nulled.
+     */
+    return RCNEGATE(ESNOSPC);
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Reusable Object Allocator
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+//
+// All objects that require free-list-backed allocation need to inherit from this type.
+//
+typedef struct ObjectLink
+{
+	struct ObjectLink* next;
+} ObjectLink;
+
+
+typedef struct
+{
+	// Size of objects to allocate
+	rmtU32 object_size;
+
+	// Number of objects in the free list
+	rmtU32 nb_free;
+
+	// Number of objects used by callers
+	rmtU32 nb_inuse;
+
+	// Total allocation count
+	rmtU32 nb_allocated;
+
+	ObjectLink* first_free;
+} ObjectAllocator;
+
+
+static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 object_size)
+{
+	assert(allocator != NULL);
+	*allocator = (ObjectAllocator*)malloc(sizeof(ObjectAllocator));
+	if (*allocator == NULL)
+		return RMT_ERROR_MALLOC_FAIL;
+
+	(*allocator)->object_size = object_size;
+	(*allocator)->nb_free = 0;
+	(*allocator)->nb_inuse = 0;
+	(*allocator)->nb_allocated = 0;
+	(*allocator)->first_free = NULL;
+
+	return RMT_ERROR_NONE;
+}
+
+
+static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
+{
+	assert(allocator != NULL);
+	assert(object != NULL);
+
+	// Allocate objects on-demand
+	if (allocator->first_free == NULL)
+	{
+		*object = malloc(allocator->object_size);
+		if (*object == NULL)
+			return RMT_ERROR_MALLOC_FAIL;
+		((ObjectLink*)(*object))->next = NULL;
+		allocator->nb_allocated++;
+	}
+	else
+	{
+		// Or pull available ones from the free list
+		ObjectLink* link = (ObjectLink*)allocator->first_free;
+		allocator->first_free = (ObjectLink*)link->next;
+		*object = link;
+		allocator->nb_free--;
+	}
+
+	allocator->nb_inuse++;
+
+	return RMT_ERROR_NONE;
+}
+
+
+static void ObjectAllocator_Free(ObjectAllocator* allocator, void* object)
+{
+	// Add back to the free-list
+	assert(allocator != NULL);
+	((ObjectLink*)object)->next = (struct ObjectLink*)allocator->first_free;
+	allocator->first_free = (ObjectLink*)object;
+	allocator->nb_inuse--;
+	allocator->nb_free++;
+}
+
+
+static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
+{
+	// Ensure everything has been released to the allocator
+	assert(allocator->nb_inuse == 0);
+
+	// Destroy all objects released to the allocator
+	assert(allocator != NULL);
+	while (allocator->first_free != NULL)
+		ObjectAllocator_Free(allocator, allocator->first_free);
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Dynamic Buffer
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct
+{
+	rmtU32 alloc_granularity;
+
+	rmtU32 bytes_allocated;
+	rmtU32 bytes_used;
+
+	rmtU8* data;
+} Buffer;
+
+
+static enum rmtError Buffer_Create(Buffer** buffer, rmtU32 alloc_granularity)
+{
+	assert(buffer != NULL);
+
+	// Allocate and set defaults as nothing allocated
+
+	*buffer = (Buffer*)malloc(sizeof(Buffer));
+	if (*buffer == NULL)
+		return RMT_ERROR_MALLOC_FAIL;
+
+	(*buffer)->alloc_granularity = alloc_granularity;
+	(*buffer)->bytes_allocated = 0;
+	(*buffer)->bytes_used = 0;
+	(*buffer)->data = NULL;
+
+	return RMT_ERROR_NONE;
+}
+
+
+static void Buffer_Destroy(Buffer* buffer)
+{
+	assert(buffer != NULL);
+
+	if (buffer->data != NULL)
+	{
+		free(buffer->data);
+		buffer->data = NULL;
+	}
+
+	free(buffer);
+}
+
+
+static enum rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
+{
+	assert(buffer != NULL);
+
+	// Reallocate the buffer on overflow
+	if (buffer->bytes_used + length > buffer->bytes_allocated)
+	{
+		// Calculate size increase rounded up to the requested allocation granularity
+		rmtU32 g = buffer->alloc_granularity;
+		rmtU32 a = buffer->bytes_allocated + length;
+		a = a + ((g - 1) - ((a - 1) % g));
+		buffer->bytes_allocated = a;
+		buffer->data = (rmtU8*)realloc(buffer->data, buffer->bytes_allocated);
+		if (buffer->data == NULL)
+			return RMT_ERROR_MALLOC_FAIL;
+	}
+
+	// Copy all bytes
+	memcpy(buffer->data + buffer->bytes_used, data, length);
+	buffer->bytes_used += length;
+
+	// NULL terminate (if possible) for viewing in debug
+	if (buffer->bytes_used < buffer->bytes_allocated)
+		buffer->data[buffer->bytes_used] = 0;
+
+	return RMT_ERROR_NONE;
+}
+
+
+static enum rmtError Buffer_WriteString(Buffer* buffer, rmtPStr string)
+{
+	assert(string != NULL);
+	return Buffer_Write(buffer, (void*)string, strnlen_s(string, 2048));
 }
 
 
@@ -528,7 +1057,7 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
 }
 
 
-enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
+static enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	SocketStatus status;
 	char* cur_data = NULL;
@@ -816,14 +1345,14 @@ static const char* b64_encoding_table =
 		"0123456789+/";
 
 
-rmtU32 Base64_CalculateEncodedLength(rmtU32 length)
+static rmtU32 Base64_CalculateEncodedLength(rmtU32 length)
 {
 	// ceil(l * 4/3)
 	return 4 * ((length + 2) / 3);
 }
 
 
-void Base64_Encode(const rmtU8* in_bytes, rmtU32 length, rmtU8* out_bytes)
+static void Base64_Encode(const rmtU8* in_bytes, rmtU32 length, rmtU8* out_bytes)
 {
 	rmtU32 i;
 	rmtU32 encoded_length;
@@ -874,7 +1403,7 @@ void Base64_Encode(const rmtU8* in_bytes, rmtU32 length, rmtU8* out_bytes)
 //-----------------------------------------------------------------------------
 
 
-rmtU32 rotl32(rmtU32 x, rmtS8 r)
+static rmtU32 rotl32(rmtU32 x, rmtS8 r)
 {
 	return (x << r) | (x >> (32 - r));
 }
@@ -882,14 +1411,14 @@ rmtU32 rotl32(rmtU32 x, rmtS8 r)
 
 // Block read - if your platform needs to do endian-swapping or can only
 // handle aligned reads, do the conversion here
-rmtU32 getblock32(const rmtU32* p, int i)
+static rmtU32 getblock32(const rmtU32* p, int i)
 {
 	return p[i];
 }
 
 
 // Finalization mix - force all bits of a hash block to avalanche
-rmtU32 fmix32(rmtU32 h)
+static rmtU32 fmix32(rmtU32 h)
 {
 	h ^= h >> 16;
 	h *= 0x85ebca6b;
@@ -900,7 +1429,7 @@ rmtU32 fmix32(rmtU32 h)
 }
 
 
-rmtU32 MurmurHash3_x86_32(const void* key, int len, rmtU32 seed)
+static rmtU32 MurmurHash3_x86_32(const void* key, int len, rmtU32 seed)
 {
 	const rmtU8* data = (const rmtU8*)key;
 	const int nblocks = len / 4;
@@ -956,304 +1485,6 @@ rmtU32 MurmurHash3_x86_32(const void* key, int len, rmtU32 seed)
 
 	return h1;
 } 
-
-
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-   Safe C Library excerpts
-   http://sourceforge.net/projects/safeclib/
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-
-
-/*------------------------------------------------------------------
- *
- * November 2008, Bo Berry
- *
- * Copyright (c) 2008-2011 by Cisco Systems, Inc
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- *------------------------------------------------------------------
- */
-
-
-// NOTE: Microsoft also has its own version of these functions so I'm do some hacky PP to remove them
-#define strnlen_s strnlen_s_safe_c
-
-
-#define RSIZE_MAX_STR (4UL << 10)	/* 4KB */
-#define RCNEGATE(x) x
-
-
-#define EOK             ( 0 )
-#define ESNULLP         ( 400 )       /* null ptr                    */
-#define ESZEROL         ( 401 )       /* length is zero              */
-#define ESLEMAX         ( 403 )       /* length exceeds max          */
-#define ESOVRLP         ( 404 )       /* overlap undefined           */
-#define ESNOSPC         ( 406 )       /* not enough space for s2     */
-#define ESUNTERM        ( 407 )       /* unterminated string         */
-#define ESNOTFND        ( 409 )       /* not found                   */
-
-#ifndef _ERRNO_T_DEFINED
-#define _ERRNO_T_DEFINED
-typedef int errno_t;
-#endif
-
-
-typedef unsigned int rsize_t;
-
-
-rsize_t
-strnlen_s (const char *dest, rsize_t dmax)
-{
-    rsize_t count;
-
-    if (dest == NULL) {
-        return RCNEGATE(0);
-    }
-
-    if (dmax == 0) {
-        return RCNEGATE(0);
-    }
-
-    if (dmax > RSIZE_MAX_STR) {
-        return RCNEGATE(0);
-    }
-
-    count = 0;
-    while (*dest && dmax) {
-        count++;
-        dmax--;
-        dest++;
-    }
-
-    return RCNEGATE(count);
-}
-
-
-errno_t
-strstr_s (char *dest, rsize_t dmax,
-          const char *src, rsize_t slen, char **substring)
-{
-    rsize_t len;
-    rsize_t dlen;
-    int i;
-
-    if (substring == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
-    *substring = NULL;
-
-    if (dest == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (dmax == 0) {
-        return RCNEGATE(ESZEROL);
-    }
-
-    if (dmax > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
-
-    if (src == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (slen == 0) {
-        return RCNEGATE(ESZEROL);
-    }
-
-    if (slen > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
-
-    /*
-     * src points to a string with zero length, or
-     * src equals dest, return dest
-     */
-    if (*src == '\0' || dest == src) {
-        *substring = dest;
-        return RCNEGATE(EOK);
-    }
-
-    while (*dest && dmax) {
-        i = 0;
-        len = slen;
-        dlen = dmax;
-
-        while (src[i] && dlen) {
-
-            /* not a match, not a substring */
-            if (dest[i] != src[i]) {
-                break;
-            }
-
-            /* move to the next char */
-            i++;
-            len--;
-            dlen--;
-
-            if (src[i] == '\0' || !len) {
-                *substring = dest;
-                return RCNEGATE(EOK);
-            }
-        }
-        dest++;
-        dmax--;
-    }
-
-    /*
-     * substring was not found, return NULL
-     */
-    *substring = NULL;
-    return RCNEGATE(ESNOTFND);
-}
-
-
-errno_t
-strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
-{
-    rsize_t orig_dmax;
-    char *orig_dest;
-    const char *overlap_bumper;
-
-    if (dest == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (src == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (slen > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
-
-    if (dmax == 0) {
-        return RCNEGATE(ESZEROL);
-    }
-
-    if (dmax > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
-
-    /* hold base of dest in case src was not copied */
-    orig_dmax = dmax;
-    orig_dest = dest;
-
-    if (dest < src) {
-        overlap_bumper = src;
-
-        /* Find the end of dest */
-        while (*dest != '\0') {
-
-            if (dest == overlap_bumper) {
-                return RCNEGATE(ESOVRLP);
-            }
-
-            dest++;
-            dmax--;
-            if (dmax == 0) {
-                return RCNEGATE(ESUNTERM);
-            }
-        }
-
-        while (dmax > 0) {
-            if (dest == overlap_bumper) {
-                return RCNEGATE(ESOVRLP);
-            }
-
-            /*
-             * Copying truncated before the source null is encountered
-             */
-            if (slen == 0) {
-                *dest = '\0';
-                return RCNEGATE(EOK);
-            }
-
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
-
-            dmax--;
-            slen--;
-            dest++;
-            src++;
-        }
-
-    } else {
-        overlap_bumper = dest;
-
-        /* Find the end of dest */
-        while (*dest != '\0') {
-
-            /*
-             * NOTE: no need to check for overlap here since src comes first
-             * in memory and we're not incrementing src here.
-             */
-            dest++;
-            dmax--;
-            if (dmax == 0) {
-                return RCNEGATE(ESUNTERM);
-            }
-        }
-
-        while (dmax > 0) {
-            if (src == overlap_bumper) {
-                return RCNEGATE(ESOVRLP);
-            }
-
-            /*
-             * Copying truncated
-             */
-            if (slen == 0) {
-                *dest = '\0';
-                return RCNEGATE(EOK);
-            }
-
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
-
-            dmax--;
-            slen--;
-            dest++;
-            src++;
-        }
-    }
-
-    /*
-     * the entire src was not copied, so the string will be nulled.
-     */
-    return RCNEGATE(ESNOSPC);
-}
 
 
 
@@ -1685,7 +1916,7 @@ static enum rmtError ReceiveFrameHeader(WebSocket* web_socket)
 }
 
 
-enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
+static enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
 	SocketStatus status;
 	char* cur_data;
@@ -1958,109 +2189,12 @@ static rmtBool Server_IsClientConnected(Server* server)
 }
 
 
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-   Reusable Object Allocator
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-
-
-//
-// All objects that require free-list-backed allocation need to inherit from this type.
-//
-typedef struct ObjectLink
+static enum rmtError Server_Send(Server* server, void* data, rmtU32 length, rmtU32 timeout)
 {
-	struct ObjectLink* next;
-} ObjectLink;
-
-
-typedef struct
-{
-	// Size of objects to allocate
-	rmtU32 object_size;
-
-	// Number of objects in the free list
-	rmtU32 nb_free;
-
-	// Number of objects used by callers
-	rmtU32 nb_inuse;
-
-	// Total allocation count
-	rmtU32 nb_allocated;
-
-	ObjectLink* first_free;
-} ObjectAllocator;
-
-
-enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 object_size)
-{
-	assert(allocator != NULL);
-	*allocator = (ObjectAllocator*)malloc(sizeof(ObjectAllocator));
-	if (*allocator == NULL)
-		return RMT_ERROR_MALLOC_FAIL;
-
-	(*allocator)->object_size = object_size;
-	(*allocator)->nb_free = 0;
-	(*allocator)->nb_inuse = 0;
-	(*allocator)->nb_allocated = 0;
-	(*allocator)->first_free = NULL;
-
+	assert(server != NULL);
+	if (Server_IsClientConnected(server))
+		return WebSocket_Send(server->client_socket, data, length, timeout);
 	return RMT_ERROR_NONE;
-}
-
-
-enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
-{
-	assert(allocator != NULL);
-	assert(object != NULL);
-
-	// Allocate objects on-demand
-	if (allocator->first_free == NULL)
-	{
-		*object = malloc(allocator->object_size);
-		if (*object == NULL)
-			return RMT_ERROR_MALLOC_FAIL;
-		((ObjectLink*)(*object))->next = NULL;
-		allocator->nb_allocated++;
-	}
-	else
-	{
-		// Or pull available ones from the free list
-		ObjectLink* link = (ObjectLink*)allocator->first_free;
-		allocator->first_free = (ObjectLink*)link->next;
-		*object = link;
-	}
-
-	allocator->nb_inuse++;
-
-	return RMT_ERROR_NONE;
-}
-
-
-void ObjectAllocator_Free(ObjectAllocator* allocator, void* object)
-{
-	// Add back to the free-list
-	assert(allocator != NULL);
-	((ObjectLink*)object)->next = (struct ObjectLink*)allocator->first_free;
-	allocator->first_free = (ObjectLink*)object;
-	allocator->nb_inuse--;
-	allocator->nb_free++;
-}
-
-
-void ObjectAllocator_Destroy(ObjectAllocator* allocator)
-{
-	// Ensure everything has been released to the allocator
-	assert(allocator->nb_inuse == 0);
-
-	// Destroy all objects released to the allocator
-	assert(allocator != NULL);
-	while (allocator->first_free != NULL)
-		ObjectAllocator_Free(allocator, allocator->first_free);
 }
 
 
@@ -2068,23 +2202,118 @@ void ObjectAllocator_Destroy(ObjectAllocator* allocator)
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
-   Remotery
+   Basic, text-based JSON serialisation
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
 
 
-rmtBool CompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
+//
+// Simple macro for hopefully making the serialisation a little clearer by hiding the error handling
+//
+#define JSON_ERROR_CHECK(stmt) error = stmt; if (error != RMT_ERROR_NONE) return error;
+
+
+
+static enum rmtError json_OpenObject(Buffer* buffer)
 {
-	#if defined(RMT_PLATFORM_WINDOWS)
-		return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
-	#elif defined(RMT_PLATFORM_LINUX)
-		return __sync_bool_compare_and_swap((long volatile*)ptr, (long)old_ptr, (long)new_ptr) ? RMT_TRUE : RMT_FALSE;
-	#elif defined(RMT_PLATFORM_MACOS)
-		return OSAtomicCompareAndSwapPtr((long)old_ptr, (long)new_ptr, (long volatile*)ptr) ? RMT_TRUE : RMT_FALSE;
-	#endif
+	return Buffer_Write(buffer, (void*)"{", 1);
 }
+
+
+static enum rmtError json_CloseObject(Buffer* buffer)
+{
+	return Buffer_Write(buffer, (void*)"}", 1);
+}
+
+
+static enum rmtError json_Comma(Buffer* buffer)
+{
+	return Buffer_Write(buffer, (void*)",", 1);
+}
+
+
+static enum rmtError json_Colon(Buffer* buffer)
+{
+	return Buffer_Write(buffer, (void*)":", 1);
+}
+
+
+static enum rmtError json_String(Buffer* buffer, rmtPStr string)
+{
+	enum rmtError error;
+	JSON_ERROR_CHECK(Buffer_Write(buffer, (void*)"\"", 1));
+	JSON_ERROR_CHECK(Buffer_WriteString(buffer, string));
+	return Buffer_Write(buffer, (void*)"\"", 1);
+}
+
+
+static enum rmtError json_FieldStr(Buffer* buffer, rmtPStr name, rmtPStr value)
+{
+	enum rmtError error;
+
+	JSON_ERROR_CHECK(json_String(buffer, name));
+	JSON_ERROR_CHECK(json_Colon(buffer));
+	return json_String(buffer, value);
+}
+
+
+static enum rmtError json_FieldU64(Buffer* buffer, rmtPStr name, rmtU64 value)
+{
+	static char temp_buf[32];
+
+	char* end;
+	char* tptr;
+
+	json_String(buffer, name);
+	json_Colon(buffer);
+
+	if (value == 0)
+		return Buffer_Write(buffer, (void*)"0", 1);
+
+	// Null terminate and start at the end
+	end = temp_buf + sizeof(temp_buf) - 1;
+	*end = 0;
+	tptr = end;
+
+	// Loop through the value with radix 10
+	do
+	{
+		rmtU64 next_value = value / 10;
+		*--tptr = (char)('0' + (value - next_value * 10));
+		value = next_value;
+	} while (value);
+
+	return Buffer_Write(buffer, tptr, end - tptr);
+}
+
+
+static enum rmtError json_OpenArray(Buffer* buffer, rmtPStr name)
+{
+	enum rmtError error;
+
+	JSON_ERROR_CHECK(json_String(buffer, name));
+	JSON_ERROR_CHECK(json_Colon(buffer));
+	return Buffer_Write(buffer, (void*)"[", 1);
+}
+
+
+static enum rmtError json_CloseArray(Buffer* buffer)
+{
+	return Buffer_Write(buffer, (void*)"]", 1);
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   CPU Sample Description
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
 
 
 typedef struct CPUSample
@@ -2113,7 +2342,7 @@ typedef struct CPUSample
 } CPUSample;
 
 
-void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_hash, CPUSample* parent)
+static void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_hash, CPUSample* parent)
 {
 	sample->name = name;
 	sample->name_hash = name_hash;
@@ -2127,6 +2356,63 @@ void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_hash, CP
 }
 
 
+static enum rmtError json_CPUSampleArray(Buffer* buffer, CPUSample* first_sample, rmtPStr name);
+
+
+static enum rmtError json_CPUSample(Buffer* buffer, CPUSample* sample)
+{
+	enum rmtError error;
+
+	assert(sample != NULL);
+
+	JSON_ERROR_CHECK(json_OpenObject(buffer));
+
+		JSON_ERROR_CHECK(json_FieldStr(buffer, "name", sample->name));
+		JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_FieldU64(buffer, "cpu_us_start", sample->start_us));
+		JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_FieldU64(buffer, "cpu_us_length", max(sample->end_us - sample->start_us, 0)));
+
+		if (sample->first_child != NULL)
+		{
+			JSON_ERROR_CHECK(json_Comma(buffer));
+			JSON_ERROR_CHECK(json_CPUSampleArray(buffer, sample->first_child, "children"));
+		}
+
+	return json_CloseObject(buffer);
+}
+
+
+static enum rmtError json_CPUSampleArray(Buffer* buffer, CPUSample* first_sample, rmtPStr name)
+{
+	enum rmtError error;
+
+	CPUSample* sample;
+
+	JSON_ERROR_CHECK(json_OpenArray(buffer, name));
+
+	for (sample = first_sample; sample != NULL; sample = sample->next_sibling)
+	{
+		JSON_ERROR_CHECK(json_CPUSample(buffer, sample));
+		if (sample->next_sibling != NULL)
+			JSON_ERROR_CHECK(json_Comma(buffer));
+	}
+
+	return json_CloseArray(buffer);
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Per-Thread Sampler
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
 typedef struct ThreadSampler
 {
 	// Sample allocator for all samples in this thread
@@ -2138,7 +2424,11 @@ typedef struct ThreadSampler
 	// Most recently pushed sample
 	CPUSample* current_parent_sample;
 
+	// Microsecond accuracy timer for CPU timestamps
 	usTimer timer;
+
+	// A dynamically-sized buffer used for encoding the sample tree as JSON and sending to the client
+	Buffer* json_buf;
 
 	// Next in the global list of active thread samplers
 	struct ThreadSampler* volatile next;
@@ -2154,6 +2444,9 @@ struct Remotery
 	// Linked list of all known threads being sampled
 	ThreadSampler* volatile first_thread_sampler;
 };
+
+
+static void ThreadSampler_Destroy(ThreadSampler* ts);
 
 
 static enum rmtError ThreadSampler_Get(Remotery* rmt, ThreadSampler** thread_sampler)
@@ -2176,22 +2469,37 @@ static enum rmtError ThreadSampler_Get(Remotery* rmt, ThreadSampler** thread_sam
 		ts->sample_allocator = NULL;
 		ts->root_sample = NULL;
 		ts->current_parent_sample = NULL;
+		ts->json_buf = NULL;
 		ts->next = NULL;
 
 		// Create the sample allocator
 		error = ObjectAllocator_Create(&ts->sample_allocator, sizeof(CPUSample));
 		if (error != RMT_ERROR_NONE)
+		{
+			ThreadSampler_Destroy(ts);
 			return error;
+		}
 
 		// Create a root sample that's around for the lifetime of the thread
 		error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)&ts->root_sample);
 		if (error != RMT_ERROR_NONE)
+		{
+			ThreadSampler_Destroy(ts);
 			return error;
+		}
 		CPUSample_SetDefaults(ts->root_sample, "<Root Sample>", 0, NULL);
 		ts->current_parent_sample = ts->root_sample;
 
 		// Kick-off the timer
 		usTimer_Init(&ts->timer);
+
+		// Create the JSON serialisation buffer
+		error = Buffer_Create(&ts->json_buf, 4096);
+		if (error != RMT_ERROR_NONE)
+		{
+			ThreadSampler_Destroy(ts);
+			return error;
+		}
 
 		// Add to the beginning of the global linked list of thread samplers
 		while (1)
@@ -2211,6 +2519,32 @@ static enum rmtError ThreadSampler_Get(Remotery* rmt, ThreadSampler** thread_sam
 	assert(thread_sampler != NULL);
 	*thread_sampler = ts;
 	return RMT_ERROR_NONE;
+}
+
+
+static void ThreadSampler_Destroy(ThreadSampler* ts)
+{
+	assert(ts != NULL);
+
+	if (ts->json_buf != NULL)
+	{
+		Buffer_Destroy(ts->json_buf);
+		ts->json_buf = NULL;
+	}
+
+	if (ts->root_sample != NULL)
+	{
+		ObjectAllocator_Free(ts->sample_allocator, ts->root_sample);
+		ts->root_sample = NULL;
+	}
+
+	if (ts->sample_allocator != NULL)
+	{
+		ObjectAllocator_Destroy(ts->sample_allocator);
+		ts->sample_allocator = NULL;
+	}
+
+	free(ts);
 }
 
 
@@ -2244,9 +2578,7 @@ static void ThreadSampler_DestroyAll(Remotery* rmt)
 		}
 
 		// Release the thread sampler
-		ObjectAllocator_Free(ts->sample_allocator, ts->root_sample);
-		ObjectAllocator_Destroy(ts->sample_allocator);
-		free(ts);
+		ThreadSampler_Destroy(ts);
 	}
 }
 
@@ -2297,13 +2629,80 @@ static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 
 }
 
 
-static void ThreadSample_Pop(ThreadSampler* ts, CPUSample* sample)
+static void ThreadSampler_Pop(ThreadSampler* ts, CPUSample* sample)
 {
 	assert(ts != NULL);
 	assert(sample != NULL);
 	assert(sample != ts->root_sample);
 	ts->current_parent_sample = sample->parent;
 }
+
+
+static void ThreadSampler_FreeSample(ThreadSampler* ts, CPUSample* sample, rmtBool just_contents)
+{
+	CPUSample* child;
+
+	assert(ts != NULL);
+	assert(sample != NULL);
+
+	// Free children first
+	for (child = sample->first_child; child != NULL; child = child->next_sibling)
+		ThreadSampler_FreeSample(ts, child, RMT_FALSE);
+
+	// Clear child info
+	sample->first_child = NULL;
+	sample->last_child = NULL;
+	sample->nb_children = 0;
+
+	// Only free the sample if requested
+	if (just_contents == RMT_FALSE)
+		ObjectAllocator_Free(ts->sample_allocator, sample);
+}
+
+
+static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server)
+{
+	enum rmtError error;
+
+	Buffer* buffer;
+
+	assert(ts != NULL);
+
+	// Don't support partial sending of the tree (yet?)
+	if (ts->current_parent_sample != ts->root_sample)
+		return RMT_ERROR_SEND_ON_INCOMPLETE_PROFILE;
+
+	// Reset the buffer position to the start
+	buffer = ts->json_buf;
+	buffer->bytes_used = 0;
+
+	// Start at the root sample but only send its child array, ignoring its description
+	JSON_ERROR_CHECK(json_OpenObject(buffer));
+
+		JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
+		JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", "UNNAMED"));
+		JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_CPUSampleArray(buffer, ts->root_sample->first_child, "samples"));
+
+	JSON_ERROR_CHECK(json_CloseObject(buffer));
+
+	// Free all CPU samples except for this root one
+	ThreadSampler_FreeSample(ts, ts->root_sample, RMT_TRUE);
+
+	return Server_Send(server, buffer->data, buffer->bytes_used, 20);
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Remotery
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
 
 
 enum rmtError rmt_Create(Remotery** remotery)
@@ -2418,6 +2817,8 @@ void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
 		return;
 
 	// Get data for this thread
+	// TODO: Should we use RegisterThread instead? That would increase API init burden but would prevent the need
+	// to return error codes for all API functions.
 	if (ThreadSampler_Get(rmt, &ts) != RMT_ERROR_NONE)
 		return;
 
@@ -2447,6 +2848,27 @@ void rmt_EndCPUSample(Remotery* rmt)
 	sample = ts->current_parent_sample;
 	sample->end_us = usTimer_Get(&ts->timer);
 
-	ThreadSample_Pop(ts, sample);
+	ThreadSampler_Pop(ts, sample);
+}
+
+
+enum rmtError rmt_SendThreadSamples(Remotery* rmt)
+{
+	ThreadSampler* ts;
+	enum rmtError error;
+
+	if (rmt == NULL)
+		return RMT_ERROR_REMOTERY_NOT_CREATED;
+
+	// Get data for this thread
+	error = ThreadSampler_Get(rmt, &ts);
+	if (error != RMT_ERROR_NONE)
+		return error;
+
+	// Having a client not connected is typical and not an error
+	if (!Server_IsClientConnected(rmt->server))
+		return RMT_ERROR_NONE;
+
+	return ThreadSampler_SendSamples(ts, rmt->server);
 }
 
