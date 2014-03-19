@@ -14,6 +14,7 @@ Remotery = (function()
 		this.ConnectionAddress = LocalStore.Get("App", "Global", "ConnectionAddress", "ws://127.0.0.1:17815/rmt");
 		this.Server = new WebSocketConnection();
 		this.Server.AddConnectHandler(Bind(OnConnect, this));
+		this.Server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 
 		// Create the console up front as everything reports to it
 		this.Console = new Console(this.WindowManager, this.Server);
@@ -64,6 +65,12 @@ Remotery = (function()
 		var h = window.innerHeight;
 		self.Console.WindowResized(w, h);
 		self.TitleWindow.WindowResized(w, h);
+	}
+
+
+	function OnSamples(self, socket, message)
+	{
+		console.log(message);
 	}
 
 

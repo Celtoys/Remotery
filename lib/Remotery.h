@@ -64,7 +64,21 @@ enum rmtError
 	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE,	// Partially received wide frame header size
 	RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_MASK,	// Partially received frame header data mask
 	RMT_ERROR_WEBSOCKET_RECEIVE_TIMEOUT,		// Timeout receiving frame header
+
+	RMT_ERROR_REMOTERY_NOT_CREATED,				// Remotery object has not been created
+	RMT_ERROR_SEND_ON_INCOMPLETE_PROFILE,		// An attempt was made to send an incomplete profile tree to the client
 };
+
+
+#define RMT_CREATE(rmt)					rmt_Create(rmt)
+
+#define RMT_DESTROY(rmt)				rmt_Destroy(rmt)
+
+#define RMT_LOG_TEXT(rmt, text)			rmt_LogText(rmt, text)
+
+#define RMT_UPDATE_SERVER(rmt)			rmt_UpdateServer(rmt)
+
+#define RMT_IS_CLIENT_CONNECTED(rmt)	rmt_IsClientConnected(rmt)
 
 
 #ifdef __cplusplus
@@ -94,6 +108,8 @@ rmtBool rmt_IsClientConnected(Remotery* rmt);
 void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache);
 
 void rmt_EndCPUSample(Remotery* rmt);
+
+enum rmtError rmt_SendThreadSamples(Remotery* rmt);
 
 
 #ifdef __cplusplus
