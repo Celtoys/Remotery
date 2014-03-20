@@ -288,7 +288,7 @@
 
 
 /* ------------------------------------------------------------------------------------------------------------------ */
-/* Label Styles                                                                                                    */
+/* Label Styles                                                                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
@@ -306,7 +306,7 @@
 
 
 /* ------------------------------------------------------------------------------------------------------------------ */
-/* Combo Box Styles                                                                                                    */
+/* Combo Box Styles                                                                                                   */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
@@ -338,6 +338,7 @@
 	background: linear-gradient(top,  #e3e3e3 0%,#c6c6c6 22%,#b7b7b7 33%,#afafaf 50%,#a7a7a7 67%,#797979 82%,#414141 100%);
 	filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#e3e3e3', endColorstr='#414141',GradientType=0 );
 }
+
 .ComboBoxPressed
 {
 	/* The reverse of the default background, simulating depression */
@@ -350,6 +351,7 @@
 	background: linear-gradient(top,  #414141 0%,#797979 18%,#a7a7a7 33%,#afafaf 50%,#b7b7b7 67%,#c6c6c6 78%,#e3e3e3 100%);
 	filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#414141', endColorstr='#e3e3e3',GradientType=0 );
 }
+
 .ComboBoxText
 {
 	/* Text info */
@@ -358,6 +360,7 @@
 
 	float:left;
 }
+
 .ComboBoxIcon
 {
 	/* Push the image to the far right */
@@ -366,6 +369,7 @@
 	/* Align the image with the combo box */
 	padding: 2px 5px 0 0;
 }
+
 .ComboBoxPopup
 {
 	position: fixed;
@@ -376,6 +380,7 @@
 
 	padding: 1px 0 1px 0;
 }
+
 .ComboBoxPopupItem
 {
 	/* Text info */
@@ -387,10 +392,12 @@
 	border-bottom: 1px solid #AAA;
 	border-top: 1px solid #FFF;
 }
+
 .ComboBoxPopupItemText
 {
 	float:left;
 }
+
 .ComboBoxPopupItemIcon
 {
 	/* Push the image to the far right */
@@ -399,16 +406,104 @@
 	/* Align the image with the combo box */
 	padding: 2px 5px 0 0;
 }
+
 .ComboBoxPopupItem:first-child
 {
 	border-top: 0px;
 }
+
 .ComboBoxPopupItem:last-child
 {
 	border-bottom: 0px;
 }
+
 .ComboBoxPopupItem:hover
 {
 	color:#FFF;
 	background: #2036E1;
+}
+
+
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/* Grid Styles                                                                                                        */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+
+
+.Grid
+{
+    /* Clip contents */
+    overflow: hidden;
+
+    position: relative;
+
+    background: #333;
+
+    border-radius: 2px;
+}
+
+.GridBody
+{
+}
+
+.GridRow
+{
+    background:#303030;
+
+    color: #BBB;
+    font: 9px Verdana;
+
+    padding: 2px;
+}
+
+.GridRow.GridGroup
+{
+    padding: 0px;
+}
+
+.GridRow:nth-child(odd)
+{
+    background:#333;
+}
+
+.GridRowName
+{
+    width:35%;
+    float:left;
+
+}
+
+.GridRowName.GridGroup
+{
+    color: #BBB;
+
+    /* Override default from name */
+    width: 100%;
+
+    padding: 1px 1px 1px 2px;
+    border: 1px solid;
+    border-radius: 2px;
+
+    border-top-color:#555;
+    border-left-color:#555;
+    border-bottom-color:#111;
+    border-right-color:#111;
+
+    background: #222;
+}
+
+.GridRowControl
+{
+    width:60%;
+    float:left;
+}
+
+.GridRowBody
+{
+    /* Clip all contents for show/hide group*/
+    overflow: hidden;
+
+    /* Crazy CSS rules: controls for properties don't clip if this isn't set on this parent */
+    position: relative;
 }
