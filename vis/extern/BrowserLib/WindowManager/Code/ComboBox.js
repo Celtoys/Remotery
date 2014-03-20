@@ -154,7 +154,7 @@ WM.ComboBox = (function()
 		this.TextNode = DOM.Node.FindWithClass(this.Node, "ComboBoxText");
 
 		// Create a reusable popup
-		this.Popup = new ComboBoxPopup(this);
+		this.Popup = new WM.ComboBoxPopup(this);
 
 		// Set an empty set of values
 		this.SetValues([]);

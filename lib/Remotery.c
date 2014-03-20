@@ -5,6 +5,10 @@
 //    * There's lots of useless casting going on here that doesn't need to be done in C. I'm doing, however, because
 //      I have clReflect scanning this as a C++ file.
 //    * Support partial tree sending. This would help job systems that are difficult to explicitly break into frames.
+//    * Most runtime functions return an error code because they can create thread samplers on the fly. Should we use
+//      RegisterThread instead? That would increase API init burden but would prevent the need to return error codes
+//      for all API functions. Alternatively, fold it into the rmt_SendThreadSamples function.
+//    * Put rmt_UpdateServer on a separate thread with no calls required from the client.
 //
 
 #include "Remotery.h"
@@ -2825,8 +2829,6 @@ void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
 		return;
 
 	// Get data for this thread
-	// TODO: Should we use RegisterThread instead? That would increase API init burden but would prevent the need
-	// to return error codes for all API functions.
 	if (ThreadSampler_Get(rmt, &ts) != RMT_ERROR_NONE)
 		return;
 
