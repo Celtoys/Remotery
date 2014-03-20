@@ -14,10 +14,10 @@ body
 .Window
 {
 	background: #555;
-	box-shadow: none;
-	border-radius: 3px;
+	/*box-shadow: none;
+	border-radius: 3px;*/
 }
-.WindowTitleBar
+/*.WindowTitleBar
 {
 	border-bottom: none;
 	border-radius: 0px;
@@ -25,7 +25,7 @@ body
 .WindowBody
 {
 	border-top: none;
-}
+}*/
 
 
 /* Override default container style to remove 3D effect */

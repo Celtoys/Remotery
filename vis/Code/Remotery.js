@@ -14,7 +14,6 @@ Remotery = (function()
 		this.ConnectionAddress = LocalStore.Get("App", "Global", "ConnectionAddress", "ws://127.0.0.1:17815/rmt");
 		this.Server = new WebSocketConnection();
 		this.Server.AddConnectHandler(Bind(OnConnect, this));
-		this.Server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 
 		// Create the console up front as everything reports to it
 		this.Console = new Console(this.WindowManager, this.Server);
@@ -22,6 +21,7 @@ Remotery = (function()
 		// Create required windows
 		this.TitleWindow = new TitleWindow(this.WindowManager, this.Server, this.ConnectionAddress);
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
+		this.SampleWindow = new SampleWindow(this.WindowManager, this.Server);
 
 		// Kick-off the auto-connect loop
 		AutoConnect(this);
@@ -65,12 +65,7 @@ Remotery = (function()
 		var h = window.innerHeight;
 		self.Console.WindowResized(w, h);
 		self.TitleWindow.WindowResized(w, h);
-	}
-
-
-	function OnSamples(self, socket, message)
-	{
-		console.log(message);
+		self.SampleWindow.WindowResized(w, h, self.TitleWindow.Window, self.Console.Window);
 	}
 
 
