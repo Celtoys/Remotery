@@ -2698,9 +2698,6 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 
 	JSON_ERROR_CHECK(json_CloseObject(buffer));
 
-	// Free all CPU samples except for this root one
-	ThreadSampler_FreeSample(ts, ts->root_sample, RMT_TRUE);
-
 	return Server_Send(server, buffer->data, buffer->bytes_used, 20);
 }
 
@@ -2877,9 +2874,16 @@ enum rmtError rmt_SendThreadSamples(Remotery* rmt)
 		return error;
 
 	// Having a client not connected is typical and not an error
-	if (!Server_IsClientConnected(rmt->server))
-		return RMT_ERROR_NONE;
+	if (Server_IsClientConnected(rmt->server))
+    {
+        error = ThreadSampler_SendSamples(ts, rmt->server);
+        if (error != RMT_ERROR_NONE)
+		  return error;
+    }
 
-	return ThreadSampler_SendSamples(ts, rmt->server);
+    // Free all CPU samples except for this root one
+    ThreadSampler_FreeSample(ts, ts->root_sample, RMT_TRUE);
+
+	return RMT_ERROR_NONE;
 }
 
