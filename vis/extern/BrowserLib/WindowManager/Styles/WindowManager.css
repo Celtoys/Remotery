@@ -1,4 +1,16 @@
 
+
+.notextsel
+{
+	/* Disable text selection so that it doesn't interfere with button-clicking */
+	user-select:none;
+
+	/* Stops the text cursor over the label */
+	cursor:default;
+}
+
+
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /* Window Styles                                                                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -271,4 +283,132 @@
 {
 	background:#FFF;
 	outline:0;
+}
+
+
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/* Label Styles                                                                                                    */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+
+
+.Label
+{
+	/* Position relative to the parent window */
+	position:absolute;
+
+	color: #BBB;
+	font: 9px Verdana;
+	text-shadow: 1px 1px 1px black;
+}
+
+
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/* Combo Box Styles                                                                                                    */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+
+
+.ComboBox
+{
+	position:absolute;
+
+	/* TEMP! */
+	width:90px;
+
+	/* Height is fixed to match the font */
+	height:14px;
+
+	/* Align the text within the combo box */
+	padding: 1px 0 0 5px;
+
+	/* Solid, rounded border */
+	border: 1px solid #111;
+	border-radius: 5px;
+
+	/* http://www.colorzilla.com/gradient-editor/#e3e3e3+0,c6c6c6+22,b7b7b7+33,afafaf+50,a7a7a7+67,797979+82,414141+100;Custom */    
+	background: #e3e3e3;
+	background: -moz-linear-gradient(top,  #e3e3e3 0%, #c6c6c6 22%, #b7b7b7 33%, #afafaf 50%, #a7a7a7 67%, #797979 82%, #414141 100%);
+	background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#e3e3e3), color-stop(22%,#c6c6c6), color-stop(33%,#b7b7b7), color-stop(50%,#afafaf), color-stop(67%,#a7a7a7), color-stop(82%,#797979), color-stop(100%,#414141));
+	background: -webkit-linear-gradient(top,  #e3e3e3 0%,#c6c6c6 22%,#b7b7b7 33%,#afafaf 50%,#a7a7a7 67%,#797979 82%,#414141 100%);
+	background: -o-linear-gradient(top,  #e3e3e3 0%,#c6c6c6 22%,#b7b7b7 33%,#afafaf 50%,#a7a7a7 67%,#797979 82%,#414141 100%);
+	background: -ms-linear-gradient(top,  #e3e3e3 0%,#c6c6c6 22%,#b7b7b7 33%,#afafaf 50%,#a7a7a7 67%,#797979 82%,#414141 100%);
+	background: linear-gradient(top,  #e3e3e3 0%,#c6c6c6 22%,#b7b7b7 33%,#afafaf 50%,#a7a7a7 67%,#797979 82%,#414141 100%);
+	filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#e3e3e3', endColorstr='#414141',GradientType=0 );
+}
+.ComboBoxPressed
+{
+	/* The reverse of the default background, simulating depression */
+	background: #414141;
+	background: -moz-linear-gradient(top,  #414141 0%, #797979 18%, #a7a7a7 33%, #afafaf 50%, #b7b7b7 67%, #c6c6c6 78%, #e3e3e3 100%);
+	background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#414141), color-stop(18%,#797979), color-stop(33%,#a7a7a7), color-stop(50%,#afafaf), color-stop(67%,#b7b7b7), color-stop(78%,#c6c6c6), color-stop(100%,#e3e3e3));
+	background: -webkit-linear-gradient(top,  #414141 0%,#797979 18%,#a7a7a7 33%,#afafaf 50%,#b7b7b7 67%,#c6c6c6 78%,#e3e3e3 100%);
+	background: -o-linear-gradient(top,  #414141 0%,#797979 18%,#a7a7a7 33%,#afafaf 50%,#b7b7b7 67%,#c6c6c6 78%,#e3e3e3 100%);
+	background: -ms-linear-gradient(top,  #414141 0%,#797979 18%,#a7a7a7 33%,#afafaf 50%,#b7b7b7 67%,#c6c6c6 78%,#e3e3e3 100%);
+	background: linear-gradient(top,  #414141 0%,#797979 18%,#a7a7a7 33%,#afafaf 50%,#b7b7b7 67%,#c6c6c6 78%,#e3e3e3 100%);
+	filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#414141', endColorstr='#e3e3e3',GradientType=0 );
+}
+.ComboBoxText
+{
+	/* Text info */
+	color: #000;
+	font: 9px Verdana;
+
+	float:left;
+}
+.ComboBoxIcon
+{
+	/* Push the image to the far right */
+	float:right;
+
+	/* Align the image with the combo box */
+	padding: 2px 5px 0 0;
+}
+.ComboBoxPopup
+{
+	position: fixed;
+
+	background: #CCC;
+
+	border-radius: 5px;
+
+	padding: 1px 0 1px 0;
+}
+.ComboBoxPopupItem
+{
+	/* Text info */
+	color: #000;
+	font: 9px Verdana;
+
+	padding: 1px 1px 1px 5px;
+
+	border-bottom: 1px solid #AAA;
+	border-top: 1px solid #FFF;
+}
+.ComboBoxPopupItemText
+{
+	float:left;
+}
+.ComboBoxPopupItemIcon
+{
+	/* Push the image to the far right */
+	float:right;
+
+	/* Align the image with the combo box */
+	padding: 2px 5px 0 0;
+}
+.ComboBoxPopupItem:first-child
+{
+	border-top: 0px;
+}
+.ComboBoxPopupItem:last-child
+{
+	border-bottom: 0px;
+}
+.ComboBoxPopupItem:hover
+{
+	color:#FFF;
+	background: #2036E1;
 }
