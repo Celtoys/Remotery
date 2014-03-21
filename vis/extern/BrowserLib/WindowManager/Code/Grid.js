@@ -6,24 +6,25 @@ WM.GridRows = (function()
 {
 	function GridRows()
 	{
+		// Array of rows in the order they were added
 		this.Rows = [ ];
 	}
 
 
-	GridRows.prototype.Add = function(parent, name, control)
+	GridRows.prototype.Add = function(parent, cell_data, row_classes, cell_classes)
 	{
-		var row = new WM.GridRow(parent, name, control);
+		var row = new WM.GridRow(parent, cell_data, row_classes, cell_classes);
 		this.Rows.push(row);
 		return row;
 	}
 
 
-	GridRows.prototype.Get = function(name)
+	GridRows.prototype.GetByName = function(name)
 	{
 		for (var i in this.Rows)
 		{
 			var row = this.Rows[i];
-			if (row.Name == name)
+			if (row.CellData.Name == name)
 				return row;
 		}
 
@@ -50,44 +51,64 @@ WM.GridRows = (function()
 
 WM.GridRow = (function()
 {
-	var template_html = "							\
-		<div class='GridRow'>						\
-			<div class='GridRowName'></div>			\
-			<div class='GridRowControl'></div>		\
-			<div style='clear:both'></div>			\
-			<div class='GridRowBody'></div>			\
-		</div>";
+	var template_html = "<div class='GridRow'></div>";
 
 
-	function GridRow(parent, name, control)
+	//
+	// 'cell_data' is an object with a variable number of fields. If a field is text, a column is created and the
+	// text is assigned. 
+	//
+	function GridRow(parent, cell_data, row_classes, cell_classes)
 	{
+		// TODO: NEEEDS ID?
+
 		// Setup data
 		this.Parent = parent;
-		this.Name = name;
 		this.IsOpen = true;
 		this.AnimHandle = null;
 		this.Rows = new WM.GridRows();
+		this.CellData = cell_data;
+		this.CellNodes = { };
 
-		// Clone the row template and locate key nodes within it
+		// Create the main row node
 		this.Node = DOM.Node.CreateHTML(template_html);
-		this.NameNode = DOM.Node.FindWithClass(this.Node, "GridRowName");
-		this.ControlNode = DOM.Node.FindWithClass(this.Node, "GridRowControl");
-		this.BodyNode = DOM.Node.FindWithClass(this.Node, "GridRowBody");
-
-		// Assign the name text
-		this.NameNode.innerHTML = name;
-
-		// Initialise the control using this row as the parent
-		// TODO: Window.js does the same thing in AddControlNew - this can be generalised
-		this.Control = control;
-		if (this.Control)
-		{
-			this.Control.ParentNode = this.ControlNode;
-			this.ControlNode.appendChild(this.Control.Node);
-		}
+		if (row_classes)
+			DOM.Node.AddClass(this.Node, row_classes);
 
 		// Embed a pointer to the row in the root node so that it can be clicked
 		this.Node.GridRow = this;
+
+		// Create nodes for each required cell
+		for (var attr in this.CellData)
+		{
+			if (this.CellData.hasOwnProperty(attr))
+			{
+				var data = this.CellData[attr];
+
+				// Create a node for the cell and add any custom classes
+				var node = DOM.Node.AppendHTML(this.Node, "<div class='GridRowCell'></div>");
+				this.CellNodes[attr] = node;
+				if (cell_classes)
+					DOM.Node.AddClass(node, cell_classes);
+
+				// If this is a Window Control, add its node to the cell
+				if (data instanceof Object && "Node" in data && DOM.Node.IsNode(data.Node))
+				{
+					data.ParentNode = node;
+					node.appendChild(data.Node);
+				}
+
+				else
+				{
+					// Otherwise just assign the data as text
+					node.innerHTML = data;
+				}
+			}
+		}
+
+		// Add the body node for any children
+		DOM.Node.AppendClearFloat(this.Node);
+		this.BodyNode = DOM.Node.AppendHTML(this.Node, "<div class='GridRowBody'></div>");
 
 		// Add the row to the parent
 		this.Parent.BodyNode.appendChild(this.Node);
@@ -96,13 +117,13 @@ WM.GridRow = (function()
 
 	GridRow.prototype.AddRow = function(name, control)
 	{
-		return this.Rows.Add(this, name, control);
+		return this.Rows.Add(this, { "Name": name, "Control": control });
 	}
 
 
-	GridRow.prototype.GetRow = function(name)
+	GridRow.prototype.GetRowByName = function(name)
 	{
-		return this.Rows.Get(name);
+		return this.Rows.GetByName(name);
 	}
 
 
@@ -184,10 +205,7 @@ WM.Grid = (function()
 	
 	Grid.prototype.AddGroup = function(name)
 	{
-		var row = this.Rows.Add(this, name);
-		DOM.Node.AddClass(row.Node, "GridGroup");
-		DOM.Node.AddClass(row.NameNode, "GridGroup");
-		return row;
+		return this.Rows.Add(this, {"Name": name }, "GridGroup", "GridGroup");
 	}
 
 

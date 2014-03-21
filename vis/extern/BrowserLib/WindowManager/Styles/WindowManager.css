@@ -300,7 +300,6 @@
 
 	color: #BBB;
 	font: 9px Verdana;
-	text-shadow: 1px 1px 1px black;
 }
 
 
@@ -433,14 +432,14 @@
 
 .Grid
 {
-    /* Clip contents */
-    overflow: hidden;
+	/* Clip contents */
+	overflow: hidden;
 
-    position: relative;
+	position: relative;
 
-    background: #333;
+	background: #333;
 
-    border-radius: 2px;
+	border-radius: 2px;
 }
 
 .GridBody
@@ -449,61 +448,53 @@
 
 .GridRow
 {
-    background:#303030;
+	background:#303030;
 
-    color: #BBB;
-    font: 9px Verdana;
+	color: #BBB;
+	font: 9px Verdana;
 
-    padding: 2px;
+	padding: 2px;
 }
 
 .GridRow.GridGroup
 {
-    padding: 0px;
+	padding: 0px;
 }
 
 .GridRow:nth-child(odd)
 {
-    background:#333;
+	background:#333;
 }
 
-.GridRowName
+.GridRowCell
 {
-    width:35%;
-    float:left;
-
+	width:40%;
+	float:left;
 }
-
-.GridRowName.GridGroup
+.GridRowCell.GridGroup
 {
-    color: #BBB;
+	color: #BBB;
 
-    /* Override default from name */
-    width: 100%;
+	/* Override default from name */
+	width: 100%;
 
-    padding: 1px 1px 1px 2px;
-    border: 1px solid;
-    border-radius: 2px;
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
 
-    border-top-color:#555;
-    border-left-color:#555;
-    border-bottom-color:#111;
-    border-right-color:#111;
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
 
-    background: #222;
-}
-
-.GridRowControl
-{
-    width:60%;
-    float:left;
+	background: #222;
 }
 
 .GridRowBody
 {
-    /* Clip all contents for show/hide group*/
-    overflow: hidden;
+	/* Clip all contents for show/hide group*/
+	overflow: hidden;
 
-    /* Crazy CSS rules: controls for properties don't clip if this isn't set on this parent */
-    position: relative;
+	/* Crazy CSS rules: controls for properties don't clip if this isn't set on this parent */
+	position: relative;
 }

@@ -231,9 +231,9 @@ DOM.Node.Clone = function(name)
 //
 DOM.Node.AppendHTML = function(node, html)
 {
-	var div = document.createElement("div");
-	div.innerHTML = html;
-	node.appendChild(div);
+	var child = DOM.Node.CreateHTML(html);
+	node.appendChild(child);
+	return child;
 }
 
 
@@ -245,6 +245,15 @@ DOM.Node.AppendClearFloat = function(node)
 	var div = document.createElement("div");
 	div.style.clear = "both";
 	node.appendChild(div);
+}
+
+
+//
+// Check to see that the object passed in is an instance of a DOM node
+//
+DOM.Node.IsNode = function(object)
+{
+	return object instanceof Element;
 }
 
 

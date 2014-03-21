@@ -23,22 +23,23 @@ SampleWindow = (function()
 
 	function OnSamples(self, socket, message)
 	{
-		self.RootRow.ClearRows();
+		var row = self.RootRow;
+		row.ClearRows();
 
-		AddSamples(self.RootRow, message.samples);
+		AddSamples(row, message.samples, "");
 	}
 
 
-	function AddSamples(parent_row, samples)
+	function AddSamples(parent_row, samples, indent)
 	{
 		for (var i in samples)
 		{
 			var sample = samples[i];
 
-			var row = parent_row.AddRow(sample.name, new WM.Label());
-			row.Control.SetText(sample.cpu_us_length);
+			var row = parent_row.AddRow(indent + sample.name, new WM.Label());
+			row.CellData.Control.SetText(sample.cpu_us_length);
 
-			AddSamples(row, sample.children);
+			AddSamples(parent_row, sample.children, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
 		}
 	}
 
