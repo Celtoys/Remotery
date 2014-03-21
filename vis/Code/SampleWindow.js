@@ -36,7 +36,7 @@ SampleWindow = (function()
 		{
 			var sample = samples[i];
 
-			var row = parent_row.AddRow(indent + sample.name, new WM.Label());
+			var row = parent_row.AddRow({ "Name": indent + sample.name, "Control": new WM.Label() });
 			row.CellData.Control.SetText(sample.cpu_us_length);
 
 			AddSamples(parent_row, sample.children, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
