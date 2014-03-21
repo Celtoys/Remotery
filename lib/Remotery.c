@@ -2675,9 +2675,28 @@ static void ThreadSampler_FreeSample(ThreadSampler* ts, CPUSample* sample, rmtBo
 }
 
 
+static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
+{
+	CPUSample* child;
+
+	assert(sample != NULL);
+	assert(digest_hash != NULL);
+	assert(nb_samples != NULL);
+
+	// Concatenate this sample
+	nb_samples++;
+	*digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
+
+	// Concatenate children
+	for (child = sample->first_child; child != NULL; child = child->next_sibling)
+		ThreadSampler_GetSampleDigest(child, digest_hash, nb_samples);
+}
+
+
 static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server)
 {
 	enum rmtError error;
+    rmtU32 digest_hash, nb_samples;
 
 	Buffer* buffer;
 
@@ -2691,6 +2710,11 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 	buffer = ts->json_buf;
 	buffer->bytes_used = 0;
 
+	// Get digest hash of samples so that viewer can efficiently rebuild its tables
+	digest_hash = 0;
+	nb_samples = 0;
+	ThreadSampler_GetSampleDigest(ts->root_sample, &digest_hash, &nb_samples);
+
 	// Start at the root sample but only send its child array, ignoring its description
 	JSON_ERROR_CHECK(json_OpenObject(buffer));
 
@@ -2698,6 +2722,10 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 		JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", "UNNAMED"));
 		JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
+		JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
+        JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_CPUSampleArray(buffer, ts->root_sample->first_child, "samples"));
 
 	JSON_ERROR_CHECK(json_CloseObject(buffer));
