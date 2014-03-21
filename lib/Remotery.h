@@ -202,6 +202,59 @@ enum rmtError
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+   C++ Public Interface Extensions
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+#ifdef __cplusplus
+
+
+//
+// Forward-declartion of private interface for scoped sample type
+//
+extern "C" void _rmt_EndCPUSample(Remotery* rmt);
+
+
+#ifdef RMT_ENABLED
+struct rmt_EndCPUSampleOnScopeExit
+{
+	rmt_EndCPUSampleOnScopeExit(Remotery* rmt)
+		: rmt(rmt)
+	{
+	}
+
+	~rmt_EndCPUSampleOnScopeExit()
+	{
+		rmt_EndCPUSample(rmt);
+	}
+
+	Remotery* rmt;
+};
+#endif
+
+
+
+//
+// Pairs a call to rmt_BeginCPUSample with its call to rmt_EndCPUSample when leaving scope
+//
+#define rmt_ScopedCPUSample(rmt, name)									\
+	RMT_OPTIONAL({														\
+		rmt_BeginCPUSample(rmt, name);									\
+		rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name(rmt);		\
+	})
+
+
+
+#endif
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    Private Interface - don't directly call these
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
