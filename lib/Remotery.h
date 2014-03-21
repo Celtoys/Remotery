@@ -240,11 +240,9 @@ struct rmt_EndCPUSampleOnScopeExit
 //
 // Pairs a call to rmt_BeginCPUSample with its call to rmt_EndCPUSample when leaving scope
 //
-#define rmt_ScopedCPUSample(rmt, name)									\
-	RMT_OPTIONAL({														\
-		rmt_BeginCPUSample(rmt, name);									\
-		rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name(rmt);		\
-	})
+#define rmt_ScopedCPUSample(rmt, name)													\
+		RMT_OPTIONAL(rmt_BeginCPUSample(rmt, name));									\
+		RMT_OPTIONAL(rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name(rmt));
 
 
 
