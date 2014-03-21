@@ -7,7 +7,7 @@ SampleWindow = (function()
 		this.Window.ShowNoAnim();
 
 		this.Grid = this.Window.AddControlNew(new WM.Grid(0, 0, 380, 480));
-		this.RootRow = this.Grid.AddGroup("Samples");
+		this.RootRow = this.Grid.Rows.Add({ "Name": "Samples" }, "GridGroup", "GridGroup");
 
 		server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 	}
@@ -24,7 +24,7 @@ SampleWindow = (function()
 	function OnSamples(self, socket, message)
 	{
 		var row = self.RootRow;
-		row.ClearRows();
+		row.Rows.Clear();
 
 		AddSamples(row, message.samples, "");
 	}
@@ -36,7 +36,7 @@ SampleWindow = (function()
 		{
 			var sample = samples[i];
 
-			var row = parent_row.AddRow({ "Name": indent + sample.name, "Control": new WM.Label() });
+			var row = parent_row.Rows.Add({ "Name": indent + sample.name, "Control": new WM.Label() });
 			row.CellData.Control.SetText(sample.cpu_us_length);
 
 			AddSamples(parent_row, sample.children, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");

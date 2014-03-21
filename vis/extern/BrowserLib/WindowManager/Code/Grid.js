@@ -4,16 +4,18 @@ namespace("WM");
 
 WM.GridRows = (function()
 {
-	function GridRows()
+	function GridRows(parent_object)
 	{
+		this.ParentObject = parent_object;
+
 		// Array of rows in the order they were added
 		this.Rows = [ ];
 	}
 
 
-	GridRows.prototype.Add = function(parent, cell_data, row_classes, cell_classes)
+	GridRows.prototype.Add = function(cell_data, row_classes, cell_classes)
 	{
-		var row = new WM.GridRow(parent, cell_data, row_classes, cell_classes);
+		var row = new WM.GridRow(this.ParentObject, cell_data, row_classes, cell_classes);
 		this.Rows.push(row);
 		return row;
 	}
@@ -66,7 +68,7 @@ WM.GridRow = (function()
 		this.Parent = parent;
 		this.IsOpen = true;
 		this.AnimHandle = null;
-		this.Rows = new WM.GridRows();
+		this.Rows = new WM.GridRows(this);
 		this.CellData = cell_data;
 
 		// Create the main row node
@@ -110,24 +112,6 @@ WM.GridRow = (function()
 
 		// Add the row to the parent
 		this.Parent.BodyNode.appendChild(this.Node);
-	}
-
-
-	GridRow.prototype.AddRow = function(cell_data)
-	{
-		return this.Rows.Add(this, cell_data);
-	}
-
-
-	GridRow.prototype.GetRowByName = function(name)
-	{
-		return this.Rows.GetByName(name);
-	}
-
-
-	GridRow.prototype.ClearRows = function()
-	{
-		this.Rows.Clear();
 	}
 
 
@@ -189,7 +173,7 @@ WM.Grid = (function()
 
 	function Grid(x, y, width, height)
 	{
-		this.Rows = new WM.GridRows();
+		this.Rows = new WM.GridRows(this);
 
 		this.Node = DOM.Node.CreateHTML(template_html);
 		this.BodyNode = DOM.Node.FindWithClass(this.Node, "GridBody");
@@ -198,12 +182,6 @@ WM.Grid = (function()
 		DOM.Node.SetSize(this.Node, [ width, height ]);
 
 		DOM.Event.AddHandler(this.Node, "dblclick", OnDblClick);
-	}
-
-	
-	Grid.prototype.AddGroup = function(name)
-	{
-		return this.Rows.Add(this, {"Name": name }, "GridGroup", "GridGroup");
 	}
 
 
