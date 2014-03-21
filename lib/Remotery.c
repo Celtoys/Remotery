@@ -14,41 +14,18 @@
 #include "Remotery.h"
 
 
+#ifdef RMT_ENABLED
+
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
-   Compiler/Platform Detection and External Dependencies
+   External Dependencies
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
-
-
-//
-// Compiler identification
-//
-#if defined(_MSC_VER)
-	#define RMT_COMPILER_MSVC
-#elif defined(__GNUC__)
-	#define RMT_COMPILER_GNUC
-#elif defined(__clang__)
-	#define RMT_COMPILER_CLANG
-#endif
-
-
-//
-// Platform identification
-//
-#if defined(_WINDOWS) || defined(_WIN32)
-	#define RMT_PLATFORM_WINDOWS
-#elif defined(__linux__)
-	#define RMT_PLATFORM_LINUX
-	#define RMT_PLATFORM_POSIX
-#else defined(__APPLE__)
-	#define RMT_PLATFORM_MACOS
-	#define RMT_PLATFORM_POSIX
-#endif
 
 
 //
@@ -2747,7 +2724,7 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 
 
 
-enum rmtError rmt_Create(Remotery** remotery)
+enum rmtError _rmt_Create(Remotery** remotery)
 {
 	enum rmtError error;
 
@@ -2766,7 +2743,7 @@ enum rmtError rmt_Create(Remotery** remotery)
 	error = tlsAlloc(&(*remotery)->thread_sampler_tls_handle);
 	if (error != RMT_ERROR_NONE)
 	{
-		rmt_Destroy(*remotery);
+		_rmt_Destroy(*remotery);
 		*remotery = NULL;
 		return error;
 	}
@@ -2775,7 +2752,7 @@ enum rmtError rmt_Create(Remotery** remotery)
 	error = Server_Create(0x4597, &(*remotery)->server);
 	if (error != RMT_ERROR_NONE)
 	{
-		rmt_Destroy(*remotery);
+		_rmt_Destroy(*remotery);
 		*remotery = NULL;
 		return error;
 	}
@@ -2784,7 +2761,7 @@ enum rmtError rmt_Create(Remotery** remotery)
 }
 
 
-void rmt_Destroy(Remotery* rmt)
+void _rmt_Destroy(Remotery* rmt)
 {
 	if (rmt == NULL)
 		return;
@@ -2807,21 +2784,21 @@ void rmt_Destroy(Remotery* rmt)
 }
 
 
-void rmt_LogText(Remotery* rmt, rmtPStr text)
+void _rmt_LogText(Remotery* rmt, rmtPStr text)
 {
 	if (rmt != NULL)
 		Server_LogText(rmt->server, text);
 }
 
 
-void rmt_UpdateServer(Remotery* rmt)
+void _rmt_UpdateServer(Remotery* rmt)
 {
 	if (rmt != NULL)
 		Server_Update(rmt->server);
 }
 
 
-rmtBool rmt_IsClientConnected(Remotery* rmt)
+rmtBool _rmt_IsClientConnected(Remotery* rmt)
 {
 	if (rmt != NULL)
 		return Server_IsClientConnected(rmt->server);
@@ -2829,7 +2806,7 @@ rmtBool rmt_IsClientConnected(Remotery* rmt)
 }
 
 
-rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
+static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 {
 	// Hash cache provided?
 	if (hash_cache != NULL)
@@ -2849,7 +2826,7 @@ rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
+void _rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
 {
 	rmtU32 name_hash = 0;
 	ThreadSampler* ts;
@@ -2873,7 +2850,7 @@ void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void rmt_EndCPUSample(Remotery* rmt)
+void _rmt_EndCPUSample(Remotery* rmt)
 {
 	ThreadSampler* ts;
 	CPUSample* sample;
@@ -2892,7 +2869,7 @@ void rmt_EndCPUSample(Remotery* rmt)
 }
 
 
-enum rmtError rmt_SendThreadSamples(Remotery* rmt)
+enum rmtError _rmt_SendThreadSamples(Remotery* rmt)
 {
 	ThreadSampler* ts;
 	enum rmtError error;
@@ -2919,3 +2896,5 @@ enum rmtError rmt_SendThreadSamples(Remotery* rmt)
 	return RMT_ERROR_NONE;
 }
 
+
+#endif // RMT_ENABLED

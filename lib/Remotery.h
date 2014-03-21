@@ -3,29 +3,116 @@
 #define RMT_INCLUDED_H
 
 
+#define RMT_ENABLED
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Compiler/Platform Detection and Preprocessor Utilities
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+//
+// Compiler identification
+//
+#if defined(_MSC_VER)
+	#define RMT_COMPILER_MSVC
+#elif defined(__GNUC__)
+	#define RMT_COMPILER_GNUC
+#elif defined(__clang__)
+	#define RMT_COMPILER_CLANG
+#endif
+
+
+//
+// Platform identification
+//
+#if defined(_WINDOWS) || defined(_WIN32)
+	#define RMT_PLATFORM_WINDOWS
+#elif defined(__linux__)
+	#define RMT_PLATFORM_LINUX
+	#define RMT_PLATFORM_POSIX
+#else defined(__APPLE__)
+	#define RMT_PLATFORM_MACOS
+	#define RMT_PLATFORM_POSIX
+#endif
+
+
+//
+// Generate a unique symbol with the given prefix
+//
+#define RMT_JOIN2(x, y) x ## y
+#define RMT_JOIN(x, y) RMT_JOIN2(x, y)
+#define RMT_UNIQUE(x) RMT_JOIN(x, __COUNTER__)
+
+
+//
+// Public interface is implemented in terms of these macros to easily enable/disabl itself
+//
+#ifdef RMT_ENABLED
+	#define RMT_OPTIONAL(x) x
+	#define RMT_OPTIONAL_RET(x, y) x
+#else
+	#define RMT_OPTIONAL(x)
+	#define RMT_OPTIONAL_RET(x, y) (y)
+#endif
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Types
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+//
+// Boolean
+//
 typedef unsigned int rmtBool;
 #define RMT_TRUE ((rmtBool)1)
 #define RMT_FALSE ((rmtBool)0)
 
 
+//
+// Unsigned integer types
+//
 typedef unsigned char rmtU8;
 typedef unsigned short rmtU16;
 typedef unsigned int rmtU32;
 typedef unsigned long long rmtU64;
 
 
+//
+// Signed integer types
+//
 typedef char rmtS8;
 typedef short rmtS16;
 typedef int rmtS32;
 typedef long long rmtS64;
 
 
+//
+// Const, null-terminated string pointer
+//
 typedef const char* rmtPStr;
 
 
+//
+// Handle to the main remotery instance
+//
 typedef struct Remotery Remotery;
 
 
+//
+// All possible error codes
+//
 enum rmtError
 {
 	RMT_ERROR_NONE,
@@ -70,33 +157,73 @@ enum rmtError
 };
 
 
-#define RMT_CREATE(rmt)					rmt_Create(rmt)
 
-#define RMT_DESTROY(rmt)				rmt_Destroy(rmt)
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Public Interface
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
 
-#define RMT_LOG_TEXT(rmt, text)			rmt_LogText(rmt, text)
 
-#define RMT_UPDATE_SERVER(rmt)			rmt_UpdateServer(rmt)
 
-#define RMT_IS_CLIENT_CONNECTED(rmt)	rmt_IsClientConnected(rmt)
+// Can call remotery functions on a null pointer
 
+#define rmt_Create(rmt)												\
+	RMT_OPTIONAL_RET(_rmt_Create(rmt), RMT_ERROR_NONE)
+
+#define rmt_Destroy(rmt)											\
+	RMT_OPTIONAL(_rmt_Destroy(rmt))
+
+#define rmt_LogText(rmt, text)										\
+	RMT_OPTIONAL(_rmt_LogText(rmt, text))
+
+#define rmt_UpdateServer(rmt)										\
+	RMT_OPTIONAL(_rmt_UpdateServer(rmt))
+
+#define rmt_IsClientConnected(rmt)									\
+	RMT_OPTIONAL_RET(_rmt_IsClientConnected(rmt), RMT_TRUE)
+
+#define rmt_BeginCPUSample(rmt, name)								\
+	RMT_OPTIONAL({													\
+		static rmtU32 rmt_sample_hash_##name = 0;					\
+		_rmt_BeginCPUSample(rmt, #name, &rmt_sample_hash_##name);	\
+	})
+
+#define rmt_EndCPUSample(rmt)										\
+	RMT_OPTIONAL(_rmt_EndCPUSample(rmt))
+
+#define rmt_SendThreadSamples(rmt)									\
+	RMT_OPTIONAL_RET(_rmt_SendThreadSamples(rmt), RMT_ERROR_NONE)
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Private Interface - don't directly call these
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+#ifdef RMT_ENABLED
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
-// Can call remotery functions on a null pointer
+enum rmtError _rmt_Create(Remotery** remotery);
+void _rmt_Destroy(Remotery* rmt);
 
+void _rmt_LogText(Remotery* rmt, rmtPStr text);
 
-enum rmtError rmt_Create(Remotery** remotery);
-void rmt_Destroy(Remotery* rmt);
+void _rmt_UpdateServer(Remotery* rmt);
 
-void rmt_LogText(Remotery* rmt, rmtPStr text);
-
-void rmt_UpdateServer(Remotery* rmt);
-
-rmtBool rmt_IsClientConnected(Remotery* rmt);
+rmtBool _rmt_IsClientConnected(Remotery* rmt);
 
 //
 // 'hash_cache' stores a pointer to a sample name's hash value. Internally this is used to identify unique callstacks and it
@@ -105,15 +232,18 @@ rmtBool rmt_IsClientConnected(Remotery* rmt);
 //
 // If 'hash_cache' is NULL then this call becomes more expensive, as it has to recalculate the hash of the name.
 //
-void rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache);
+void _rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache);
 
-void rmt_EndCPUSample(Remotery* rmt);
+void _rmt_EndCPUSample(Remotery* rmt);
 
-enum rmtError rmt_SendThreadSamples(Remotery* rmt);
+enum rmtError _rmt_SendThreadSamples(Remotery* rmt);
 
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif	// RMT_ENABLED
+
 
 #endif
