@@ -10,6 +10,34 @@ WM.GridRows = (function()
 
 		// Array of rows in the order they were added
 		this.Rows = [ ];
+
+		// Collection of custom row indexes for fast lookup
+		this.Indexes = { };
+	}
+
+
+	GridRows.prototype.AddIndex = function(cell_field_name)
+	{
+		var index = { };
+
+		// Go through existing rows and add to the index
+		for (var i in this.Rows)
+		{
+			var row = this.Rows[i];
+			if (cell_field_name in row.CellData)
+			{
+				var cell_field = row.CellData[cell_field_name];
+				index[cell_field] = row;
+			}
+		}
+
+		this.Indexes[cell_field_name] = index;
+	}
+
+
+	GridRows.prototype.AddRowToIndex = function(index_name, cell_data, row)
+	{
+		this.Indexes[index_name][cell_data] = row;
 	}
 
 
@@ -21,16 +49,10 @@ WM.GridRows = (function()
 	}
 
 
-	GridRows.prototype.GetByName = function(name)
+	GridRows.prototype.GetBy = function(cell_field_name, cell_data)
 	{
-		for (var i in this.Rows)
-		{
-			var row = this.Rows[i];
-			if (row.CellData.Name == name)
-				return row;
-		}
-
-		return null;
+		var index = this.Indexes[cell_field_name];
+		return index[cell_data];
 	}
 
 
@@ -57,8 +79,8 @@ WM.GridRow = (function()
 
 
 	//
-	// 'cell_data' is an object with a variable number of fields. If a field is text, a column is created and the
-	// text is assigned. 
+	// 'cell_data' is an object with a variable number of fields.
+	// Any fields prefixed with an underscore are hidden.
 	//
 	function GridRow(parent, cell_data, row_classes, cell_classes)
 	{
@@ -85,6 +107,13 @@ WM.GridRow = (function()
 			if (this.CellData.hasOwnProperty(attr))
 			{
 				var data = this.CellData[attr];
+
+				// Update any grid row index references
+				if (attr in parent.Rows.Indexes)
+					parent.Rows.AddRowToIndex(attr, data, this);
+
+				if (attr[0] == "_")
+					continue;
 
 				// Create a node for the cell and add any custom classes
 				var node = DOM.Node.AppendHTML(this.Node, "<div class='GridRowCell'></div>");

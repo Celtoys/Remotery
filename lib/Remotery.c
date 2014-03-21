@@ -2377,6 +2377,8 @@ static enum rmtError json_CPUSample(Buffer* buffer, CPUSample* sample)
 
 		JSON_ERROR_CHECK(json_FieldStr(buffer, "name", sample->name));
 		JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_FieldU64(buffer, "id", sample->unique_id));
+		JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_FieldU64(buffer, "cpu_us_start", sample->start_us));
 		JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_FieldU64(buffer, "cpu_us_length", max(sample->end_us - sample->start_us, 0)));
@@ -2684,7 +2686,7 @@ static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash
 	assert(nb_samples != NULL);
 
 	// Concatenate this sample
-	nb_samples++;
+	(*nb_samples)++;
 	*digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
 
 	// Concatenate children
@@ -2725,7 +2727,7 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 		JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
 		JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
-        JSON_ERROR_CHECK(json_Comma(buffer));
+		JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_CPUSampleArray(buffer, ts->root_sample->first_child, "samples"));
 
 	JSON_ERROR_CHECK(json_CloseObject(buffer));
