@@ -12,7 +12,7 @@ SampleWindow = (function()
 
 		// Create a grid that's indexed by the unique sample ID
 		this.Grid = this.Window.AddControlNew(new WM.Grid(0, 0, 380, 480));
-		this.RootRow = this.Grid.Rows.Add({ "Name": "Samples" }, "GridGroup", "GridGroup");
+		this.RootRow = this.Grid.Rows.Add({ "Name": "Samples" }, "GridGroup", { "Name": "GridGroup" });
 		this.RootRow.Rows.AddIndex("_ID");
 
 		server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
@@ -59,7 +59,12 @@ SampleWindow = (function()
 				Control: new WM.Label()
 			};
 
-			var row = parent_row.Rows.Add(cell_data);
+			var cell_classes =
+			{
+				Name: "SampleNameCell",
+			};
+
+			var row = parent_row.Rows.Add(cell_data, null, cell_classes);
 			row.CellData.Control.SetText(sample.cpu_us_length);
 
 			AddSamples(parent_row, sample.children, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");

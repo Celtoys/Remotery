@@ -84,8 +84,6 @@ WM.GridRow = (function()
 	//
 	function GridRow(parent, cell_data, row_classes, cell_classes)
 	{
-		// TODO: NEEEDS ID?
-
 		// Setup data
 		this.Parent = parent;
 		this.IsOpen = true;
@@ -112,13 +110,14 @@ WM.GridRow = (function()
 				if (attr in parent.Rows.Indexes)
 					parent.Rows.AddRowToIndex(attr, data, this);
 
+				// Hide any cells with underscore prefixes
 				if (attr[0] == "_")
 					continue;
 
 				// Create a node for the cell and add any custom classes
 				var node = DOM.Node.AppendHTML(this.Node, "<div class='GridRowCell'></div>");
-				if (cell_classes)
-					DOM.Node.AddClass(node, cell_classes);
+				if (cell_classes && attr in cell_classes)
+					DOM.Node.AddClass(node, cell_classes[attr]);
 
 				// If this is a Window Control, add its node to the cell
 				if (data instanceof Object && "Node" in data && DOM.Node.IsNode(data.Node))

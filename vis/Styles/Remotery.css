@@ -72,3 +72,9 @@ body
 	/* Transition to green is instant */
 	transition: none;
 }
+
+
+.SampleNameCell
+{
+	width:300px;
+}
