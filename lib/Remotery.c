@@ -641,7 +641,11 @@ static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
 	// Destroy all objects released to the allocator
 	assert(allocator != NULL);
 	while (allocator->first_free != NULL)
-		ObjectAllocator_Free(allocator, allocator->first_free);
+    {
+        ObjectLink* next = allocator->first_free->next;
+        free(allocator->first_free);
+        allocator->first_free = next;
+    }
 }
 
 
