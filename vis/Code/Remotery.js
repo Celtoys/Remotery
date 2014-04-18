@@ -21,7 +21,10 @@ Remotery = (function()
 		// Create required windows
 		this.TitleWindow = new TitleWindow(this.WindowManager, this.Server, this.ConnectionAddress);
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
-		this.SampleWindow = new SampleWindow(this.WindowManager, this.Server);
+
+		this.NbSampleWindows = 0;
+		this.SampleWindows = { };
+		this.Server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 
 		// Kick-off the auto-connect loop
 		AutoConnect(this);
@@ -58,6 +61,20 @@ Remotery = (function()
 	}
 
 
+	function OnSamples(self, socket, message)
+	{
+		var name = message.thread_name;
+		if (!(name in self.SampleWindows))
+		{
+			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
+			self.SampleWindows[name].WindowResized(window.innerWidth, window.innerHeight, self.TitleWindow.Window, self.Console.Window);
+			self.NbSampleWindows++;
+		}
+
+		self.SampleWindows[name].OnSamples(socket, message);
+	}
+
+
 	function OnResizeWindow(self)
 	{
 		// Resize windows
@@ -65,7 +82,8 @@ Remotery = (function()
 		var h = window.innerHeight;
 		self.Console.WindowResized(w, h);
 		self.TitleWindow.WindowResized(w, h);
-		self.SampleWindow.WindowResized(w, h, self.TitleWindow.Window, self.Console.Window);
+		for (var i in self.SampleWindows)
+			self.SampleWindows[i].WindowResized(w, h, self.TitleWindow.Window, self.Console.Window);
 	}
 
 

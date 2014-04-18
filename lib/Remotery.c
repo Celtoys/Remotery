@@ -2676,7 +2676,7 @@ static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash
 }
 
 
-static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server)
+static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server, rmtPStr thread_name)
 {
 	enum rmtError error;
     rmtU32 digest_hash, nb_samples;
@@ -2703,7 +2703,7 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 
 		JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
 		JSON_ERROR_CHECK(json_Comma(buffer));
-		JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", "UNNAMED"));
+		JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", thread_name));
 		JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
 		JSON_ERROR_CHECK(json_Comma(buffer));
@@ -2873,7 +2873,7 @@ void _rmt_EndCPUSample(Remotery* rmt)
 }
 
 
-enum rmtError _rmt_SendThreadSamples(Remotery* rmt)
+enum rmtError _rmt_SendThreadSamples(Remotery* rmt, rmtPStr thread_name)
 {
 	ThreadSampler* ts;
 	enum rmtError error;
@@ -2889,7 +2889,7 @@ enum rmtError _rmt_SendThreadSamples(Remotery* rmt)
 	// Having a client not connected is typical and not an error
 	if (Server_IsClientConnected(rmt->server))
     {
-        error = ThreadSampler_SendSamples(ts, rmt->server);
+        error = ThreadSampler_SendSamples(ts, rmt->server, thread_name);
         if (error != RMT_ERROR_NONE)
 		  return error;
     }
