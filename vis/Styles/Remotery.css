@@ -78,3 +78,22 @@ body
 {
 	width:300px;
 }
+
+
+.TimelineContainer
+{
+	/* Clip all contents to the window border */
+	overflow: hidden;
+}
+
+
+.TimelineBox
+{
+	/* Relative positioning within container */
+	position:absolute;
+
+	width:10px;
+	height:10px;
+
+	background-color: #BBB;
+}

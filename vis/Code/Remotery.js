@@ -21,9 +21,12 @@ Remotery = (function()
 		// Create required windows
 		this.TitleWindow = new TitleWindow(this.WindowManager, this.Server, this.ConnectionAddress);
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
+		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Server);
 
 		this.NbSampleWindows = 0;
 		this.SampleWindows = { };
+		this.SampleHistory = { };
+
 		this.Server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 
 		// Kick-off the auto-connect loop
@@ -63,15 +66,21 @@ Remotery = (function()
 
 	function OnSamples(self, socket, message)
 	{
+		// Lookup the thread these samples are for
 		var name = message.thread_name;
 		if (!(name in self.SampleWindows))
 		{
 			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
-			self.SampleWindows[name].WindowResized(window.innerWidth, window.innerHeight, self.TitleWindow.Window, self.Console.Window);
+			self.SampleHistory[name] = [ ];
+			self.SampleWindows[name].WindowResized(window.innerWidth, window.innerHeight, self.TimelineWindow.Window, self.Console.Window);
 			self.NbSampleWindows++;
 		}
 
+		// Set on the window and record history
 		self.SampleWindows[name].OnSamples(socket, message);
+		self.SampleHistory[name].push(message);
+
+		self.TimelineWindow.OnSamples(message);
 	}
 
 
@@ -82,8 +91,9 @@ Remotery = (function()
 		var h = window.innerHeight;
 		self.Console.WindowResized(w, h);
 		self.TitleWindow.WindowResized(w, h);
+		self.TimelineWindow.WindowResized(w, h, self.TitleWindow.Window);
 		for (var i in self.SampleWindows)
-			self.SampleWindows[i].WindowResized(w, h, self.TitleWindow.Window, self.Console.Window);
+			self.SampleWindows[i].WindowResized(w, h, self.TimelineWindow.Window, self.Console.Window);
 	}
 
 
