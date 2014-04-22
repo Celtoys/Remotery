@@ -9,6 +9,7 @@
 //      RegisterThread instead? That would increase API init burden but would prevent the need to return error codes
 //      for all API functions. Alternatively, fold it into the rmt_SendThreadSamples function.
 //    * Put rmt_UpdateServer on a separate thread with no calls required from the client.
+//    * Access to intermediate serialisation buffer is not thread-safe.
 //
 
 #include "Remotery.h"
@@ -312,229 +313,229 @@ typedef unsigned int rsize_t;
 static rsize_t
 strnlen_s (const char *dest, rsize_t dmax)
 {
-    rsize_t count;
+	rsize_t count;
 
-    if (dest == NULL) {
-        return RCNEGATE(0);
-    }
+	if (dest == NULL) {
+		return RCNEGATE(0);
+	}
 
-    if (dmax == 0) {
-        return RCNEGATE(0);
-    }
+	if (dmax == 0) {
+		return RCNEGATE(0);
+	}
 
-    if (dmax > RSIZE_MAX_STR) {
-        return RCNEGATE(0);
-    }
+	if (dmax > RSIZE_MAX_STR) {
+		return RCNEGATE(0);
+	}
 
-    count = 0;
-    while (*dest && dmax) {
-        count++;
-        dmax--;
-        dest++;
-    }
+	count = 0;
+	while (*dest && dmax) {
+		count++;
+		dmax--;
+		dest++;
+	}
 
-    return RCNEGATE(count);
+	return RCNEGATE(count);
 }
 
 
 static errno_t
 strstr_s (char *dest, rsize_t dmax,
-          const char *src, rsize_t slen, char **substring)
+		  const char *src, rsize_t slen, char **substring)
 {
-    rsize_t len;
-    rsize_t dlen;
-    int i;
+	rsize_t len;
+	rsize_t dlen;
+	int i;
 
-    if (substring == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
-    *substring = NULL;
+	if (substring == NULL) {
+		return RCNEGATE(ESNULLP);
+	}
+	*substring = NULL;
 
-    if (dest == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
+	if (dest == NULL) {
+		return RCNEGATE(ESNULLP);
+	}
 
-    if (dmax == 0) {
-        return RCNEGATE(ESZEROL);
-    }
+	if (dmax == 0) {
+		return RCNEGATE(ESZEROL);
+	}
 
-    if (dmax > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
+	if (dmax > RSIZE_MAX_STR) {
+		return RCNEGATE(ESLEMAX);
+	}
 
-    if (src == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
+	if (src == NULL) {
+		return RCNEGATE(ESNULLP);
+	}
 
-    if (slen == 0) {
-        return RCNEGATE(ESZEROL);
-    }
+	if (slen == 0) {
+		return RCNEGATE(ESZEROL);
+	}
 
-    if (slen > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
+	if (slen > RSIZE_MAX_STR) {
+		return RCNEGATE(ESLEMAX);
+	}
 
-    /*
-     * src points to a string with zero length, or
-     * src equals dest, return dest
-     */
-    if (*src == '\0' || dest == src) {
-        *substring = dest;
-        return RCNEGATE(EOK);
-    }
+	/*
+	 * src points to a string with zero length, or
+	 * src equals dest, return dest
+	 */
+	if (*src == '\0' || dest == src) {
+		*substring = dest;
+		return RCNEGATE(EOK);
+	}
 
-    while (*dest && dmax) {
-        i = 0;
-        len = slen;
-        dlen = dmax;
+	while (*dest && dmax) {
+		i = 0;
+		len = slen;
+		dlen = dmax;
 
-        while (src[i] && dlen) {
+		while (src[i] && dlen) {
 
-            /* not a match, not a substring */
-            if (dest[i] != src[i]) {
-                break;
-            }
+			/* not a match, not a substring */
+			if (dest[i] != src[i]) {
+				break;
+			}
 
-            /* move to the next char */
-            i++;
-            len--;
-            dlen--;
+			/* move to the next char */
+			i++;
+			len--;
+			dlen--;
 
-            if (src[i] == '\0' || !len) {
-                *substring = dest;
-                return RCNEGATE(EOK);
-            }
-        }
-        dest++;
-        dmax--;
-    }
+			if (src[i] == '\0' || !len) {
+				*substring = dest;
+				return RCNEGATE(EOK);
+			}
+		}
+		dest++;
+		dmax--;
+	}
 
-    /*
-     * substring was not found, return NULL
-     */
-    *substring = NULL;
-    return RCNEGATE(ESNOTFND);
+	/*
+	 * substring was not found, return NULL
+	 */
+	*substring = NULL;
+	return RCNEGATE(ESNOTFND);
 }
 
 
 static errno_t
 strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
 {
-    rsize_t orig_dmax;
-    char *orig_dest;
-    const char *overlap_bumper;
+	rsize_t orig_dmax;
+	char *orig_dest;
+	const char *overlap_bumper;
 
-    if (dest == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
+	if (dest == NULL) {
+		return RCNEGATE(ESNULLP);
+	}
 
-    if (src == NULL) {
-        return RCNEGATE(ESNULLP);
-    }
+	if (src == NULL) {
+		return RCNEGATE(ESNULLP);
+	}
 
-    if (slen > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
+	if (slen > RSIZE_MAX_STR) {
+		return RCNEGATE(ESLEMAX);
+	}
 
-    if (dmax == 0) {
-        return RCNEGATE(ESZEROL);
-    }
+	if (dmax == 0) {
+		return RCNEGATE(ESZEROL);
+	}
 
-    if (dmax > RSIZE_MAX_STR) {
-        return RCNEGATE(ESLEMAX);
-    }
+	if (dmax > RSIZE_MAX_STR) {
+		return RCNEGATE(ESLEMAX);
+	}
 
-    /* hold base of dest in case src was not copied */
-    orig_dmax = dmax;
-    orig_dest = dest;
+	/* hold base of dest in case src was not copied */
+	orig_dmax = dmax;
+	orig_dest = dest;
 
-    if (dest < src) {
-        overlap_bumper = src;
+	if (dest < src) {
+		overlap_bumper = src;
 
-        /* Find the end of dest */
-        while (*dest != '\0') {
+		/* Find the end of dest */
+		while (*dest != '\0') {
 
-            if (dest == overlap_bumper) {
-                return RCNEGATE(ESOVRLP);
-            }
+			if (dest == overlap_bumper) {
+				return RCNEGATE(ESOVRLP);
+			}
 
-            dest++;
-            dmax--;
-            if (dmax == 0) {
-                return RCNEGATE(ESUNTERM);
-            }
-        }
+			dest++;
+			dmax--;
+			if (dmax == 0) {
+				return RCNEGATE(ESUNTERM);
+			}
+		}
 
-        while (dmax > 0) {
-            if (dest == overlap_bumper) {
-                return RCNEGATE(ESOVRLP);
-            }
+		while (dmax > 0) {
+			if (dest == overlap_bumper) {
+				return RCNEGATE(ESOVRLP);
+			}
 
-            /*
-             * Copying truncated before the source null is encountered
-             */
-            if (slen == 0) {
-                *dest = '\0';
-                return RCNEGATE(EOK);
-            }
+			/*
+			 * Copying truncated before the source null is encountered
+			 */
+			if (slen == 0) {
+				*dest = '\0';
+				return RCNEGATE(EOK);
+			}
 
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
+			*dest = *src;
+			if (*dest == '\0') {
+				return RCNEGATE(EOK);
+			}
 
-            dmax--;
-            slen--;
-            dest++;
-            src++;
-        }
+			dmax--;
+			slen--;
+			dest++;
+			src++;
+		}
 
-    } else {
-        overlap_bumper = dest;
+	} else {
+		overlap_bumper = dest;
 
-        /* Find the end of dest */
-        while (*dest != '\0') {
+		/* Find the end of dest */
+		while (*dest != '\0') {
 
-            /*
-             * NOTE: no need to check for overlap here since src comes first
-             * in memory and we're not incrementing src here.
-             */
-            dest++;
-            dmax--;
-            if (dmax == 0) {
-                return RCNEGATE(ESUNTERM);
-            }
-        }
+			/*
+			 * NOTE: no need to check for overlap here since src comes first
+			 * in memory and we're not incrementing src here.
+			 */
+			dest++;
+			dmax--;
+			if (dmax == 0) {
+				return RCNEGATE(ESUNTERM);
+			}
+		}
 
-        while (dmax > 0) {
-            if (src == overlap_bumper) {
-                return RCNEGATE(ESOVRLP);
-            }
+		while (dmax > 0) {
+			if (src == overlap_bumper) {
+				return RCNEGATE(ESOVRLP);
+			}
 
-            /*
-             * Copying truncated
-             */
-            if (slen == 0) {
-                *dest = '\0';
-                return RCNEGATE(EOK);
-            }
+			/*
+			 * Copying truncated
+			 */
+			if (slen == 0) {
+				*dest = '\0';
+				return RCNEGATE(EOK);
+			}
 
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
+			*dest = *src;
+			if (*dest == '\0') {
+				return RCNEGATE(EOK);
+			}
 
-            dmax--;
-            slen--;
-            dest++;
-            src++;
-        }
-    }
+			dmax--;
+			slen--;
+			dest++;
+			src++;
+		}
+	}
 
-    /*
-     * the entire src was not copied, so the string will be nulled.
-     */
-    return RCNEGATE(ESNOSPC);
+	/*
+	 * the entire src was not copied, so the string will be nulled.
+	 */
+	return RCNEGATE(ESNOSPC);
 }
 
 
@@ -641,11 +642,11 @@ static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
 	// Destroy all objects released to the allocator
 	assert(allocator != NULL);
 	while (allocator->first_free != NULL)
-    {
-        ObjectLink* next = allocator->first_free->next;
-        free(allocator->first_free);
-        allocator->first_free = next;
-    }
+	{
+		ObjectLink* next = allocator->first_free->next;
+		free(allocator->first_free);
+		allocator->first_free = next;
+	}
 }
 
 
@@ -1136,14 +1137,14 @@ typedef struct
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of Micael Hildenborg nor the
-      names of its contributors may be used to endorse or promote products
-      derived from this software without specific prior written permission.
+	* Redistributions of source code must retain the above copyright
+	  notice, this list of conditions and the following disclaimer.
+	* Redistributions in binary form must reproduce the above copyright
+	  notice, this list of conditions and the following disclaimer in the
+	  documentation and/or other materials provided with the distribution.
+	* Neither the name of Micael Hildenborg nor the
+	  names of its contributors may be used to endorse or promote products
+	  derived from this software without specific prior written permission.
 
  THIS SOFTWARE IS PROVIDED BY Micael Hildenborg ''AS IS'' AND ANY
  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -2679,7 +2680,7 @@ static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash
 static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server, rmtPStr thread_name)
 {
 	enum rmtError error;
-    rmtU32 digest_hash, nb_samples;
+	rmtU32 digest_hash, nb_samples;
 
 	Buffer* buffer;
 
@@ -2728,11 +2729,19 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 
 
 
-enum rmtError _rmt_Create(Remotery** remotery)
+//
+// Global remotery context
+//
+static Remotery* g_Remotery = NULL;
+static rmtBool g_RemoterySet = RMT_FALSE;
+
+
+enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
 	enum rmtError error;
 
 	assert(remotery != NULL);
+	assert(g_Remotery == NULL);
 
 	*remotery = (Remotery*)malloc(sizeof(Remotery));
 	if (*remotery == NULL)
@@ -2747,7 +2756,7 @@ enum rmtError _rmt_Create(Remotery** remotery)
 	error = tlsAlloc(&(*remotery)->thread_sampler_tls_handle);
 	if (error != RMT_ERROR_NONE)
 	{
-		_rmt_Destroy(*remotery);
+		_rmt_DestroyGlobalInstance(*remotery);
 		*remotery = NULL;
 		return error;
 	}
@@ -2756,56 +2765,71 @@ enum rmtError _rmt_Create(Remotery** remotery)
 	error = Server_Create(0x4597, &(*remotery)->server);
 	if (error != RMT_ERROR_NONE)
 	{
-		_rmt_Destroy(*remotery);
+		_rmt_DestroyGlobalInstance(*remotery);
 		*remotery = NULL;
 		return error;
 	}
+
+	// Set global context
+	g_Remotery = *remotery;
+	g_RemoterySet = RMT_FALSE;
 
 	return RMT_ERROR_NONE;
 }
 
 
-void _rmt_Destroy(Remotery* rmt)
+void _rmt_DestroyGlobalInstance(Remotery* remotery)
 {
-	if (rmt == NULL)
+	if (remotery == NULL)
 		return;
 
-	ThreadSampler_DestroyAll(rmt);
+	// Ensure this is the module that created it
+	assert(g_RemoterySet == RMT_FALSE);
 
-	if (rmt->server != NULL)
+	ThreadSampler_DestroyAll(remotery);
+
+	if (remotery->server != NULL)
 	{
-		Server_Destroy(rmt->server);
-		rmt->server = NULL;
+		Server_Destroy(remotery->server);
+		remotery->server = NULL;
 	}
 
-	if (rmt->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
+	if (remotery->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
 	{
-		tlsFree(rmt->thread_sampler_tls_handle);
-		rmt->thread_sampler_tls_handle = NULL;
+		tlsFree(remotery->thread_sampler_tls_handle);
+		remotery->thread_sampler_tls_handle = NULL;
 	}
 
-	free(rmt);
+	free(remotery);
+	remotery = NULL;
 }
 
 
-void _rmt_LogText(Remotery* rmt, rmtPStr text)
+void _rmt_SetGlobalInstance(Remotery* remotery)
 {
-	if (rmt != NULL)
-		Server_LogText(rmt->server, text);
+	g_Remotery = remotery;
+	g_RemoterySet = (remotery == NULL) ? RMT_FALSE : RMT_TRUE;
 }
 
 
-void _rmt_UpdateServer(Remotery* rmt)
+void _rmt_LogText(rmtPStr text)
 {
-	if (rmt != NULL)
-		Server_Update(rmt->server);
+	if (g_Remotery != NULL)
+		Server_LogText(g_Remotery->server, text);
 }
 
 
-rmtBool _rmt_IsClientConnected(Remotery* rmt)
+void _rmt_UpdateServer(void)
 {
-	if (rmt != NULL)
-		return Server_IsClientConnected(rmt->server);
+	if (g_Remotery != NULL)
+		Server_Update(g_Remotery->server);
+}
+
+
+rmtBool _rmt_IsClientConnected(void)
+{
+	if (g_Remotery != NULL)
+		return Server_IsClientConnected(g_Remotery->server);
 	return RMT_FALSE;
 }
 
@@ -2830,17 +2854,17 @@ static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void _rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
+void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 {
 	rmtU32 name_hash = 0;
 	ThreadSampler* ts;
 	CPUSample* sample;
 
-	if (rmt == NULL)
+	if (g_Remotery == NULL)
 		return;
 
 	// Get data for this thread
-	if (ThreadSampler_Get(rmt, &ts) != RMT_ERROR_NONE)
+	if (ThreadSampler_Get(g_Remotery, &ts) != RMT_ERROR_NONE)
 		return;
 
 	name_hash = GetNameHash(name, hash_cache);
@@ -2854,16 +2878,16 @@ void _rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void _rmt_EndCPUSample(Remotery* rmt)
+void _rmt_EndCPUSample(void)
 {
 	ThreadSampler* ts;
 	CPUSample* sample;
 
-	if (rmt == NULL)
+	if (g_Remotery == NULL)
 		return;
 
 	// Get data for this thread
-	if (ThreadSampler_Get(rmt, &ts) != RMT_ERROR_NONE)
+	if (ThreadSampler_Get(g_Remotery, &ts) != RMT_ERROR_NONE)
 		return;
 
 	sample = ts->current_parent_sample;
@@ -2873,29 +2897,29 @@ void _rmt_EndCPUSample(Remotery* rmt)
 }
 
 
-enum rmtError _rmt_SendThreadSamples(Remotery* rmt, rmtPStr thread_name)
+enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name)
 {
 	ThreadSampler* ts;
 	enum rmtError error;
 
-	if (rmt == NULL)
+	if (g_Remotery == NULL)
 		return RMT_ERROR_REMOTERY_NOT_CREATED;
 
 	// Get data for this thread
-	error = ThreadSampler_Get(rmt, &ts);
+	error = ThreadSampler_Get(g_Remotery, &ts);
 	if (error != RMT_ERROR_NONE)
 		return error;
 
 	// Having a client not connected is typical and not an error
-	if (Server_IsClientConnected(rmt->server))
-    {
-        error = ThreadSampler_SendSamples(ts, rmt->server, thread_name);
-        if (error != RMT_ERROR_NONE)
+	if (Server_IsClientConnected(g_Remotery->server))
+	{
+		error = ThreadSampler_SendSamples(ts, g_Remotery->server, thread_name);
+		if (error != RMT_ERROR_NONE)
 		  return error;
-    }
+	}
 
-    // Free all CPU samples except for this root one
-    ThreadSampler_FreeSample(ts, ts->root_sample, RMT_TRUE);
+	// Free all CPU samples except for this root one
+	ThreadSampler_FreeSample(ts, ts->root_sample, RMT_TRUE);
 
 	return RMT_ERROR_NONE;
 }

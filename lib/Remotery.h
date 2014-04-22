@@ -170,32 +170,35 @@ enum rmtError
 
 // Can call remotery functions on a null pointer
 
-#define rmt_Create(rmt)												\
-	RMT_OPTIONAL_RET(_rmt_Create(rmt), RMT_ERROR_NONE)
+#define rmt_CreateGlobalInstance(rmt)										\
+	RMT_OPTIONAL_RET(_rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
 
-#define rmt_Destroy(rmt)											\
-	RMT_OPTIONAL(_rmt_Destroy(rmt))
+#define rmt_DestroyGlobalInstance(rmt)										\
+	RMT_OPTIONAL(_rmt_DestroyGlobalInstance(rmt))
 
-#define rmt_LogText(rmt, text)										\
-	RMT_OPTIONAL(_rmt_LogText(rmt, text))
+#define rmt_SetGlobalInstance(rmt)											\
+	RMT_OPTIONAL(_rmt_SetGlobalInstance(rmt))
 
-#define rmt_UpdateServer(rmt)										\
-	RMT_OPTIONAL(_rmt_UpdateServer(rmt))
+#define rmt_LogText(text)													\
+	RMT_OPTIONAL(_rmt_LogText(text))
 
-#define rmt_IsClientConnected(rmt)									\
-	RMT_OPTIONAL_RET(_rmt_IsClientConnected(rmt), RMT_TRUE)
+#define rmt_UpdateServer()													\
+	RMT_OPTIONAL(_rmt_UpdateServer())
 
-#define rmt_BeginCPUSample(rmt, name)								\
-	RMT_OPTIONAL({													\
-		static rmtU32 rmt_sample_hash_##name = 0;					\
-		_rmt_BeginCPUSample(rmt, #name, &rmt_sample_hash_##name);	\
+#define rmt_IsClientConnected()												\
+	RMT_OPTIONAL_RET(_rmt_IsClientConnected(), RMT_TRUE)
+
+#define rmt_BeginCPUSample(name)											\
+	RMT_OPTIONAL({															\
+		static rmtU32 rmt_sample_hash_##name = 0;							\
+		_rmt_BeginCPUSample(#name, &rmt_sample_hash_##name);				\
 	})
 
-#define rmt_EndCPUSample(rmt)										\
-	RMT_OPTIONAL(_rmt_EndCPUSample(rmt))
+#define rmt_EndCPUSample()													\
+	RMT_OPTIONAL(_rmt_EndCPUSample())
 
-#define rmt_SendThreadSamples(rmt, thread_name)						\
-	RMT_OPTIONAL_RET(_rmt_SendThreadSamples(rmt, thread_name), RMT_ERROR_NONE)
+#define rmt_SendThreadSamples(thread_name)									\
+	RMT_OPTIONAL_RET(_rmt_SendThreadSamples(thread_name), RMT_ERROR_NONE)
 
 
 
@@ -215,23 +218,16 @@ enum rmtError
 //
 // Forward-declartion of private interface for scoped sample type
 //
-extern "C" void _rmt_EndCPUSample(Remotery* rmt);
+extern "C" void _rmt_EndCPUSample(void);
 
 
 #ifdef RMT_ENABLED
 struct rmt_EndCPUSampleOnScopeExit
 {
-	rmt_EndCPUSampleOnScopeExit(Remotery* rmt)
-		: rmt(rmt)
-	{
-	}
-
 	~rmt_EndCPUSampleOnScopeExit()
 	{
-		rmt_EndCPUSample(rmt);
+		rmt_EndCPUSample();
 	}
-
-	Remotery* rmt;
 };
 #endif
 
@@ -240,9 +236,9 @@ struct rmt_EndCPUSampleOnScopeExit
 //
 // Pairs a call to rmt_BeginCPUSample with its call to rmt_EndCPUSample when leaving scope
 //
-#define rmt_ScopedCPUSample(rmt, name)													\
-		RMT_OPTIONAL(rmt_BeginCPUSample(rmt, name));									\
-		RMT_OPTIONAL(rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name(rmt));
+#define rmt_ScopedCPUSample(name)												\
+		RMT_OPTIONAL(rmt_BeginCPUSample(name));									\
+		RMT_OPTIONAL(rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name);
 
 
 
@@ -267,14 +263,15 @@ extern "C" {
 #endif
 
 
-enum rmtError _rmt_Create(Remotery** remotery);
-void _rmt_Destroy(Remotery* rmt);
+enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery);
+void _rmt_DestroyGlobalInstance(Remotery* remotery);
+void _rmt_SetGlobalInstance(Remotery* remotery);
 
-void _rmt_LogText(Remotery* rmt, rmtPStr text);
+void _rmt_LogText(rmtPStr text);
 
-void _rmt_UpdateServer(Remotery* rmt);
+void _rmt_UpdateServer(void);
 
-rmtBool _rmt_IsClientConnected(Remotery* rmt);
+rmtBool _rmt_IsClientConnected(void);
 
 //
 // 'hash_cache' stores a pointer to a sample name's hash value. Internally this is used to identify unique callstacks and it
@@ -283,11 +280,11 @@ rmtBool _rmt_IsClientConnected(Remotery* rmt);
 //
 // If 'hash_cache' is NULL then this call becomes more expensive, as it has to recalculate the hash of the name.
 //
-void _rmt_BeginCPUSample(Remotery* rmt, rmtPStr name, rmtU32* hash_cache);
+void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache);
 
-void _rmt_EndCPUSample(Remotery* rmt);
+void _rmt_EndCPUSample(void);
 
-enum rmtError _rmt_SendThreadSamples(Remotery* rmt, rmtPStr thread_name);
+enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name);
 
 
 #ifdef __cplusplus
