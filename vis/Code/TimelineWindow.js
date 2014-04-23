@@ -1,15 +1,68 @@
 
+PixelTimeRange = (function()
+{
+	function PixelTimeRange(start_us, span_us, span_px)
+	{
+		this.Span_px = span_px;
+		this.Set(start_us, span_us);
+	}
+
+
+	PixelTimeRange.prototype.Set = function(start_us, span_us)
+	{
+		this.Start_us = start_us;
+		this.Span_us = span_us;
+		this.End_us = this.Start_us + span_us;
+		this.usPerPixel = this.Span_px / this.Span_us;
+	}
+
+
+	PixelTimeRange.prototype.SetStart = function(start_us)
+	{
+		this.Start_us = start_us;
+		this.End_us = start_us + this.Span_us;
+	}
+
+
+	PixelTimeRange.prototype.SetEnd = function(end_us)
+	{
+		this.End_us = end_us;
+		this.Start_us = end_us - this.Span_us;
+	}
+
+
+	PixelTimeRange.prototype.SetPixelSpan = function(span_px)
+	{
+		this.Span_px = span_px;
+		this.usPerPixel = this.Span_px / this.Span_us;
+	}
+
+
+	PixelTimeRange.prototype.PixelOffset = function(time_us)
+	{
+		return Math.floor((time_us - this.Start_us) * this.usPerPixel);
+	}
+
+
+	PixelTimeRange.prototype.PixelSize = function(time_us)
+	{
+		return time_us * this.usPerPixel;
+	}
+
+
+	return PixelTimeRange;
+})();
+
+
 TimelineRow = (function()
 {
 	var row_template = "								\
 		<div class='TimelineRow'>						\
 			<div class='TimelineRowLabel'></div>		\
-			<div class='TimelineRowDataContainer'>		\
-				<div class='TimelineRowData'></div>		\
-			</div>										\
+			<canvas class='TimelineRowCanvas'></canvas>		\
 		</div>";
 
-	function TimelineRow(name, parent_node)
+	function TimelineRow(name, width, parent_node)
 	{
 		this.Name = name;
 
@@ -18,7 +71,92 @@ TimelineRow = (function()
 		this.Node = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowData");
 		this.LabelNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowLabel");
 		this.LabelNode.innerHTML = name;
+		this.CanvasNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowCanvas");
 		parent_node.appendChild(this.ContainerNode);
+
+		// Setup the canvas
+		this.Ctx = this.CanvasNode.getContext("2d");
+		this.SetSize(width);
+		this.Clear();
+
+		this.VisibleFrames = [ ];
+	}
+
+
+	TimelineRow.prototype.SetSize = function(width)
+	{
+		// Must ALWAYS set the width/height properties together. Setting one on its own has weird side-effects.
+		this.CanvasNode.width = width;
+		this.CanvasNode.height = 18;
+	}
+
+
+	TimelineRow.prototype.Clear = function()
+	{
+		// Outer box is background colour, inner box shows the boundary between thread rows
+		this.Ctx.fillStyle = "#2C2C2C"
+		this.Ctx.fillRect(0, 0, this.CanvasNode.width, this.CanvasNode.height);
+		this.Ctx.fillStyle = "#666"
+		var b = 1;
+		this.Ctx.fillRect(b, b * 2, this.CanvasNode.width - b * 3, this.CanvasNode.height - b);
+	}
+
+
+	TimelineRow.prototype.SetVisibleFrames = function(frame_history, time_range)
+	{
+		// TODO: Record last nearest index
+
+		// Clear previous visible list
+		this.VisibleFrames = [ ];
+
+		// Search for first visible frame
+		var start_frame_index = 0;
+		for (var i = 0; i < frame_history.length; i++)
+		{
+			var frame = frame_history[i];
+			if (frame.EndTime_us > time_range.Start_us)
+				break;
+			start_frame_index++;
+		}
+
+		// Gather all frames up to the end point
+		for (var i = start_frame_index; i < frame_history.length; i++)
+		{
+			var frame = frame_history[i];
+			if (frame.StartTime_us > time_range.End_us)
+				break;
+			this.VisibleFrames.push(frame);
+		}
+	}
+
+
+	TimelineRow.prototype.Draw = function(time_range)
+	{
+		this.Clear();
+
+		// Draw all root samples in the visible frame set
+		for (var i in this.VisibleFrames)
+		{
+			var frame = this.VisibleFrames[i];
+
+			for (var j in frame.Samples)
+				DrawSample(this, time_range, frame.Samples[j]);
+		}
+	}
+
+
+	function DrawSample(self, time_range, sample)
+	{
+		// Determine location of the sample
+		var offset_x = time_range.PixelOffset(sample.cpu_us_start);
+		var size_x = time_range.PixelSize(sample.cpu_us_length);
+
+		// Clip to padded range
+		size_x = Math.min(offset_x + size_x, self.CanvasNode.width - 5) - offset_x;
+		offset_x = Math.max(offset_x, 4);
+
+		self.Ctx.fillStyle = "#BBB";
+		self.Ctx.fillRect(offset_x, 5, size_x, 10);
 	}
 
 	return TimelineRow;
@@ -34,16 +172,7 @@ TimelineWindow = (function()
 
 	function TimelineWindow(wm, server)
 	{
-		// The visible time range - only modify with SetTimeRange
-		this.TimeStart_us = 0;
-		this.TimeSpan_us = 0;
-		this.TimeEnd_us = 0;
-		this.usPerPixel = 0;
-
-		this.MinTime_us = 0;
-
-		// Ordered list of known thread names for consistent placement on the timeline
-		this.ThreadNames = [ ];
+		// Ordered list of thread rows on the timeline
 		this.ThreadRows = [ ];
 
 		// Create window and containers
@@ -53,7 +182,7 @@ TimelineWindow = (function()
 		DOM.Node.AddClass(this.TimelineContainer.Node, "TimelineContainer");
 
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
-		SetTimeRange(this, 0, 2 * 1000 * 1000);
+		this.TimeRange = new PixelTimeRange(0, 2 * 1000 * 1000, RowWidth(this));
 	}
 
 
@@ -69,19 +198,30 @@ TimelineWindow = (function()
 		this.TimelineContainer.SetPosition(BORDER, BORDER);
 		this.TimelineContainer.SetSize(parent_size[0] - 2 * BORDER, parent_size[1] - 4 * BORDER);
 
+		var row_width = RowWidth(this);
+		for (var i in this.ThreadRows)
+		{
+			var row = this.ThreadRows[i];
+			row.SetSize(row_width);
+			row.Clear();
+		}
+
 		// Adjust time range to new width
-		SetTimeRange(this, this.TimeStart_us, this.TimeSpan_us);
+		this.TimeRange.SetPixelSpan(row_width);
 	}
 
 
-	TimelineWindow.prototype.OnSamples = function(message)
+	TimelineWindow.prototype.OnSamples = function(thread_name, frame_history)
 	{
+		// Shift the timeline to the last entry on this thread
+		var last_frame = frame_history[frame_history.length - 1];
+		this.TimeRange.SetEnd(last_frame.EndTime_us);
+
 		// Search for the index of this thread
-		var name = message.thread_name;
 		var thread_index = -1;
 		for (var i in this.ThreadRows)
 		{
-			if (this.ThreadRows[i].Name == name)
+			if (this.ThreadRows[i].Name == thread_name)
 			{
 				thread_index = i;
 				break;
@@ -91,14 +231,14 @@ TimelineWindow = (function()
 		// If this thread has not been seen before, add a new row to the list and re-sort
 		if (thread_index == -1)
 		{
-			var row = new TimelineRow(name, this.TimelineContainer.Node);
+			var row = new TimelineRow(thread_name, RowWidth(this), this.TimelineContainer.Node);
 			this.ThreadRows.push(row);
-			this.ThreadRows.sort(function(a, b) { return b.localeCompare(a); });
+			this.ThreadRows.sort(function(a, b) { return b.Name.localeCompare(a.Name); });
 
 			// Search again for this new index
 			for (var i in this.ThreadRows)
 			{
-				if (this.ThreadRows[i].Name == name)
+				if (this.ThreadRows[i].Name == thread_name)
 				{
 					thread_index = i;
 					break;
@@ -106,59 +246,18 @@ TimelineWindow = (function()
 			}			
 		}
 
-		// For now, iterate all top-level samples
-		for (var i in message.samples)
-		{
-			var sample = message.samples[i];
-			AddSample(this, sample, this.ThreadRows[thread_index]);
-		}
+		// Update visible frames for this row and redraw
+		var thread_row = this.ThreadRows[thread_index];
+		thread_row.SetVisibleFrames(frame_history, this.TimeRange);
+		thread_row.Draw(this.TimeRange);
 	}
 
 
-	function SetTimeRange(self, start, span)
+	function RowWidth(self)
 	{
-		self.TimeStart_us = start;
-		self.TimeSpan_us = span;
-		self.TimeEnd_us = self.TimeStart_us + span;
-		self.usPerPixel = ContainerWidth(self) / self.TimeSpan_us;
-	}
-
-
-	function GetTimePixelOffset(self, time_us)
-	{
-		return Math.floor((time_us - self.TimeStart_us) * self.usPerPixel);
-	}
-
-
-	function AddSample(self, sample, thread_row)
-	{
-		// Keep track of the first sample received
-		if (self.MinTime_us == 0)
-		{
-			self.MinTime_us = sample.cpu_us_start;
-			SetTimeRange(self, self.MinTime_us, self.TimeSpan_us);
-		}
-
-		// Determine location of the sample
-		var offset_x = GetTimePixelOffset(self, sample.cpu_us_start);
-		var offset_y = 2;
-		var size_x = sample.cpu_us_length * self.usPerPixel;
-
-		// Add a node to represent the sample
-		if (offset_x < ContainerWidth(self))
-		{
-			var node = DOM.Node.CreateHTML(box_template);
-			DOM.Node.SetPosition(node, [ offset_x, offset_y ] );
-			DOM.Node.SetSize(node, [ size_x, 10 ] );
-			thread_row.Node.appendChild(node);
-		}
-	}
-
-
-	function ContainerWidth(self)
-	{
-		// 2px border on left/right of timeline rows
-		return self.TimelineContainer.Size[0] - 4;
+		// Subtract sizing of the label
+		// TODO: Use computed size
+		return self.TimelineContainer.Size[0] - 87;
 	}
 
 

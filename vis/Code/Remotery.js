@@ -5,6 +5,34 @@
 // TODO: Controls need automatic resizing within their parent windows
 //
 
+
+ThreadFrame = (function()
+{
+	function ThreadFrame(message)
+	{
+		// Persist the required message data
+		this.NbSamples = message.nb_samples;
+		this.SampleDigest = message.sample_digest;
+		this.Samples = message.samples;
+
+		// Calculate the frame start/end times
+		this.StartTime_us = 0;
+		this.EndTime_us = 0;
+		var nb_root_samples = this.Samples.length;
+		if (nb_root_samples > 0)
+		{
+			var last_sample = this.Samples[nb_root_samples - 1];
+			this.StartTime_us = this.Samples[0].cpu_us_start;
+			this.EndTime_us = last_sample.cpu_us_start + last_sample.cpu_us_length;
+		}
+
+		this.Length_us = this.EndTime_us - this.StartTime_us;
+	}
+
+
+	return ThreadFrame;
+})();
+
 Remotery = (function()
 {
 	function Remotery()
@@ -25,7 +53,7 @@ Remotery = (function()
 
 		this.NbSampleWindows = 0;
 		this.SampleWindows = { };
-		this.SampleHistory = { };
+		this.FrameHistory = { };
 
 		this.Server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 
@@ -71,16 +99,18 @@ Remotery = (function()
 		if (!(name in self.SampleWindows))
 		{
 			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
-			self.SampleHistory[name] = [ ];
 			self.SampleWindows[name].WindowResized(window.innerWidth, window.innerHeight, self.TimelineWindow.Window, self.Console.Window);
+			self.FrameHistory[name] = [ ];
 			self.NbSampleWindows++;
 		}
 
-		// Set on the window and record history
+		// Set on the window
 		self.SampleWindows[name].OnSamples(socket, message);
-		self.SampleHistory[name].push(message);
 
-		self.TimelineWindow.OnSamples(message);
+		var thread_frame = new ThreadFrame(message);
+		self.FrameHistory[name].push(thread_frame);
+
+		self.TimelineWindow.OnSamples(name, self.FrameHistory[name]);
 	}
 
 
