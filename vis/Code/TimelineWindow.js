@@ -191,6 +191,9 @@ TimelineWindow = (function()
 		this.PauseButton = this.Window.AddControlNew(new WM.Button("Pause", 10, 5, { toggle: true }));
 		this.PauseButton.SetOnClick(Bind(OnPausePressed, this));
 
+		var mouse_wheel_event = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
+		DOM.Event.AddHandler(this.TimelineContainer.Node, mouse_wheel_event, Bind(OnMouseScroll, this));
+
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
 		this.TimeRange = new PixelTimeRange(0, 2 * 1000 * 1000, RowWidth(this));
 	}
@@ -226,7 +229,7 @@ TimelineWindow = (function()
 	{
 		if (this.Paused)
 			return;
-		
+
 		// Shift the timeline to the last entry on this thread
 		var last_frame = frame_history[frame_history.length - 1];
 		this.TimeRange.SetEnd(last_frame.EndTime_us);
@@ -282,6 +285,31 @@ TimelineWindow = (function()
 			self.PauseButton.SetText("Paused");
 		else
 			self.PauseButton.SetText("Pause");
+	}
+
+
+	function OnMouseScroll(self, evt)
+	{
+		var mouse_state = new Mouse.State(evt);
+		var scale = 1.11;
+			if (mouse_state.WheelDelta > 0)
+				scale = 1 / scale;
+
+		// What time is the mouse hovering over?
+		// TODO: Fix row position
+		var row_position = DOM.Node.GetPosition(self.TimelineContainer.Node);
+		var x = mouse_state.Position[0] - row_position[0] - 87;
+		var time_us = x / self.TimeRange.usPerPixel + self.TimeRange.Start_us;
+
+		// Calculate start time relative to the mouse hover position
+		var time_start_us = self.TimeRange.Start_us - time_us;
+
+		// Scale and offset back to the hover time, clamping to 0s
+		self.TimeRange.Set(Math.max(time_start_us * scale + time_us, 0), self.TimeRange.Span_us * scale);
+
+		// Redraw all rows
+		for (var i in self.ThreadRows)
+			self.ThreadRows[i].Draw(self.TimeRange);
 	}
 
 
