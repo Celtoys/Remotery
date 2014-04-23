@@ -82,18 +82,37 @@ body
 
 .TimelineContainer
 {
-	/* Clip all contents to the window border */
-	overflow: hidden;
 }
+.TimelineRowContainer
+{
+	/* Absolute positioning of TimelineRow requires a parent node with non-static positioning */
+	position: relative;
 
+	height: 16px;
+	width: 100%;
+}
+.TimelineRow
+{
+	/* Clip all contents to the row */
+	overflow: hidden;
 
+	/* Add a top/left/right border of 2px without use of margin */
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	right: 2px;
+
+	height: 14px;
+
+	background-color: #666;
+}
 .TimelineBox
 {
 	/* Relative positioning within container */
 	position:absolute;
 
-	width:10px;
-	height:10px;
+	width: 10px;
+	height: 10px;
 
 	background-color: #BBB;
 }

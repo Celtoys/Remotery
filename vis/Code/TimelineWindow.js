@@ -1,4 +1,22 @@
 
+TimelineRow = (function()
+{
+	var row_template = "<div class='TimelineRowContainer'><div class='TimelineRow'></div></div>";
+
+	function TimelineRow(name, parent_node)
+	{
+		this.Name = name;
+
+		// Create the row HTML and add to the parent
+		this.ContainerNode = DOM.Node.CreateHTML(row_template);
+		this.Node = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRow");
+		parent_node.appendChild(this.ContainerNode);
+	}
+
+	return TimelineRow;
+})();
+
+
 TimelineWindow = (function()
 {
 	var BORDER = 10;
@@ -18,6 +36,7 @@ TimelineWindow = (function()
 
 		// Ordered list of known thread names for consistent placement on the timeline
 		this.ThreadNames = [ ];
+		this.ThreadRows = [ ];
 
 		// Create window and containers
 		this.Window = wm.AddWindow("Timeline", 10, 10, 100, 100);
@@ -52,25 +71,28 @@ TimelineWindow = (function()
 		// Search for the index of this thread
 		var name = message.thread_name;
 		var thread_index = -1;
-		for (var i in this.ThreadNames)
+		for (var i in this.ThreadRows)
 		{
-			if (this.ThreadNames[i] == name)
+			if (this.ThreadRows[i].Name == name)
 			{
 				thread_index = i;
 				break;
 			}
 		}
 
-		// If this thread has not been seen before, add to the list and re-sort
+		// If this thread has not been seen before, add a new row to the list and re-sort
 		if (thread_index == -1)
 		{
-			this.ThreadNames.push(name);
-			this.ThreadNames.sort();
+			var row = new TimelineRow(name, this.TimelineContainer.Node);
+			this.ThreadRows.push(row);
+			this.ThreadRows.sort(function(a, b) { return a.localeCompare(b); });
+
+			console.log(this.ThreadRows);
 
 			// Search again for this new index
-			for (var i in this.ThreadNames)
+			for (var i in this.ThreadRows)
 			{
-				if (this.ThreadNames[i] == name)
+				if (this.ThreadRows[i].Name == name)
 				{
 					thread_index = i;
 					break;
@@ -82,7 +104,7 @@ TimelineWindow = (function()
 		for (var i in message.samples)
 		{
 			var sample = message.samples[i];
-			AddSample(this, sample, thread_index);
+			AddSample(this, sample, this.ThreadRows[thread_index]);
 		}
 	}
 
@@ -92,17 +114,17 @@ TimelineWindow = (function()
 		self.TimeStart_us = start;
 		self.TimeSpan_us = span;
 		self.TimeEnd_us = self.TimeStart_us + span;
-		self.usPerPixel = (self.TimelineContainer.Size[0] - 4) / self.TimeSpan_us;
+		self.usPerPixel = ContainerWidth(self) / self.TimeSpan_us;
 	}
 
 
 	function GetTimePixelOffset(self, time_us)
 	{
-		return 2 + Math.floor((time_us - self.TimeStart_us) * self.usPerPixel);
+		return Math.floor((time_us - self.TimeStart_us) * self.usPerPixel);
 	}
 
 
-	function AddSample(self, sample, thread_index)
+	function AddSample(self, sample, thread_row)
 	{
 		// Keep track of the first sample received
 		if (self.MinTime_us == 0)
@@ -113,17 +135,24 @@ TimelineWindow = (function()
 
 		// Determine location of the sample
 		var offset_x = GetTimePixelOffset(self, sample.cpu_us_start);
-		var offset_y = 2 + thread_index * 12;
+		var offset_y = 2;
 		var size_x = sample.cpu_us_length * self.usPerPixel;
 
 		// Add a node to represent the sample
-		if (offset_x < self.TimelineContainer.Size[0] - 4)
+		if (offset_x < ContainerWidth(self))
 		{
 			var node = DOM.Node.CreateHTML(box_template);
 			DOM.Node.SetPosition(node, [ offset_x, offset_y ] );
 			DOM.Node.SetSize(node, [ size_x, 10 ] );
-			self.TimelineContainer.Node.appendChild(node);
+			thread_row.Node.appendChild(node);
 		}
+	}
+
+
+	function ContainerWidth(self)
+	{
+		// 2px border on left/right of timeline rows
+		return self.TimelineContainer.Size[0] - 4;
 	}
 
 
