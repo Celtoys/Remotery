@@ -1,4 +1,9 @@
 
+//
+// TODO: Use WebGL and instancing for quicker renders
+//
+
+
 PixelTimeRange = (function()
 {
 	function PixelTimeRange(start_us, span_us, span_px)
@@ -176,10 +181,15 @@ TimelineWindow = (function()
 		this.ThreadRows = [ ];
 
 		// Create window and containers
-		this.Window = wm.AddWindow("Timeline", 10, 10, 100, 100);
+		this.Window = wm.AddWindow("Timeline", 10, 20, 100, 100);
 		this.Window.ShowNoAnim();
 		this.TimelineContainer = this.Window.AddControlNew(new WM.Container(10, 10, 800, 160));
 		DOM.Node.AddClass(this.TimelineContainer.Node, "TimelineContainer");
+
+		// Setup pause button
+		this.Paused = false;
+		this.PauseButton = this.Window.AddControlNew(new WM.Button("Pause", 10, 5, { toggle: true }));
+		this.PauseButton.SetOnClick(Bind(OnPausePressed, this));
 
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
 		this.TimeRange = new PixelTimeRange(0, 2 * 1000 * 1000, RowWidth(this));
@@ -191,13 +201,14 @@ TimelineWindow = (function()
 		// Resize window
 		var top = top_window.Position[1] + top_window.Size[1] + 10;
 		this.Window.SetPosition(10, top);
-		this.Window.SetSize(width - 2 * 10, 100);
+		this.Window.SetSize(width - 2 * 10, 120);
 
 		// Resize controls
 		var parent_size = this.Window.Size;
-		this.TimelineContainer.SetPosition(BORDER, BORDER);
-		this.TimelineContainer.SetSize(parent_size[0] - 2 * BORDER, parent_size[1] - 4 * BORDER);
+		this.TimelineContainer.SetPosition(BORDER, 30);
+		this.TimelineContainer.SetSize(parent_size[0] - 2 * BORDER, 60);
 
+		// Resize rows
 		var row_width = RowWidth(this);
 		for (var i in this.ThreadRows)
 		{
@@ -213,6 +224,9 @@ TimelineWindow = (function()
 
 	TimelineWindow.prototype.OnSamples = function(thread_name, frame_history)
 	{
+		if (this.Paused)
+			return;
+		
 		// Shift the timeline to the last entry on this thread
 		var last_frame = frame_history[frame_history.length - 1];
 		this.TimeRange.SetEnd(last_frame.EndTime_us);
@@ -258,6 +272,16 @@ TimelineWindow = (function()
 		// Subtract sizing of the label
 		// TODO: Use computed size
 		return self.TimelineContainer.Size[0] - 87;
+	}
+
+
+	function OnPausePressed(self)
+	{
+		self.Paused = self.PauseButton.IsPressed();
+		if (self.Paused)
+			self.PauseButton.SetText("Paused");
+		else
+			self.PauseButton.SetText("Pause");
 	}
 
 
