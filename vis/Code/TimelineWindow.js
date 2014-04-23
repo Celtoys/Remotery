@@ -1,7 +1,13 @@
 
 TimelineRow = (function()
 {
-	var row_template = "<div class='TimelineRowContainer'><div class='TimelineRow'></div></div>";
+	var row_template = "								\
+		<div class='TimelineRow'>						\
+			<div class='TimelineRowLabel'></div>		\
+			<div class='TimelineRowDataContainer'>		\
+				<div class='TimelineRowData'></div>		\
+			</div>										\
+		</div>";
 
 	function TimelineRow(name, parent_node)
 	{
@@ -9,7 +15,9 @@ TimelineRow = (function()
 
 		// Create the row HTML and add to the parent
 		this.ContainerNode = DOM.Node.CreateHTML(row_template);
-		this.Node = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRow");
+		this.Node = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowData");
+		this.LabelNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowLabel");
+		this.LabelNode.innerHTML = name;
 		parent_node.appendChild(this.ContainerNode);
 	}
 
@@ -85,9 +93,7 @@ TimelineWindow = (function()
 		{
 			var row = new TimelineRow(name, this.TimelineContainer.Node);
 			this.ThreadRows.push(row);
-			this.ThreadRows.sort(function(a, b) { return a.localeCompare(b); });
-
-			console.log(this.ThreadRows);
+			this.ThreadRows.sort(function(a, b) { return b.localeCompare(a); });
 
 			// Search again for this new index
 			for (var i in this.ThreadRows)

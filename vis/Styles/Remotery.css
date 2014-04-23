@@ -80,18 +80,44 @@ body
 }
 
 
-.TimelineContainer
+.TimelineRow
 {
-}
-.TimelineRowContainer
-{
-	/* Absolute positioning of TimelineRow requires a parent node with non-static positioning */
-	position: relative;
+	/* Clear float left from previous rows */
+	clear: both;
 
 	height: 16px;
 	width: 100%;
 }
-.TimelineRow
+.TimelineRowLabel
+{
+	/* Pull .TimelineRowDataContainer to the right of the label */
+	float:left;
+
+	/* This must match (TimelineRowData.left - 8px) */
+	width: 72px;
+
+	/* Following style generally copies GridRowCell.GridGroup from BrowserLib */
+
+	font: 9px Verdana;
+	color: #BBB;
+
+	padding: 1px 1px 2px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+	margin: 1px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+	background: #222;
+}
+.TimelineRowDataContainer
+{
+	/* Absolute positioning of TimelineRowData requires a parent node with non-static positioning */
+	position: relative;
+}
+.TimelineRowData
 {
 	/* Clip all contents to the row */
 	overflow: hidden;
@@ -99,13 +125,14 @@ body
 	/* Add a top/left/right border of 2px without use of margin */
 	position: absolute;
 	top: 2px;
-	left: 2px;
+	left: 80px;
 	right: 2px;
 
 	height: 14px;
 
 	background-color: #666;
 }
+
 .TimelineBox
 {
 	/* Relative positioning within container */
