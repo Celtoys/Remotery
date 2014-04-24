@@ -221,7 +221,6 @@ TimelineWindow = (function()
 		this.MouseDown = false;
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousedown", Bind(OnMouseDown, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mouseup", Bind(OnMouseUp, this));
-		DOM.Event.AddHandler(this.TimelineContainer.Node, "mouseout", Bind(OnMouseOut, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousemove", Bind(OnMouseMove, this));		
 
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
@@ -369,12 +368,6 @@ TimelineWindow = (function()
 
 
 	function OnMouseUp(self, evt)
-	{
-		self.MouseDown = false;
-	}
-
-
-	function OnMouseOut(self, evt)
 	{
 		self.MouseDown = false;
 	}
