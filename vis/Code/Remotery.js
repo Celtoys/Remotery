@@ -67,22 +67,27 @@ Remotery = (function()
 
 	function OnSamples(self, socket, message)
 	{
-		// Lookup the thread these samples are for
 		var name = message.thread_name;
+
+		// Add to frame history for this thread
+		var thread_frame = new ThreadFrame(message);
+		if (!(name in self.FrameHistory))
+			self.FrameHistory[name] = [ ];
+		self.FrameHistory[name].push(thread_frame);
+
+		if (self.TitleWindow.Paused)
+			return;
+
+		// Create sample windows on-demand
 		if (!(name in self.SampleWindows))
 		{
 			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
 			self.SampleWindows[name].WindowResized(window.innerWidth, window.innerHeight, self.TimelineWindow.Window, self.Console.Window);
-			self.FrameHistory[name] = [ ];
 			self.NbSampleWindows++;
 		}
 
-		// Set on the window
+		// Set on the window and timeline
 		self.SampleWindows[name].OnSamples(socket, message.nb_samples, message.sample_digest, message.samples);
-
-		var thread_frame = new ThreadFrame(message);
-		self.FrameHistory[name].push(thread_frame);
-
 		self.TimelineWindow.OnSamples(name, self.FrameHistory[name]);
 	}
 

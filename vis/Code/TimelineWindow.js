@@ -1,7 +1,6 @@
 
 //
 // TODO: Use WebGL and instancing for quicker renders
-// TODO: Pause entire profiler: does it discard incoming samples or accept them?
 //
 
 
@@ -22,11 +21,6 @@ TimelineWindow = (function()
 		this.Window.ShowNoAnim();
 		this.TimelineContainer = this.Window.AddControlNew(new WM.Container(10, 10, 800, 160));
 		DOM.Node.AddClass(this.TimelineContainer.Node, "TimelineContainer");
-
-		// Setup pause button
-		this.Paused = false;
-		this.PauseButton = this.Window.AddControlNew(new WM.Button("Pause", 10, 5, { toggle: true }));
-		this.PauseButton.SetOnClick(Bind(OnPausePressed, this));
 
 		var mouse_wheel_event = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
 		DOM.Event.AddHandler(this.TimelineContainer.Node, mouse_wheel_event, Bind(OnMouseScroll, this));
@@ -51,8 +45,8 @@ TimelineWindow = (function()
 
 		// Resize controls
 		var parent_size = this.Window.Size;
-		this.TimelineContainer.SetPosition(BORDER, 30);
-		this.TimelineContainer.SetSize(parent_size[0] - 2 * BORDER, 60);
+		this.TimelineContainer.SetPosition(BORDER, 10);
+		this.TimelineContainer.SetSize(parent_size[0] - 2 * BORDER, 80);
 
 		// Resize rows
 		var row_width = RowWidth(this);
@@ -70,9 +64,6 @@ TimelineWindow = (function()
 
 	TimelineWindow.prototype.OnSamples = function(thread_name, frame_history)
 	{
-		if (this.Paused)
-			return;
-
 		// Shift the timeline to the last entry on this thread
 		// As multiple threads come through here with different end frames, only do this for the latest
 		var last_frame = frame_history[frame_history.length - 1];
@@ -140,16 +131,6 @@ TimelineWindow = (function()
 			thread_row.SetVisibleFrames(null, time_range);
 			thread_row.Draw(time_range);
 		}
-	}
-
-
-	function OnPausePressed(self)
-	{
-		self.Paused = self.PauseButton.IsPressed();
-		if (self.Paused)
-			self.PauseButton.SetText("Paused");
-		else
-			self.PauseButton.SetText("Pause");
 	}
 
 

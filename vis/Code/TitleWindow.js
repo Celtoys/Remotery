@@ -11,6 +11,11 @@ TitleWindow = (function()
 
 		this.EditBox = this.Window.AddControlNew(new WM.EditBox(10, 5, 400, 30, "Connection Address", connection_address));
 
+		// Setup pause button
+		this.Paused = false;
+		this.PauseButton = this.Window.AddControlNew(new WM.Button("Pause", 5, 5, { toggle: true }));
+		this.PauseButton.SetOnClick(Bind(OnPausePressed, this));
+
 		server.AddMessageHandler("PING", Bind(OnPing, this));
 	}
 
@@ -24,6 +29,17 @@ TitleWindow = (function()
 	TitleWindow.prototype.WindowResized = function(width, height)
 	{
 		this.Window.SetSize(width - 2 * 10, 50);
+		this.PauseButton.SetPosition(width - 80, 5);
+	}
+
+
+	function OnPausePressed(self)
+	{
+		self.Paused = self.PauseButton.IsPressed();
+		if (self.Paused)
+			self.PauseButton.SetText("Paused");
+		else
+			self.PauseButton.SetText("Pause");
 	}
 
 
