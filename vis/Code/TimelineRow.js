@@ -120,15 +120,19 @@ TimelineRow = (function()
 
 	TimelineRow.prototype.UpdateHoverSample = function(mouse_state, time_range, x_offset)
 	{
-		var hovered_sample = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
-		this.SetHoverSample(hovered_sample, time_range);
+		var hover = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
+		if (hover)
+			this.SetHoverSample(hover[1], time_range);
+		return hover;
 	}
 
 
 	TimelineRow.prototype.UpdateSelectedSample = function(mouse_state, time_range, x_offset)
 	{
-		var selected_sample = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
-		this.SetSelectedSample(selected_sample, time_range);
+		var select = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
+		if (select)
+			this.SetSelectedSample(select[1], time_range);
+		return select;
 	}
 
 
@@ -183,7 +187,7 @@ TimelineRow = (function()
 				{
 					var sample = frame.Samples[j];
 					if (time_us >= sample.cpu_us_start && time_us < sample.cpu_us_start + sample.cpu_us_length)
-						return sample;
+						return [ frame, sample ];
 				}
 			}
 		}

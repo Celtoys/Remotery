@@ -23,10 +23,13 @@ Remotery = (function()
 		this.TitleWindow = new TitleWindow(this.WindowManager, this.Server, this.ConnectionAddress);
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
 		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Server);
+		this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
+		this.TimelineWindow.SetOnSelected(Bind(OnSampleSelected, this));
 
 		this.NbSampleWindows = 0;
 		this.SampleWindows = { };
 		this.FrameHistory = { };
+		this.SelectedFrame = null;
 
 		this.Server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 
@@ -87,8 +90,43 @@ Remotery = (function()
 		}
 
 		// Set on the window and timeline
-		self.SampleWindows[name].OnSamples(socket, message.nb_samples, message.sample_digest, message.samples);
+		self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
 		self.TimelineWindow.OnSamples(name, self.FrameHistory[name]);
+	}
+
+
+	function OnSampleHover(self, thread_name, hover)
+	{
+		// Hover only changes sample window contents when paused
+		var sample_window = self.SampleWindows[thread_name];
+		if (sample_window && self.TitleWindow.Paused)
+		{
+			if (hover == null)
+			{
+				// When there's no hover, go back to the selected frame
+				if (this.SelectedFrame)
+					sample_window.OnSamples(this.SelectedFrame.NbSamples, this.SelectedFrame.SampleDigest, this.SelectedFrame.Samples);
+			}
+
+			else
+			{
+				// Populate with sample under hover
+				var frame = hover[0];
+				sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+			}
+		}
+	}
+
+
+	function OnSampleSelected(self, thread_name, select)
+	{
+		// Lookup sample window set the frame samples on it
+		if (select && thread_name in self.SampleWindows)
+		{
+			var sample_window = self.SampleWindows[thread_name];
+			this.SelectedFrame = select[0];
+			sample_window.OnSamples(this.SelectedFrame.NbSamples, this.SelectedFrame.SampleDigest, this.SelectedFrame.Samples);
+		}
 	}
 
 

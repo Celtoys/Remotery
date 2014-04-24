@@ -28,12 +28,26 @@ TimelineWindow = (function()
 		// Setup timeline manipulation
 		this.MouseDown = false;
 		this.TimelineMoved = false;
+		this.OnHoverHandler = null;
+		this.OnSelectedHandler = null;
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousedown", Bind(OnMouseDown, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mouseup", Bind(OnMouseUp, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousemove", Bind(OnMouseMove, this));		
 
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
-		this.TimeRange = new PixelTimeRange(0, 2 * 1000 * 1000, RowWidth(this));
+		this.TimeRange = new PixelTimeRange(0, 1 * 1000 * 1000, RowWidth(this));
+	}
+
+
+	TimelineWindow.prototype.SetOnHover = function(handler)
+	{
+		this.OnHoverHandler = handler;
+	}
+
+
+	TimelineWindow.prototype.SetOnSelected = function(handler)
+	{
+		this.OnSelectedHandler = handler;
 	}
 
 
@@ -173,12 +187,21 @@ TimelineWindow = (function()
 
 		if (!self.TimelineMoved)
 		{
+			// Search for the row being clicked and update its selection
 			var row_node = DOM.Event.GetNode(evt);
 			for (var i in self.ThreadRows)
 			{
 				var thread_row = self.ThreadRows[i];
 				if (thread_row.CanvasNode == row_node)
-					thread_row.UpdateSelectedSample(mouse_state, self.TimeRange, RowOffset(self));
+				{
+					var select = thread_row.UpdateSelectedSample(mouse_state, self.TimeRange, RowOffset(self));
+
+					// Call any selection handlers
+					if (self.OnSelectedHandler)
+						self.OnSelectedHandler(thread_row.Name, select);
+
+					break;
+				}
 			}
 		}
 	}
@@ -212,9 +235,18 @@ TimelineWindow = (function()
 			{
 				var thread_row = self.ThreadRows[i];
 				if (thread_row.CanvasNode == row_node)
-					thread_row.UpdateHoverSample(mouse_state, self.TimeRange, RowOffset(self));
+				{
+					var hover = thread_row.UpdateHoverSample(mouse_state, self.TimeRange, RowOffset(self));
+
+					if (self.OnHoverHandler)
+						self.OnHoverHandler(thread_row.Name, hover);
+				}
 				else
+				{
 					thread_row.SetHoverSample(null, self.TimeRange);
+					if (self.OnHoverHandler)
+						self.OnHoverHandler(thread_row.Name, null);
+				}
 			}
 		}
 	}

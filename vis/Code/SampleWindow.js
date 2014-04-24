@@ -26,7 +26,7 @@ SampleWindow = (function()
 	}
 
 
-	SampleWindow.prototype.OnSamples = function(socket, nb_samples, sample_digest, samples)
+	SampleWindow.prototype.OnSamples = function(nb_samples, sample_digest, samples)
 	{
 		if (this.NbSamples != nb_samples || this.SampleDigest != sample_digest)
 		{
