@@ -33,6 +33,9 @@ TimelineRow = (function()
 
 		// Sample the mouse is currently hovering over
 		this.HoverSample = null;
+
+		// Currently selected sample
+		this.SelectedSample = null;
 	}
 
 
@@ -117,34 +120,15 @@ TimelineRow = (function()
 
 	TimelineRow.prototype.UpdateHoverSample = function(mouse_state, time_range, x_offset)
 	{
-		// Get the time the mouse is over
-		var x = mouse_state.Position[0] - x_offset;
-		var time_us = time_range.Start_us + x / time_range.usPerPixel;
-
-		var hovered_sample = null;
-
-		// Search for the first frame to intersect this time
-		for (var i in this.VisibleFrames)
-		{
-			var frame = this.VisibleFrames[i];
-			if (time_us >= frame.StartTime_us && time_us < frame.EndTime_us)
-			{
-				// Search for the sample that intersects this time
-				for (var j in frame.Samples)
-				{
-					var sample = frame.Samples[j];
-					if (time_us >= sample.cpu_us_start && time_us < sample.cpu_us_start + sample.cpu_us_length)
-					{
-						hovered_sample = sample;
-						break;
-					}
-				}
-
-				break;
-			}
-		}
-
+		var hovered_sample = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
 		this.SetHoverSample(hovered_sample, time_range);
+	}
+
+
+	TimelineRow.prototype.UpdateSelectedSample = function(mouse_state, time_range, x_offset)
+	{
+		var selected_sample = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
+		this.SetSelectedSample(selected_sample, time_range);
 	}
 
 
@@ -162,6 +146,49 @@ TimelineRow = (function()
 			this.HoverSample = sample;
 			DrawSample(this, time_range, sample);
 		}
+	}
+
+
+	TimelineRow.prototype.SetSelectedSample = function(sample, time_range)
+	{
+		if (sample != this.SelectedSample)
+		{
+			// Discard old highlight
+			// TODO: When zoomed right out, tiny samples are anti-aliased and this becomes inaccurate
+			var old_sample = this.SelectedSample;
+			this.SelectedSample = null;
+			DrawSample(this, time_range, old_sample);
+
+			// Add new highlight
+			this.SelectedSample = sample;
+			DrawSample(this, time_range, sample);
+		}
+	}
+
+
+	function GetSampleAtPosition(self, mouse_state, time_range, x_offset)
+	{
+		// Get the time the mouse is over
+		var x = mouse_state.Position[0] - x_offset;
+		var time_us = time_range.Start_us + x / time_range.usPerPixel;
+		
+		// Search for the first frame to intersect this time
+		for (var i in self.VisibleFrames)
+		{
+			var frame = self.VisibleFrames[i];
+			if (time_us >= frame.StartTime_us && time_us < frame.EndTime_us)
+			{
+				// Search for the sample that intersects this time
+				for (var j in frame.Samples)
+				{
+					var sample = frame.Samples[j];
+					if (time_us >= sample.cpu_us_start && time_us < sample.cpu_us_start + sample.cpu_us_length)
+						return sample;
+				}
+			}
+		}
+
+		return null;
 	}
 
 
@@ -186,13 +213,16 @@ TimelineRow = (function()
 		ctx.fillStyle = "#BBB";
 		ctx.fillRect(offset_x, offset_y, size_x, size_y);
 
-		// Hover rendering
-		if (sample == self.HoverSample)
+		var b = (sample == self.HoverSample) ? 255 : 0;
+		var r = (sample == self.SelectedSample) ? 255 : 0;
+
+		// Highlight rendering
+		if (b + r > 0)
 		{
 			ctx.beginPath();
 			ctx.rect(offset_x + 0.5, offset_y + 0.5, size_x - 1, size_y - 1);
 			ctx.lineWidth = 1;
-			ctx.strokeStyle = "#00F";
+			ctx.strokeStyle = "rgb(" + r + ", 0, " + b + ")";
 			ctx.stroke();
 		}
 	}

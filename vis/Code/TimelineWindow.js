@@ -25,8 +25,9 @@ TimelineWindow = (function()
 		var mouse_wheel_event = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
 		DOM.Event.AddHandler(this.TimelineContainer.Node, mouse_wheel_event, Bind(OnMouseScroll, this));
 
-		// Setup timeline dragging
+		// Setup timeline manipulation
 		this.MouseDown = false;
+		this.TimelineMoved = false;
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousedown", Bind(OnMouseDown, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mouseup", Bind(OnMouseUp, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousemove", Bind(OnMouseMove, this));		
@@ -159,13 +160,27 @@ TimelineWindow = (function()
 	function OnMouseDown(self, evt)
 	{
 		self.MouseDown = true;
+		self.TimelineMoved = false;
 		DOM.Event.StopDefaultAction(evt);
 	}
 
 
 	function OnMouseUp(self, evt)
 	{
+		var mouse_state = new Mouse.State(evt);
+
 		self.MouseDown = false;
+
+		if (!self.TimelineMoved)
+		{
+			var row_node = DOM.Event.GetNode(evt);
+			for (var i in self.ThreadRows)
+			{
+				var thread_row = self.ThreadRows[i];
+				if (thread_row.CanvasNode == row_node)
+					thread_row.UpdateSelectedSample(mouse_state, self.TimeRange, RowOffset(self));
+			}
+		}
 	}
 
 
@@ -181,9 +196,12 @@ TimelineWindow = (function()
 
 			// Shift the visible time range with mouse movement
 			var time_offset_us = mouse_state.PositionDelta[0] / self.TimeRange.usPerPixel;
-			self.TimeRange.SetStart(self.TimeRange.Start_us - time_offset_us);
-
-			DrawAllRows(self, true);
+			if (time_offset_us)
+			{
+				self.TimeRange.SetStart(self.TimeRange.Start_us - time_offset_us);
+				DrawAllRows(self, true);
+				self.TimelineMoved = true;
+			}
 		}
 
 		else
