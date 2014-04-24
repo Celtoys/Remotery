@@ -29,7 +29,7 @@ Remotery = (function()
 		this.NbSampleWindows = 0;
 		this.SampleWindows = { };
 		this.FrameHistory = { };
-		this.SelectedFrame = null;
+		this.SelectedFrames = { };
 
 		this.Server.AddMessageHandler("SAMPLES", Bind(OnSamples, this));
 
@@ -104,8 +104,11 @@ Remotery = (function()
 			if (hover == null)
 			{
 				// When there's no hover, go back to the selected frame
-				if (this.SelectedFrame)
-					sample_window.OnSamples(this.SelectedFrame.NbSamples, this.SelectedFrame.SampleDigest, this.SelectedFrame.Samples);
+				if (self.SelectedFrames[thread_name])
+				{
+					var frame = self.SelectedFrames[thread_name];
+					sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+				}
 			}
 
 			else
@@ -124,8 +127,9 @@ Remotery = (function()
 		if (select && thread_name in self.SampleWindows)
 		{
 			var sample_window = self.SampleWindows[thread_name];
-			this.SelectedFrame = select[0];
-			sample_window.OnSamples(this.SelectedFrame.NbSamples, this.SelectedFrame.SampleDigest, this.SelectedFrame.Samples);
+			var frame = select[0];
+			self.SelectedFrames[thread_name] = frame;
+			sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
 		}
 	}
 
