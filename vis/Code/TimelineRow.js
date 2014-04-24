@@ -30,6 +30,9 @@ TimelineRow = (function()
 
 		this.FrameHistory = null;
 		this.VisibleFrames = [ ];
+
+		// Sample the mouse is currently hovering over
+		this.HoverSample = null;
 	}
 
 
@@ -112,8 +115,61 @@ TimelineRow = (function()
 	}
 
 
+	TimelineRow.prototype.UpdateHoverSample = function(mouse_state, time_range, x_offset)
+	{
+		// Get the time the mouse is over
+		var x = mouse_state.Position[0] - x_offset;
+		var time_us = time_range.Start_us + x / time_range.usPerPixel;
+
+		var hovered_sample = null;
+
+		// Search for the first frame to intersect this time
+		for (var i in this.VisibleFrames)
+		{
+			var frame = this.VisibleFrames[i];
+			if (time_us >= frame.StartTime_us && time_us < frame.EndTime_us)
+			{
+				// Search for the sample that intersects this time
+				for (var j in frame.Samples)
+				{
+					var sample = frame.Samples[j];
+					if (time_us >= sample.cpu_us_start && time_us < sample.cpu_us_start + sample.cpu_us_length)
+					{
+						hovered_sample = sample;
+						break;
+					}
+				}
+
+				break;
+			}
+		}
+
+		this.SetHoverSample(hovered_sample, time_range);
+	}
+
+
+	TimelineRow.prototype.SetHoverSample = function(sample, time_range)
+	{
+		if (sample != this.HoverSample)
+		{
+			// Discard old highlight
+			// TODO: When zoomed right out, tiny samples are anti-aliased and this becomes inaccurate
+			var old_sample = this.HoverSample;
+			this.HoverSample = null;
+			DrawSample(this, time_range, old_sample);
+
+			// Add new highlight
+			this.HoverSample = sample;
+			DrawSample(this, time_range, sample);
+		}
+	}
+
+
 	function DrawSample(self, time_range, sample)
 	{
+		if (sample == null)
+			return;
+
 		// Determine location of the sample
 		var offset_x = time_range.PixelOffset(sample.cpu_us_start);
 		var size_x = time_range.PixelSize(sample.cpu_us_length);
@@ -122,8 +178,23 @@ TimelineRow = (function()
 		size_x = Math.min(offset_x + size_x, self.CanvasNode.width - 5) - offset_x;
 		offset_x = Math.max(offset_x, 4);
 
-		self.Ctx.fillStyle = "#BBB";
-		self.Ctx.fillRect(offset_x, 5, size_x, 10);
+		var offset_y = 5;
+		var size_y = 10;
+
+		// Normal rendering
+		var ctx = self.Ctx;
+		ctx.fillStyle = "#BBB";
+		ctx.fillRect(offset_x, offset_y, size_x, size_y);
+
+		// Hover rendering
+		if (sample == self.HoverSample)
+		{
+			ctx.beginPath();
+			ctx.rect(offset_x + 0.5, offset_y + 0.5, size_x - 1, size_y - 1);
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = "#00F";
+			ctx.stroke();
+		}
 	}
 
 

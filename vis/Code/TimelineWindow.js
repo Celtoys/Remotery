@@ -58,7 +58,7 @@ TimelineWindow = (function()
 
 		// Adjust time range to new width
 		this.TimeRange.SetPixelSpan(row_width);
-		DrawAllRows(this);
+		DrawAllRows(this, true);
 	}
 
 
@@ -122,13 +122,14 @@ TimelineWindow = (function()
 	}
 
 
-	function DrawAllRows(self)
+	function DrawAllRows(self, update_visibility)
 	{
 		var time_range = self.TimeRange;
 		for (var i in self.ThreadRows)
 		{
 			var thread_row = self.ThreadRows[i];
-			thread_row.SetVisibleFrames(null, time_range);
+			if (update_visibility)
+				thread_row.SetVisibleFrames(null, time_range);
 			thread_row.Draw(time_range);
 		}
 	}
@@ -151,7 +152,7 @@ TimelineWindow = (function()
 		// Scale and offset back to the hover time
 		self.TimeRange.Set(time_start_us * scale + time_us, self.TimeRange.Span_us * scale);
 
-		DrawAllRows(self);
+		DrawAllRows(self, true);
 	}
 
 
@@ -170,10 +171,10 @@ TimelineWindow = (function()
 
 	function OnMouseMove(self, evt)
 	{
+		var mouse_state = new Mouse.State(evt);
+
 		if (self.MouseDown)
 		{
-			var mouse_state = new Mouse.State(evt);
-
 			// Get the time the mouse is over
 			var x = mouse_state.Position[0] - RowOffset(self);
 			var time_us = self.TimeRange.Start_us + x / self.TimeRange.usPerPixel;
@@ -182,7 +183,21 @@ TimelineWindow = (function()
 			var time_offset_us = mouse_state.PositionDelta[0] / self.TimeRange.usPerPixel;
 			self.TimeRange.SetStart(self.TimeRange.Start_us - time_offset_us);
 
-			DrawAllRows(self);
+			DrawAllRows(self, true);
+		}
+
+		else
+		{
+			// Highlight any samples the mouse moves over
+			var row_node = DOM.Event.GetNode(evt);
+			for (var i in self.ThreadRows)
+			{
+				var thread_row = self.ThreadRows[i];
+				if (thread_row.CanvasNode == row_node)
+					thread_row.UpdateHoverSample(mouse_state, self.TimeRange, RowOffset(self));
+				else
+					thread_row.SetHoverSample(null, self.TimeRange);
+			}
 		}
 	}
 

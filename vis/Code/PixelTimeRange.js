@@ -47,7 +47,7 @@ PixelTimeRange = (function()
 
 	PixelTimeRange.prototype.PixelSize = function(time_us)
 	{
-		return time_us * this.usPerPixel;
+		return Math.floor(time_us * this.usPerPixel);
 	}
 
 
