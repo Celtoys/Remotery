@@ -634,6 +634,16 @@ static void ObjectAllocator_Free(ObjectAllocator* allocator, void* object)
 }
 
 
+static void ObjectAllocator_FreeRange(ObjectAllocator* allocator, void* start, void* end, rmtU32 count)
+{
+	assert(allocator != NULL);
+	((ObjectLink*)end)->next = (struct ObjectLink*)allocator->first_free;
+	allocator->first_free = (ObjectLink*)start;
+	allocator->nb_inuse -= count;
+	allocator->nb_free += count;
+}
+
+
 static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
 {
 	// Ensure everything has been released to the allocator
@@ -2637,25 +2647,32 @@ static void ThreadSampler_Pop(ThreadSampler* ts, CPUSample* sample)
 }
 
 
-static void ThreadSampler_FreeSample(ThreadSampler* ts, CPUSample* sample, rmtBool just_contents)
+static ObjectLink* ThreadSampler_ClearSamples(ThreadSampler* ts, CPUSample* sample, rmtU32* nb_samples)
 {
 	CPUSample* child;
+	ObjectLink* cur_link = &sample->base;
 
 	assert(ts != NULL);
 	assert(sample != NULL);
+	assert(nb_samples != NULL);
 
-	// Free children first
+	*nb_samples += 1;
+	sample->base.next = (ObjectLink*)sample->first_child;
+
+	// Link all children together
 	for (child = sample->first_child; child != NULL; child = child->next_sibling)
-		ThreadSampler_FreeSample(ts, child, RMT_FALSE);
+	{
+		ObjectLink* last_link = ThreadSampler_ClearSamples(ts, child, nb_samples);
+		last_link->next = (ObjectLink*)child->next_sibling;
+		cur_link = last_link;
+	}
 
 	// Clear child info
 	sample->first_child = NULL;
 	sample->last_child = NULL;
-	sample->nb_children = 0;
+	sample->nb_children = NULL;
 
-	// Only free the sample if requested
-	if (just_contents == RMT_FALSE)
-		ObjectAllocator_Free(ts->sample_allocator, sample);
+	return cur_link;
 }
 
 
@@ -2901,6 +2918,8 @@ enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name)
 {
 	ThreadSampler* ts;
 	enum rmtError error;
+	ObjectLink* last_link;
+	rmtU32 nb_cleared_samples = 0;
 
 	if (g_Remotery == NULL)
 		return RMT_ERROR_REMOTERY_NOT_CREATED;
@@ -2918,8 +2937,12 @@ enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name)
 		  return error;
 	}
 
-	// Free all CPU samples except for this root one
-	ThreadSampler_FreeSample(ts, ts->root_sample, RMT_TRUE);
+	// Clear all samples and chain them together
+	last_link = ThreadSampler_ClearSamples(ts, ts->root_sample, &nb_cleared_samples);
+
+	// Release the complete sample memory range, leaving the root sample allocated
+	ObjectAllocator_FreeRange(ts->sample_allocator, ts->root_sample->base.next, last_link, nb_cleared_samples - 1);
+	assert(ts->sample_allocator->nb_inuse == 1);
 
 	return RMT_ERROR_NONE;
 }
