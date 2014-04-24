@@ -1,6 +1,8 @@
 
 //
 // TODO: Use WebGL and instancing for quicker renders
+// TODO: Pause entire profiler: does it discard incoming samples or accept them?
+// TODO: Record last nearest index
 //
 
 
@@ -84,6 +86,7 @@ TimelineRow = (function()
 		this.SetSize(width);
 		this.Clear();
 
+		this.FrameHistory = null;
 		this.VisibleFrames = [ ];
 	}
 
@@ -109,25 +112,30 @@ TimelineRow = (function()
 
 	TimelineRow.prototype.SetVisibleFrames = function(frame_history, time_range)
 	{
-		// TODO: Record last nearest index
+		// Allow null frame history to use existing ones
+		// Keep track of frame history for redraw events
+		if (frame_history != null)
+			this.FrameHistory = frame_history;
+		if (this.FrameHistory == null)
+			return;
 
 		// Clear previous visible list
 		this.VisibleFrames = [ ];
 
 		// Search for first visible frame
 		var start_frame_index = 0;
-		for (var i = 0; i < frame_history.length; i++)
+		for (var i = 0; i < this.FrameHistory.length; i++)
 		{
-			var frame = frame_history[i];
+			var frame = this.FrameHistory[i];
 			if (frame.EndTime_us > time_range.Start_us)
 				break;
 			start_frame_index++;
 		}
 
 		// Gather all frames up to the end point
-		for (var i = start_frame_index; i < frame_history.length; i++)
+		for (var i = start_frame_index; i < this.FrameHistory.length; i++)
 		{
-			var frame = frame_history[i];
+			var frame = this.FrameHistory[i];
 			if (frame.StartTime_us > time_range.End_us)
 				break;
 			this.VisibleFrames.push(frame);
@@ -164,6 +172,7 @@ TimelineRow = (function()
 		self.Ctx.fillRect(offset_x, 5, size_x, 10);
 	}
 
+
 	return TimelineRow;
 })();
 
@@ -194,6 +203,13 @@ TimelineWindow = (function()
 		var mouse_wheel_event = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
 		DOM.Event.AddHandler(this.TimelineContainer.Node, mouse_wheel_event, Bind(OnMouseScroll, this));
 
+		// Setup timeline dragging
+		this.MouseDown = false;
+		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousedown", Bind(OnMouseDown, this));
+		DOM.Event.AddHandler(this.TimelineContainer.Node, "mouseup", Bind(OnMouseUp, this));
+		DOM.Event.AddHandler(this.TimelineContainer.Node, "mouseout", Bind(OnMouseOut, this));
+		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousemove", Bind(OnMouseMove, this));		
+
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
 		this.TimeRange = new PixelTimeRange(0, 2 * 1000 * 1000, RowWidth(this));
 	}
@@ -217,11 +233,11 @@ TimelineWindow = (function()
 		{
 			var row = this.ThreadRows[i];
 			row.SetSize(row_width);
-			row.Clear();
 		}
 
 		// Adjust time range to new width
 		this.TimeRange.SetPixelSpan(row_width);
+		DrawAllRows(this);
 	}
 
 
@@ -231,8 +247,10 @@ TimelineWindow = (function()
 			return;
 
 		// Shift the timeline to the last entry on this thread
+		// As multiple threads come through here with different end frames, only do this for the latest
 		var last_frame = frame_history[frame_history.length - 1];
-		this.TimeRange.SetEnd(last_frame.EndTime_us);
+		if (last_frame.EndTime_us > this.TimeRange.End_us)
+			this.TimeRange.SetEnd(last_frame.EndTime_us);
 
 		// Search for the index of this thread
 		var thread_index = -1;
@@ -270,11 +288,31 @@ TimelineWindow = (function()
 	}
 
 
+	function RowOffset(self)
+	{
+		// Add sizing of the label
+		// TODO: Use computed size
+		return DOM.Node.GetPosition(self.TimelineContainer.Node)[0] + 87;
+	}
+
+
 	function RowWidth(self)
 	{
 		// Subtract sizing of the label
 		// TODO: Use computed size
 		return self.TimelineContainer.Size[0] - 87;
+	}
+
+
+	function DrawAllRows(self)
+	{
+		var time_range = self.TimeRange;
+		for (var i in self.ThreadRows)
+		{
+			var thread_row = self.ThreadRows[i];
+			thread_row.SetVisibleFrames(null, time_range);
+			thread_row.Draw(time_range);
+		}
 	}
 
 
@@ -296,20 +334,54 @@ TimelineWindow = (function()
 				scale = 1 / scale;
 
 		// What time is the mouse hovering over?
-		// TODO: Fix row position
-		var row_position = DOM.Node.GetPosition(self.TimelineContainer.Node);
-		var x = mouse_state.Position[0] - row_position[0] - 87;
-		var time_us = x / self.TimeRange.usPerPixel + self.TimeRange.Start_us;
+		var x = mouse_state.Position[0] - RowOffset(self);
+		var time_us = self.TimeRange.Start_us + x / self.TimeRange.usPerPixel;
 
 		// Calculate start time relative to the mouse hover position
 		var time_start_us = self.TimeRange.Start_us - time_us;
 
-		// Scale and offset back to the hover time, clamping to 0s
-		self.TimeRange.Set(Math.max(time_start_us * scale + time_us, 0), self.TimeRange.Span_us * scale);
+		// Scale and offset back to the hover time
+		self.TimeRange.Set(time_start_us * scale + time_us, self.TimeRange.Span_us * scale);
 
-		// Redraw all rows
-		for (var i in self.ThreadRows)
-			self.ThreadRows[i].Draw(self.TimeRange);
+		DrawAllRows(self);
+	}
+
+
+	function OnMouseDown(self, evt)
+	{
+		self.MouseDown = true;
+		DOM.Event.StopDefaultAction(evt);
+	}
+
+
+	function OnMouseUp(self, evt)
+	{
+		self.MouseDown = false;
+	}
+
+
+	function OnMouseOut(self, evt)
+	{
+		self.MouseDown = false;
+	}
+
+
+	function OnMouseMove(self, evt)
+	{
+		if (self.MouseDown)
+		{
+			var mouse_state = new Mouse.State(evt);
+
+			// Get the time the mouse is over
+			var x = mouse_state.Position[0] - RowOffset(self);
+			var time_us = self.TimeRange.Start_us + x / self.TimeRange.usPerPixel;
+
+			// Shift the visible time range with mouse movement
+			var time_offset_us = mouse_state.PositionDelta[0] / self.TimeRange.usPerPixel;
+			self.TimeRange.SetStart(self.TimeRange.Start_us - time_offset_us);
+
+			DrawAllRows(self);
+		}
 	}
 
 
