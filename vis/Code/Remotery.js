@@ -105,7 +105,7 @@ Remotery = (function()
 		}
 
 		// Set on the window
-		self.SampleWindows[name].OnSamples(socket, message);
+		self.SampleWindows[name].OnSamples(socket, message.nb_samples, message.sample_digest, message.samples);
 
 		var thread_frame = new ThreadFrame(message);
 		self.FrameHistory[name].push(thread_frame);

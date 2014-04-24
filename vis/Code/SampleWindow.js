@@ -26,21 +26,21 @@ SampleWindow = (function()
 	}
 
 
-	SampleWindow.prototype.OnSamples = function(socket, message)
+	SampleWindow.prototype.OnSamples = function(socket, nb_samples, sample_digest, samples)
 	{
-		if (this.NbSamples != message.nb_samples || this.SampleDigest != message.sample_digest)
+		if (this.NbSamples != nb_samples || this.SampleDigest != sample_digest)
 		{
 			// If the sample content changes, rebuild the grid
-			this.NbSamples = message.nb_samples;
-			this.SampleDigest = message.sample_digest;
+			this.NbSamples = nb_samples;
+			this.SampleDigest = sample_digest;
 			this.RootRow.Rows.Clear();
-			AddSamples(this.RootRow, message.samples, "");
+			AddSamples(this.RootRow, samples, "");
 		}
 
 		else
 		{
 			// Otherwise just update the existing sample data
-			UpdateSamples(this.RootRow, message.samples);
+			UpdateSamples(this.RootRow, samples);
 		}
 	}
 
