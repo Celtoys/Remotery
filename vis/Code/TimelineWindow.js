@@ -2,7 +2,6 @@
 //
 // TODO: Use WebGL and instancing for quicker renders
 // TODO: Pause entire profiler: does it discard incoming samples or accept them?
-// TODO: Record last nearest index
 //
 
 
@@ -86,6 +85,9 @@ TimelineRow = (function()
 		this.SetSize(width);
 		this.Clear();
 
+		// Frame index to start at when looking for first visible sample
+		this.StartFrameIndex = 0;
+
 		this.FrameHistory = null;
 		this.VisibleFrames = [ ];
 	}
@@ -121,18 +123,30 @@ TimelineRow = (function()
 
 		// Clear previous visible list
 		this.VisibleFrames = [ ];
+		if (this.FrameHistory.length == 0)
+			return;
 
-		// Search for first visible frame
-		var start_frame_index = 0;
-		for (var i = 0; i < this.FrameHistory.length; i++)
+		// First do a back-track in case the time range moves negatively
+		var start_frame_index = this.StartFrameIndex;
+		while (start_frame_index > 0)
 		{
-			var frame = this.FrameHistory[i];
+			var frame = this.FrameHistory[start_frame_index];
+			if (time_range.Start_us > frame.StartTime_us)
+				break;
+			start_frame_index--;
+		}
+
+		// Then search from this point for the first visible frame
+		while (start_frame_index < this.FrameHistory.length)
+		{
+			var frame = this.FrameHistory[start_frame_index];
 			if (frame.EndTime_us > time_range.Start_us)
 				break;
 			start_frame_index++;
 		}
 
 		// Gather all frames up to the end point
+		this.StartFrameIndex = start_frame_index;
 		for (var i = start_frame_index; i < this.FrameHistory.length; i++)
 		{
 			var frame = this.FrameHistory[i];
