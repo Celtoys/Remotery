@@ -41,15 +41,28 @@
 	#include <sal.h>
 	#include <specstrings.h>
 
+	// Prototypes for Microsoft atomic op intrinsics
 	extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
 	extern long __cdecl _InterlockedExchangeAdd(long volatile*, long);
 	#pragma intrinsic(_InterlockedCompareExchange)
 	#pragma intrinsic(_InterlockedExchangeAdd)
 
+	// Prototypes for MSVC compiler read/write fences
+	extern void _ReadWriteBarrier();
+	extern void _WriteBarrier();
+	extern void _ReadBarrier();
+	#pragma intrinsic(_ReadWriteBarrier)
+	#pragma intrinsic(_WriteBarrier)
+	#pragma intrinsic(_ReadBarrier)
+
 #else
 
 	#include <malloc.h>
 	#include <assert.h>
+
+	#ifdef RMT_PLATFORM_WINDOWS
+		#include <intrin.h>
+	#endif
 
 	#if defined(RMT_PLATFORM_POSIX)
 		#include <pthreads.h>
@@ -60,7 +73,6 @@
 
 #ifdef RMT_PLATFORM_WINDOWS
 	#include <winsock2.h>
-	#include <intrin.h>
 	#undef min
 	#undef max
 #endif
@@ -288,6 +300,47 @@ static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 	AtomicAdd(value, -sub);
 }
 
+
+// Compiler read/write fences (windows implementation)
+static void ReadFence()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+	_ReadBarrier();
+#endif
+}
+static void WriteFence()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+	_WriteBarrier();
+#endif
+}
+static void ReadWriteFence()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+	_ReadWriteBarrier();
+#endif
+}
+
+
+// Get a shared value with acquire semantics, ensuring the read is complete
+// before the function returns.
+static void* LoadAcquire(void* volatile const* addr)
+{
+	// Hardware fence is implicit on x86 so only need the compiler fence
+	void* v = *addr;
+	ReadFence();
+	return v;
+}
+
+
+// Set a shared value with release semantics, ensuring any prior writes
+// are complete before the value is set.
+static void StoreRelease(void* volatile*  addr, void* v)
+{
+	// Hardware fence is implicit on x86 so only need the compiler fence
+	WriteFence();
+	*addr = v;
+}
 
 
 /*
