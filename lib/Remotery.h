@@ -198,9 +198,6 @@ enum rmtError
 #define rmt_EndCPUSample()													\
 	RMT_OPTIONAL(_rmt_EndCPUSample())
 
-#define rmt_SendThreadSamples()												\
-	RMT_OPTIONAL_RET(_rmt_SendThreadSamples(), RMT_ERROR_NONE)
-
 
 
 /*
@@ -284,8 +281,6 @@ rmtBool _rmt_IsClientConnected(void);
 void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache);
 
 void _rmt_EndCPUSample(void);
-
-enum rmtError _rmt_SendThreadSamples();
 
 
 #ifdef __cplusplus

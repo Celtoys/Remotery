@@ -4,11 +4,10 @@
 //
 //    * There's lots of useless casting going on here that doesn't need to be done in C. I'm doing, however, because
 //      I have clReflect scanning this as a C++ file.
-//    * Support partial tree sending. This would help job systems that are difficult to explicitly break into frames.
 //    * Most runtime functions return an error code because they can create thread samplers on the fly. Should we use
 //      RegisterThread instead? That would increase API init burden but would prevent the need to return error codes
 //      for all API functions. Alternatively, fold it into the rmt_SendThreadSamples function.
-//    * Access to intermediate serialisation buffer is not thread-safe.
+//    * Access to intermediate serialisation buffer is not thread-safe. (NOTE: Only a problem for text logging now)
 //
 
 #include "Remotery.h"
@@ -281,6 +280,7 @@ static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, l
 //
 // NOTE: Does not guarantee a memory barrier
 // TODO: Make sure all platforms don't insert a memory barrier as this is only for stats
+//       Alternatively, add strong/weak memory order equivalents
 //
 static void AtomicAdd(rmtS32 volatile* value, rmtS32 add)
 {
@@ -788,7 +788,7 @@ strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
 //
 typedef struct ObjectLink
 {
-	struct ObjectLink* next;
+	struct ObjectLink* volatile next;
 } ObjectLink;
 
 
@@ -2714,6 +2714,12 @@ typedef struct ThreadSampler
 
 	// Next in the global list of active thread samplers
 	struct ThreadSampler* volatile next;
+
+	// Queue of complete root samples to be sent to the client
+	CPUSample* complete_queue_head;
+	u8 __cache_line_pad_0__[64];
+	CPUSample* complete_queue_tail;
+	u8 __cache_line_pad_1__[64];
 } ThreadSampler;
 
 
@@ -2723,6 +2729,7 @@ static void ThreadSampler_Destroy(ThreadSampler* ts);
 static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 {
 	enum rmtError error;
+	CPUSample* empty_sample;
 
 	// Allocate space for the thread sampler
 	*thread_sampler = (ThreadSampler*)malloc(sizeof(ThreadSampler));
@@ -2735,6 +2742,8 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 	(*thread_sampler)->current_parent_sample = NULL;
 	(*thread_sampler)->json_buf = NULL;
 	(*thread_sampler)->next = NULL;
+	(*thread_sampler)->complete_queue_head = NULL;
+	(*thread_sampler)->complete_queue_tail = NULL;
 
 	// Set the initial name based on the unique thread sampler address
 	Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
@@ -2768,6 +2777,16 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 		return error;
 	}
 
+	// Setup the complete queue to point at an empty sample
+	error = ObjectAllocator_Alloc((*thread_sampler)->sample_allocator, (void**)&empty_sample);
+	if (error != RMT_ERROR_NONE)
+	{
+		ThreadSampler_Destroy(*thread_sampler);
+		return error;
+	}
+	(*thread_sampler)->complete_queue_head = empty_sample;
+	(*thread_sampler)->complete_queue_tail = empty_sample;
+
 	return RMT_ERROR_NONE;
 }
 
@@ -2775,6 +2794,13 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 static void ThreadSampler_Destroy(ThreadSampler* ts)
 {
 	assert(ts != NULL);
+
+	while (ts->complete_queue_head != NULL)
+	{
+		CPUSample* next = (CPUSample*)ts->complete_queue_head->base.next;
+		ObjectAllocator_Free(ts->sample_allocator, ts->complete_queue_head);
+		ts->complete_queue_head = next;
+	}
 
 	if (ts->json_buf != NULL)
 	{
@@ -2795,6 +2821,54 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 	}
 
 	free(ts);
+}
+
+
+static void ThreadSampler_QueueCompleteSample(ThreadSampler* ts, CPUSample* root_sample)
+{
+	CPUSample* tail;
+
+	assert(ts != NULL);
+	assert(root_sample != NULL);
+
+	// Producer owns the sample for now and sets it up for being last in the list
+	root_sample->base.next = NULL;
+
+	// Producer always owns the tail pointer so can safely read it
+	tail = ts->complete_queue_tail;
+
+	// After adding to the queue here, the sample becomes available to the consumer so use release semantics
+	// to ensure the sample is defined before the store occurs.
+	StoreRelease((void * volatile *)&tail->base.next, root_sample);
+
+	// Safe to update the tail now as it is producer-owned
+	ts->complete_queue_tail = root_sample;
+}
+
+
+static CPUSample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
+{
+	CPUSample* head;
+	CPUSample* next;
+
+	assert(ts != NULL);
+
+	// Consumer always owns the head pointer so can safely read it
+	head = ts->complete_queue_head;
+
+	// The head always points to the empty sample so look ahead one to see if anything is in the list
+	// This value is shared with the producer
+	next = (CPUSample*)LoadAcquire((void *const volatile *)&head->base.next);
+	if (next == NULL)
+		return NULL;
+
+	// Move the CPUSample data to the empty sample at the front
+	*head = *next;
+
+	// As the consumer owns the head pointer, we're free to update it
+	ts->complete_queue_head = next;
+
+	return head;
 }
 
 
@@ -2857,6 +2931,18 @@ static void ThreadSampler_Pop(ThreadSampler* ts, CPUSample* sample)
 	assert(sample != NULL);
 	assert(sample != ts->root_sample);
 	ts->current_parent_sample = sample->parent;
+
+	if (ts->current_parent_sample == ts->root_sample)
+	{
+		// Disconnect all samples from the root
+		CPUSample* root = ts->root_sample;
+		root->first_child = NULL;
+		root->last_child = NULL;
+		root->nb_children = 0;
+
+		// Add them to the queue to be sent to the client
+		ThreadSampler_QueueCompleteSample(ts, sample);
+	}
 }
 
 
@@ -2883,7 +2969,7 @@ static ObjectLink* ThreadSampler_ClearSamples(ThreadSampler* ts, CPUSample* samp
 	// Clear child info
 	sample->first_child = NULL;
 	sample->last_child = NULL;
-	sample->nb_children = NULL;
+	sample->nb_children = 0;
 
 	return cur_link;
 }
@@ -2904,47 +2990,6 @@ static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash
 	// Concatenate children
 	for (child = sample->first_child; child != NULL; child = child->next_sibling)
 		ThreadSampler_GetSampleDigest(child, digest_hash, nb_samples);
-}
-
-
-static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server)
-{
-	enum rmtError error;
-	rmtU32 digest_hash, nb_samples;
-
-	Buffer* buffer;
-
-	assert(ts != NULL);
-
-	// Don't support partial sending of the tree (yet?)
-	if (ts->current_parent_sample != ts->root_sample)
-		return RMT_ERROR_SEND_ON_INCOMPLETE_PROFILE;
-
-	// Reset the buffer position to the start
-	buffer = ts->json_buf;
-	buffer->bytes_used = 0;
-
-	// Get digest hash of samples so that viewer can efficiently rebuild its tables
-	digest_hash = 0;
-	nb_samples = 0;
-	ThreadSampler_GetSampleDigest(ts->root_sample, &digest_hash, &nb_samples);
-
-	// Start at the root sample but only send its child array, ignoring its description
-	JSON_ERROR_CHECK(json_OpenObject(buffer));
-
-		JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
-		JSON_ERROR_CHECK(json_Comma(buffer));
-		JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", ts->name));
-		JSON_ERROR_CHECK(json_Comma(buffer));
-		JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
-		JSON_ERROR_CHECK(json_Comma(buffer));
-		JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
-		JSON_ERROR_CHECK(json_Comma(buffer));
-		JSON_ERROR_CHECK(json_CPUSampleArray(buffer, ts->root_sample->first_child, "samples"));
-
-	JSON_ERROR_CHECK(json_CloseObject(buffer));
-
-	return Server_Send(server, buffer->data, buffer->bytes_used, 20);
 }
 
 
@@ -2976,6 +3021,73 @@ static void Remotery_Destroy(Remotery* rmt);
 static void Remotery_DestroyThreadSamplers(Remotery* rmt);
 
 
+static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
+{
+	enum rmtError error;
+	ThreadSampler* ts;
+
+	assert(rmt != NULL);
+
+	// Visit all thread sampleers
+	for (ts = rmt->first_thread_sampler; ts != NULL; ts = ts->next)
+	{
+		// Pull all samples from the thread sampler's complete queue
+		while (1)
+		{
+			Buffer* buffer;
+			rmtU32 digest_hash, nb_samples, nb_cleared_samples = 0;
+			ObjectLink* last_link;
+
+			CPUSample* sample = ThreadSampler_DequeueCompleteSample(ts);
+			if (sample == NULL)
+				break;
+
+			// Having a client not connected is typical and not an error
+			if (Server_IsClientConnected(rmt->server))
+			{
+				// Reset the buffer position to the start
+				buffer = ts->json_buf;
+				buffer->bytes_used = 0;
+
+				// Get digest hash of samples so that viewer can efficiently rebuild its tables
+				digest_hash = 0;
+				nb_samples = 0;
+				ThreadSampler_GetSampleDigest(ts->root_sample, &digest_hash, &nb_samples);
+
+				// Build the sample data
+				JSON_ERROR_CHECK(json_OpenObject(buffer));
+
+					JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
+					JSON_ERROR_CHECK(json_Comma(buffer));
+					JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", ts->name));
+					JSON_ERROR_CHECK(json_Comma(buffer));
+					JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
+					JSON_ERROR_CHECK(json_Comma(buffer));
+					JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
+					JSON_ERROR_CHECK(json_Comma(buffer));
+					JSON_ERROR_CHECK(json_CPUSampleArray(buffer, sample, "samples"));
+
+				JSON_ERROR_CHECK(json_CloseObject(buffer));
+
+				// Send to the client
+				error = Server_Send(rmt->server, buffer->data, buffer->bytes_used, 20);
+				if (error != RMT_ERROR_NONE)
+					return error;
+			}
+
+			// Clear all samples and chain them together
+			last_link = ThreadSampler_ClearSamples(ts, sample, &nb_cleared_samples);
+
+			// Release the complete sample memory range
+			ObjectAllocator_FreeRange(ts->sample_allocator, sample->base.next, last_link, nb_cleared_samples);
+			//assert(ts->sample_allocator->nb_inuse == 2);
+		}
+	}
+
+	return RMT_ERROR_NONE;
+}
+
+
 static enum rmtError Remotery_ThreadMain(Thread* thread)
 {
 	Remotery* rmt = (Remotery*)thread->param;
@@ -2984,6 +3096,7 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
 	while (thread->request_exit == RMT_FALSE)
 	{
 		Server_Update(rmt->server);
+		Remotery_SendCompleteSamples(rmt);
 		msSleep(10);
 	}
 
@@ -3059,7 +3172,7 @@ static void Remotery_Destroy(Remotery* rmt)
 	if (rmt->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
 	{
 		tlsFree(rmt->thread_sampler_tls_handle);
-		rmt->thread_sampler_tls_handle = NULL;
+		rmt->thread_sampler_tls_handle = 0;
 	}
 
 	free(rmt);
@@ -3208,6 +3321,7 @@ void _rmt_LogText(rmtPStr text)
 }
 
 
+// TODO: Remove me!
 rmtBool _rmt_IsClientConnected(void)
 {
 	if (g_Remotery != NULL)
@@ -3276,40 +3390,6 @@ void _rmt_EndCPUSample(void)
 	sample->end_us = usTimer_Get(&ts->timer);
 
 	ThreadSampler_Pop(ts, sample);
-}
-
-
-enum rmtError _rmt_SendThreadSamples()
-{
-	ThreadSampler* ts;
-	enum rmtError error;
-	ObjectLink* last_link;
-	rmtU32 nb_cleared_samples = 0;
-
-	if (g_Remotery == NULL)
-		return RMT_ERROR_REMOTERY_NOT_CREATED;
-
-	// Get data for this thread
-	error = Remotery_GetThreadSampler(g_Remotery, &ts);
-	if (error != RMT_ERROR_NONE)
-		return error;
-
-	// Having a client not connected is typical and not an error
-	if (Server_IsClientConnected(g_Remotery->server))
-	{
-		error = ThreadSampler_SendSamples(ts, g_Remotery->server);
-		if (error != RMT_ERROR_NONE)
-		  return error;
-	}
-
-	// Clear all samples and chain them together
-	last_link = ThreadSampler_ClearSamples(ts, ts->root_sample, &nb_cleared_samples);
-
-	// Release the complete sample memory range, leaving the root sample allocated
-	ObjectAllocator_FreeRange(ts->sample_allocator, ts->root_sample->base.next, last_link, nb_cleared_samples - 1);
-	assert(ts->sample_allocator->nb_inuse == 1);
-
-	return RMT_ERROR_NONE;
 }
 
 
