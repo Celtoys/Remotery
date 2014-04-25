@@ -43,8 +43,9 @@
 	#include <specstrings.h>
 
 	extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
-	extern long __cdecl _InterlockedAdd(long volatile*, long);
+	extern long __cdecl _InterlockedExchangeAdd(long volatile*, long);
 	#pragma intrinsic(_InterlockedCompareExchange)
+	#pragma intrinsic(_InterlockedExchangeAdd)
 
 #else
 
@@ -245,10 +246,10 @@ static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, l
 //
 // NOTE: Does not guarantee a memory barrier
 //
-static void AtomicAdd(long volatile* value, long add)
+static void AtomicAdd(rmtS32 volatile* value, rmtS32 add)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
-		_InterlockedAdd(value, add);
+		_InterlockedExchangeAdd((long volatile*)value, (long)add);
 	#elif defined(RMT_PLATFORM_LINUX)
 		__sync_fetch_and_add(value, add);
 	#elif defined(RMT_PLATFORM_MACOS)
@@ -257,7 +258,7 @@ static void AtomicAdd(long volatile* value, long add)
 }
 
 
-static void AtomicSub(long volatile* value, long sub)
+static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 {
 	// Not all platforms have an implementation so just negate and add
 	AtomicAdd(value, -sub);
