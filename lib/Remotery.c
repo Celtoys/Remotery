@@ -625,8 +625,15 @@ static void ObjectAllocator_Push(ObjectAllocator* allocator, ObjectLink* start, 
 	assert(allocator != NULL);
 	assert(start != NULL);
 	assert(end != NULL);
-	end->next = (ObjectLink*)allocator->first_free;
-	allocator->first_free = start;
+
+	// CAS pop add range to the front of the list
+	while (1)
+	{
+		ObjectLink* old_link = (ObjectLink*)allocator->first_free;
+		end->next = old_link;
+		if (AtomicCompareAndSwapPointer((long* volatile*)&allocator->first_free, (long*)old_link, (long*)start) == RMT_TRUE)
+			break;
+	}
 }
 
 
@@ -636,8 +643,18 @@ static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
 
 	assert(allocator != NULL);
 	assert(allocator->first_free != NULL);
-	link = (ObjectLink*)allocator->first_free;
-	allocator->first_free = link->next;
+
+	// CAS pop from the front of the list
+	while (1)
+	{
+		ObjectLink* old_link = (ObjectLink*)allocator->first_free;
+		ObjectLink* next_link = old_link->next;
+		if (AtomicCompareAndSwapPointer((long* volatile*)&allocator->first_free, (long*)old_link, (long*)next_link) == RMT_TRUE)
+		{
+			link = old_link;
+			break;
+		}
+	}
 
 	return link;
 }
