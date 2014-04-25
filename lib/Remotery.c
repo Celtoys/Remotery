@@ -2644,89 +2644,54 @@ typedef struct ThreadSampler
 } ThreadSampler;
 
 
-struct Remotery
-{
-	Server* server;
-
-	rmtU32 thread_sampler_tls_handle;
-
-	// Linked list of all known threads being sampled
-	ThreadSampler* volatile first_thread_sampler;
-};
-
-
 static void ThreadSampler_Destroy(ThreadSampler* ts);
 
 
-static enum rmtError ThreadSampler_Get(Remotery* rmt, ThreadSampler** thread_sampler)
+static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 {
-	ThreadSampler* ts;
+	enum rmtError error;
 
-	// Is there a thread sampler associated with this thread yet?
-	assert(rmt != NULL);
-	ts = (ThreadSampler*)tlsGet(rmt->thread_sampler_tls_handle);
-	if (ts == NULL)
+	// Allocate space for the thread sampler
+	*thread_sampler = (ThreadSampler*)malloc(sizeof(ThreadSampler));
+	if (*thread_sampler == NULL)
+		return RMT_ERROR_MALLOC_FAIL;
+
+	// Set defaults
+	(*thread_sampler)->sample_allocator = NULL;
+	(*thread_sampler)->root_sample = NULL;
+	(*thread_sampler)->current_parent_sample = NULL;
+	(*thread_sampler)->json_buf = NULL;
+	(*thread_sampler)->next = NULL;
+
+	// Create the sample allocator
+	error = ObjectAllocator_Create(&(*thread_sampler)->sample_allocator, sizeof(CPUSample));
+	if (error != RMT_ERROR_NONE)
 	{
-		enum rmtError error;
-
-		// Allocate on-demand
-		ts = (ThreadSampler*)malloc(sizeof(ThreadSampler));
-		if (ts == NULL)
-			return RMT_ERROR_MALLOC_FAIL;
-
-		// Set defaults
-		ts->sample_allocator = NULL;
-		ts->root_sample = NULL;
-		ts->current_parent_sample = NULL;
-		ts->json_buf = NULL;
-		ts->next = NULL;
-
-		// Create the sample allocator
-		error = ObjectAllocator_Create(&ts->sample_allocator, sizeof(CPUSample));
-		if (error != RMT_ERROR_NONE)
-		{
-			ThreadSampler_Destroy(ts);
-			return error;
-		}
-
-		// Create a root sample that's around for the lifetime of the thread
-		error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)&ts->root_sample);
-		if (error != RMT_ERROR_NONE)
-		{
-			ThreadSampler_Destroy(ts);
-			return error;
-		}
-		CPUSample_SetDefaults(ts->root_sample, "<Root Sample>", 0, NULL);
-		ts->current_parent_sample = ts->root_sample;
-
-		// Kick-off the timer
-		usTimer_Init(&ts->timer);
-
-		// Create the JSON serialisation buffer
-		error = Buffer_Create(&ts->json_buf, 4096);
-		if (error != RMT_ERROR_NONE)
-		{
-			ThreadSampler_Destroy(ts);
-			return error;
-		}
-
-		// Add to the beginning of the global linked list of thread samplers
-		while (1)
-		{
-			ThreadSampler* old_ts = rmt->first_thread_sampler;
-			ts->next = old_ts;
-
-			// If the old value is what we expect it to be then no other thread has
-			// changed it since this thread sampler was used as a candidate first list item
-			if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)ts) == RMT_TRUE)
-				break;
-		}
-
-		tlsSet(rmt->thread_sampler_tls_handle, ts);
+		ThreadSampler_Destroy(*thread_sampler);
+		return error;
 	}
 
-	assert(thread_sampler != NULL);
-	*thread_sampler = ts;
+	// Create a root sample that's around for the lifetime of the thread
+	error = ObjectAllocator_Alloc((*thread_sampler)->sample_allocator, (void**)&(*thread_sampler)->root_sample);
+	if (error != RMT_ERROR_NONE)
+	{
+		ThreadSampler_Destroy(*thread_sampler);
+		return error;
+	}
+	CPUSample_SetDefaults((*thread_sampler)->root_sample, "<Root Sample>", 0, NULL);
+	(*thread_sampler)->current_parent_sample = (*thread_sampler)->root_sample;
+
+	// Kick-off the timer
+	usTimer_Init(&(*thread_sampler)->timer);
+
+	// Create the JSON serialisation buffer
+	error = Buffer_Create(&(*thread_sampler)->json_buf, 4096);
+	if (error != RMT_ERROR_NONE)
+	{
+		ThreadSampler_Destroy(*thread_sampler);
+		return error;
+	}
+
 	return RMT_ERROR_NONE;
 }
 
@@ -2754,41 +2719,6 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 	}
 
 	free(ts);
-}
-
-
-static void ThreadSampler_DestroyAll(Remotery* rmt)
-{
-	// If the handle failed to create in the first place then it shouldn't be possible to create thread samplers
-	assert(rmt != NULL);
-	if (rmt->thread_sampler_tls_handle == TLS_INVALID_HANDLE)
-	{
-		assert(rmt->first_thread_sampler == NULL);
-		return;
-	}
-
-	// Keep popping thread samplers off the linked list until they're all gone
-	// This does not make any assumptions, making it possible for thread samplers to be created while they're all
-	// deleted. While this is erroneous calling code, this will prevent a confusing crash.
-	while (rmt->first_thread_sampler != NULL)
-	{
-		ThreadSampler* ts;
-
-		while (1)
-		{
-			ThreadSampler* old_ts = rmt->first_thread_sampler;
-			ThreadSampler* next_ts = old_ts->next;
-
-			if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)next_ts) == RMT_TRUE)
-			{
-				ts = old_ts;
-				break;
-			}
-		}
-
-		// Release the thread sampler
-		ThreadSampler_Destroy(ts);
-	}
 }
 
 
@@ -2953,6 +2883,88 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 
 
 
+struct Remotery
+{
+	Server* server;
+
+	rmtU32 thread_sampler_tls_handle;
+
+	// Linked list of all known threads being sampled
+	ThreadSampler* volatile first_thread_sampler;
+};
+
+
+static enum rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_sampler)
+{
+	ThreadSampler* ts;
+
+	// Is there a thread sampler associated with this thread yet?
+	assert(rmt != NULL);
+	ts = (ThreadSampler*)tlsGet(rmt->thread_sampler_tls_handle);
+	if (ts == NULL)
+	{
+		// Allocate on-demand
+		enum rmtError error = ThreadSampler_Create(thread_sampler);
+		if (error != RMT_ERROR_NONE)
+			return error;
+		ts = *thread_sampler;
+
+		// Add to the beginning of the global linked list of thread samplers
+		while (1)
+		{
+			ThreadSampler* old_ts = rmt->first_thread_sampler;
+			ts->next = old_ts;
+
+			// If the old value is what we expect it to be then no other thread has
+			// changed it since this thread sampler was used as a candidate first list item
+			if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)ts) == RMT_TRUE)
+				break;
+		}
+
+		tlsSet(rmt->thread_sampler_tls_handle, ts);
+	}
+
+	assert(thread_sampler != NULL);
+	*thread_sampler = ts;
+	return RMT_ERROR_NONE;
+}
+
+
+static void Remotery_DestroyThreadSamplers(Remotery* rmt)
+{
+	// If the handle failed to create in the first place then it shouldn't be possible to create thread samplers
+	assert(rmt != NULL);
+	if (rmt->thread_sampler_tls_handle == TLS_INVALID_HANDLE)
+	{
+		assert(rmt->first_thread_sampler == NULL);
+		return;
+	}
+
+	// Keep popping thread samplers off the linked list until they're all gone
+	// This does not make any assumptions, making it possible for thread samplers to be created while they're all
+	// deleted. While this is erroneous calling code, this will prevent a confusing crash.
+	while (rmt->first_thread_sampler != NULL)
+	{
+		ThreadSampler* ts;
+
+		while (1)
+		{
+			ThreadSampler* old_ts = rmt->first_thread_sampler;
+			ThreadSampler* next_ts = old_ts->next;
+
+			if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)next_ts) == RMT_TRUE)
+			{
+				ts = old_ts;
+				break;
+			}
+		}
+
+		// Release the thread sampler
+		ThreadSampler_Destroy(ts);
+	}
+}
+
+
 //
 // Global remotery context
 //
@@ -3010,7 +3022,7 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
 	// Ensure this is the module that created it
 	assert(g_RemoterySet == RMT_FALSE);
 
-	ThreadSampler_DestroyAll(remotery);
+	Remotery_DestroyThreadSamplers(remotery);
 
 	if (remotery->server != NULL)
 	{
@@ -3088,7 +3100,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 		return;
 
 	// Get data for this thread
-	if (ThreadSampler_Get(g_Remotery, &ts) != RMT_ERROR_NONE)
+	if (Remotery_GetThreadSampler(g_Remotery, &ts) != RMT_ERROR_NONE)
 		return;
 
 	name_hash = GetNameHash(name, hash_cache);
@@ -3111,7 +3123,7 @@ void _rmt_EndCPUSample(void)
 		return;
 
 	// Get data for this thread
-	if (ThreadSampler_Get(g_Remotery, &ts) != RMT_ERROR_NONE)
+	if (Remotery_GetThreadSampler(g_Remotery, &ts) != RMT_ERROR_NONE)
 		return;
 
 	sample = ts->current_parent_sample;
@@ -3132,7 +3144,7 @@ enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name)
 		return RMT_ERROR_REMOTERY_NOT_CREATED;
 
 	// Get data for this thread
-	error = ThreadSampler_Get(g_Remotery, &ts);
+	error = Remotery_GetThreadSampler(g_Remotery, &ts);
 	if (error != RMT_ERROR_NONE)
 		return error;
 
