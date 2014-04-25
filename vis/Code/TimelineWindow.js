@@ -77,6 +77,12 @@ TimelineWindow = (function()
 	}
 
 
+	TimelineWindow.prototype.ResetTimeRange = function()
+	{
+		this.TimeRange.SetStart(0);
+	}
+
+
 	TimelineWindow.prototype.OnSamples = function(thread_name, frame_history)
 	{
 		// Shift the timeline to the last entry on this thread

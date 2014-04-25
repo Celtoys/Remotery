@@ -57,6 +57,10 @@ Remotery = (function()
 	{
 		// Connection address has been validated
 		LocalStore.Set("App", "Global", "ConnectionAddress", self.ConnectionAddress);
+
+		self.TimelineWindow.ResetTimeRange();
+		self.FrameHistory = { };
+		self.SelectedFrames = { };
 	}
 
 
