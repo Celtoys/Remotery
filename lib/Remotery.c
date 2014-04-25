@@ -3060,6 +3060,7 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
 
 	// Ensure this is the module that created it
 	assert(g_RemoterySet == RMT_FALSE);
+	assert(g_Remotery == remotery);
 	Remotery_Destroy(remotery);
 	g_Remotery = NULL;
 }
