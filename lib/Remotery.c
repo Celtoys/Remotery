@@ -8,7 +8,6 @@
 //    * Most runtime functions return an error code because they can create thread samplers on the fly. Should we use
 //      RegisterThread instead? That would increase API init burden but would prevent the need to return error codes
 //      for all API functions. Alternatively, fold it into the rmt_SendThreadSamples function.
-//    * Put rmt_UpdateServer on a separate thread with no calls required from the client.
 //    * Access to intermediate serialisation buffer is not thread-safe.
 //
 
@@ -137,6 +136,16 @@ static rmtU64 usTimer_Get(usTimer* timer)
 		// Read counter and convert to microseconds
 		QueryPerformanceCounter(&performance_count);
 		return (rmtU64)((performance_count.QuadPart - timer->counter_start.QuadPart) * timer->counter_scale);
+	#endif
+}
+
+
+static void msSleep(rmtU32 time_ms)
+{
+	#ifdef RMT_PLATFORM_WINDOWS
+		Sleep(time_ms);
+	#elif RMT_PLATFORM_POSIX
+		usleep(time_ms * 1000);
 	#endif
 }
 
@@ -338,7 +347,7 @@ static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* p
 	if (*thread == NULL)
 		return RMT_ERROR_MALLOC_FAIL;
 
-	(*thread)->param = callback;
+	(*thread)->callback = callback;
 	(*thread)->param = param;
 	(*thread)->error = RMT_ERROR_NONE;
 	(*thread)->request_exit = RMT_FALSE;
@@ -351,7 +360,7 @@ static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* p
 			NULL,								// lpThreadAttributes
 			0,									// dwStackSize
 			ThreadProcWindows,					// lpStartAddress
-			thread,								// lpParameter
+			*thread,							// lpParameter
 			0,									// dwCreationFlags
 			NULL);								// lpThreadId
 
@@ -2337,7 +2346,9 @@ static void Server_Update(Server* server)
 	if (server->client_socket == NULL)
 	{
 		// Accept connections as long as there is no client connected
-		WebSocket_AcceptConnection(server->listen_socket, &server->client_socket);
+		WebSocket* client_socket = NULL;
+		WebSocket_AcceptConnection(server->listen_socket, &client_socket);
+		server->client_socket = client_socket;
 	}
 
 	else
@@ -2360,8 +2371,10 @@ static void Server_Update(Server* server)
 		else
 		{
 			// Anything else is an error that may have closed the connection
-			WebSocket_Destroy(server->client_socket);
+			// NULL the variable before destroying the socket
+			WebSocket* client_socket = server->client_socket;
 			server->client_socket = NULL;
+			WebSocket_Destroy(client_socket);
 		}
 	}
 
@@ -2891,11 +2904,28 @@ struct Remotery
 
 	// Linked list of all known threads being sampled
 	ThreadSampler* volatile first_thread_sampler;
+
+	Thread* thread;
 };
 
 
 static void Remotery_Destroy(Remotery* rmt);
 static void Remotery_DestroyThreadSamplers(Remotery* rmt);
+
+
+static enum rmtError Remotery_ThreadMain(Thread* thread)
+{
+	Remotery* rmt = (Remotery*)thread->param;
+	assert(rmt != NULL);
+
+	while (thread->request_exit == RMT_FALSE)
+	{
+		Server_Update(rmt->server);
+		msSleep(10);
+	}
+
+	return RMT_ERROR_NONE;
+}
 
 
 static enum rmtError Remotery_Create(Remotery** rmt)
@@ -2912,6 +2942,7 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 	(*rmt)->server = NULL;
 	(*rmt)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
 	(*rmt)->first_thread_sampler = NULL;
+	(*rmt)->thread = NULL;
 
 	// Allocate a TLS handle for the thread sampler
 	error = tlsAlloc(&(*rmt)->thread_sampler_tls_handle);
@@ -2931,6 +2962,15 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 		return error;
 	}
 
+	// Create the main update thread
+	error = Thread_Create(&(*rmt)->thread, Remotery_ThreadMain, *rmt);
+	if (error != RMT_ERROR_NONE)
+	{
+		Remotery_Destroy(*rmt);
+		*rmt = NULL;
+		return error;
+	}
+
 	return RMT_ERROR_NONE;
 }
 
@@ -2938,6 +2978,12 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 static void Remotery_Destroy(Remotery* rmt)
 {
 	assert(rmt != NULL);
+
+	if (rmt->thread != NULL)
+	{
+		Thread_Destroy(rmt->thread);
+		rmt->thread = NULL;
+	}
 
 	Remotery_DestroyThreadSamplers(rmt);
 
@@ -3077,13 +3123,6 @@ void _rmt_LogText(rmtPStr text)
 {
 	if (g_Remotery != NULL)
 		Server_LogText(g_Remotery->server, text);
-}
-
-
-void _rmt_UpdateServer(void)
-{
-	if (g_Remotery != NULL)
-		Server_Update(g_Remotery->server);
 }
 
 

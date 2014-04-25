@@ -183,9 +183,6 @@ enum rmtError
 #define rmt_LogText(text)													\
 	RMT_OPTIONAL(_rmt_LogText(text))
 
-#define rmt_UpdateServer()													\
-	RMT_OPTIONAL(_rmt_UpdateServer())
-
 #define rmt_IsClientConnected()												\
 	RMT_OPTIONAL_RET(_rmt_IsClientConnected(), RMT_TRUE)
 
@@ -269,8 +266,6 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery);
 void _rmt_SetGlobalInstance(Remotery* remotery);
 
 void _rmt_LogText(rmtPStr text);
-
-void _rmt_UpdateServer(void);
 
 rmtBool _rmt_IsClientConnected(void);
 
