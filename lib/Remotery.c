@@ -589,13 +589,13 @@ typedef struct
 	rmtU32 object_size;
 
 	// Number of objects in the free list
-	rmtU32 nb_free;
+	volatile rmtS32 nb_free;
 
 	// Number of objects used by callers
-	rmtU32 nb_inuse;
+	volatile rmtS32 nb_inuse;
 
 	// Total allocation count
-	rmtU32 nb_allocated;
+	volatile rmtS32 nb_allocated;
 
 	ObjectLink* first_free;
 } ObjectAllocator;
@@ -656,14 +656,14 @@ static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** ob
 			return RMT_ERROR_MALLOC_FAIL;
 
 		ObjectAllocator_Push(allocator, (ObjectLink*)free_object, (ObjectLink*)free_object);
-		allocator->nb_allocated++;
-		allocator->nb_free++;
+		AtomicAdd(&allocator->nb_allocated, 1);
+		AtomicAdd(&allocator->nb_free, 1);
 	}
 
 	// Pull available objects from the free list
 	*object = ObjectAllocator_Pop(allocator);
-	allocator->nb_free--;
-	allocator->nb_inuse++;
+	AtomicSub(&allocator->nb_free, 1);
+	AtomicAdd(&allocator->nb_inuse, 1);
 
 	return RMT_ERROR_NONE;
 }
@@ -674,8 +674,8 @@ static void ObjectAllocator_Free(ObjectAllocator* allocator, void* object)
 	// Add back to the free-list
 	assert(allocator != NULL);
 	ObjectAllocator_Push(allocator, (ObjectLink*)object, (ObjectLink*)object);
-	allocator->nb_inuse--;
-	allocator->nb_free++;
+	AtomicSub(&allocator->nb_inuse, 1);
+	AtomicAdd(&allocator->nb_free, 1);
 }
 
 
@@ -683,8 +683,8 @@ static void ObjectAllocator_FreeRange(ObjectAllocator* allocator, void* start, v
 {
 	assert(allocator != NULL);
 	ObjectAllocator_Push(allocator, (ObjectLink*)start, (ObjectLink*)end);
-	allocator->nb_inuse -= count;
-	allocator->nb_free += count;
+	AtomicSub(&allocator->nb_inuse, count);
+	AtomicAdd(&allocator->nb_free, count);
 }
 
 
