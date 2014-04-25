@@ -596,10 +596,31 @@ static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 
 }
 
 
+static void ObjectAllocator_Push(ObjectAllocator* allocator, ObjectLink* start, ObjectLink* end)
+{
+	assert(allocator != NULL);
+	assert(start != NULL);
+	assert(end != NULL);
+	end->next = (ObjectLink*)allocator->first_free;
+	allocator->first_free = start;
+}
+
+
+static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
+{
+	ObjectLink* link;
+
+	assert(allocator != NULL);
+	assert(allocator->first_free != NULL);
+	link = (ObjectLink*)allocator->first_free;
+	allocator->first_free = link->next;
+
+	return link;
+}
+
+
 static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
 {
-	ObjectLink* link = NULL;
-
 	assert(allocator != NULL);
 	assert(object != NULL);
 
@@ -609,16 +630,14 @@ static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** ob
 		void* free_object = malloc(allocator->object_size);
 		if (free_object == NULL)
 			return RMT_ERROR_MALLOC_FAIL;
-		((ObjectLink*)free_object)->next = NULL;
-		allocator->first_free = (ObjectLink*)free_object;
+
+		ObjectAllocator_Push(allocator, (ObjectLink*)free_object, (ObjectLink*)free_object);
 		allocator->nb_allocated++;
 		allocator->nb_free++;
 	}
 
 	// Pull available objects from the free list
-	link = (ObjectLink*)allocator->first_free;
-	allocator->first_free = (ObjectLink*)link->next;
-	*object = link;
+	*object = ObjectAllocator_Pop(allocator);
 	allocator->nb_free--;
 	allocator->nb_inuse++;
 
@@ -630,8 +649,7 @@ static void ObjectAllocator_Free(ObjectAllocator* allocator, void* object)
 {
 	// Add back to the free-list
 	assert(allocator != NULL);
-	((ObjectLink*)object)->next = (struct ObjectLink*)allocator->first_free;
-	allocator->first_free = (ObjectLink*)object;
+	ObjectAllocator_Push(allocator, (ObjectLink*)object, (ObjectLink*)object);
 	allocator->nb_inuse--;
 	allocator->nb_free++;
 }
@@ -640,8 +658,7 @@ static void ObjectAllocator_Free(ObjectAllocator* allocator, void* object)
 static void ObjectAllocator_FreeRange(ObjectAllocator* allocator, void* start, void* end, rmtU32 count)
 {
 	assert(allocator != NULL);
-	((ObjectLink*)end)->next = (struct ObjectLink*)allocator->first_free;
-	allocator->first_free = (ObjectLink*)start;
+	ObjectAllocator_Push(allocator, (ObjectLink*)start, (ObjectLink*)end);
 	allocator->nb_inuse -= count;
 	allocator->nb_free += count;
 }
