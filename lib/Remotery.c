@@ -3321,15 +3321,6 @@ void _rmt_LogText(rmtPStr text)
 }
 
 
-// TODO: Remove me!
-rmtBool _rmt_IsClientConnected(void)
-{
-	if (g_Remotery != NULL)
-		return Server_IsClientConnected(g_Remotery->server);
-	return RMT_FALSE;
-}
-
-
 static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 {
 	// Hash cache provided?

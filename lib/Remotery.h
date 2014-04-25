@@ -186,9 +186,6 @@ enum rmtError
 #define rmt_LogText(text)													\
 	RMT_OPTIONAL(_rmt_LogText(text))
 
-#define rmt_IsClientConnected()												\
-	RMT_OPTIONAL_RET(_rmt_IsClientConnected(), RMT_TRUE)
-
 #define rmt_BeginCPUSample(name)											\
 	RMT_OPTIONAL({															\
 		static rmtU32 rmt_sample_hash_##name = 0;							\
@@ -268,8 +265,6 @@ void _rmt_SetGlobalInstance(Remotery* remotery);
 void _rmt_SetCurrentThreadName(rmtPStr thread_name);
 
 void _rmt_LogText(rmtPStr text);
-
-rmtBool _rmt_IsClientConnected(void);
 
 //
 // 'hash_cache' stores a pointer to a sample name's hash value. Internally this is used to identify unique callstacks and it
