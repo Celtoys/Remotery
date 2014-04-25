@@ -60,6 +60,7 @@
 
 #ifdef RMT_PLATFORM_WINDOWS
 	#include <winsock2.h>
+	#include <intrin.h>
 	#undef min
 	#undef max
 #endif
