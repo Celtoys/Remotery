@@ -60,6 +60,8 @@
 
 #ifdef RMT_PLATFORM_WINDOWS
 	#include <winsock2.h>
+	#undef min
+	#undef max
 #endif
 
 
@@ -462,6 +464,7 @@ static void Thread_Destroy(Thread* thread)
 
 // NOTE: Microsoft also has its own version of these functions so I'm do some hacky PP to remove them
 #define strnlen_s strnlen_s_safe_c
+#define strncat_s strncat_s_safe_c
 
 
 #define RSIZE_MAX_STR (4UL << 10)	/* 4KB */
