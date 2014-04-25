@@ -2637,6 +2637,9 @@ static enum rmtError json_CPUSampleArray(Buffer* buffer, CPUSample* first_sample
 
 typedef struct ThreadSampler
 {
+	// Name to assign to the thread in the viewer
+	rmtS8 name[64];
+
 	// Sample allocator for all samples in this thread
 	ObjectAllocator* sample_allocator;
 
@@ -2675,6 +2678,9 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 	(*thread_sampler)->current_parent_sample = NULL;
 	(*thread_sampler)->json_buf = NULL;
 	(*thread_sampler)->next = NULL;
+
+	// Set the initial name based on the unique thread sampler address
+	Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
 
 	// Create the sample allocator
 	error = ObjectAllocator_Create(&(*thread_sampler)->sample_allocator, sizeof(CPUSample));
@@ -2844,7 +2850,7 @@ static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash
 }
 
 
-static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server, rmtPStr thread_name)
+static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server)
 {
 	enum rmtError error;
 	rmtU32 digest_hash, nb_samples;
@@ -2871,7 +2877,7 @@ static enum rmtError ThreadSampler_SendSamples(ThreadSampler* ts, Server* server
 
 		JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
 		JSON_ERROR_CHECK(json_Comma(buffer));
-		JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", thread_name));
+		JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", ts->name));
 		JSON_ERROR_CHECK(json_Comma(buffer));
 		JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
 		JSON_ERROR_CHECK(json_Comma(buffer));
@@ -3119,6 +3125,25 @@ void _rmt_SetGlobalInstance(Remotery* remotery)
 }
 
 
+void _rmt_SetCurrentThreadName(rmtPStr thread_name)
+{
+	ThreadSampler* ts;
+	rsize_t slen;
+
+	if (g_Remotery == NULL)
+		return;
+
+	// Get data for this thread
+	if (Remotery_GetThreadSampler(g_Remotery, &ts) != RMT_ERROR_NONE)
+		return;
+
+	// Use strcat to strcpy the thread name over
+	slen = strnlen_s(thread_name, sizeof(ts->name));
+	ts->name[0] = 0;
+	strncat_s(ts->name, sizeof(ts->name), thread_name, slen);
+}
+
+
 void _rmt_LogText(rmtPStr text)
 {
 	if (g_Remotery != NULL)
@@ -3197,7 +3222,7 @@ void _rmt_EndCPUSample(void)
 }
 
 
-enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name)
+enum rmtError _rmt_SendThreadSamples()
 {
 	ThreadSampler* ts;
 	enum rmtError error;
@@ -3215,7 +3240,7 @@ enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name)
 	// Having a client not connected is typical and not an error
 	if (Server_IsClientConnected(g_Remotery->server))
 	{
-		error = ThreadSampler_SendSamples(ts, g_Remotery->server, thread_name);
+		error = ThreadSampler_SendSamples(ts, g_Remotery->server);
 		if (error != RMT_ERROR_NONE)
 		  return error;
 	}

@@ -180,6 +180,9 @@ enum rmtError
 #define rmt_SetGlobalInstance(rmt)											\
 	RMT_OPTIONAL(_rmt_SetGlobalInstance(rmt))
 
+#define rmt_SetCurrentThreadName(rmt)										\
+	RMT_OPTIONAL(_rmt_SetCurrentThreadName(rmt))
+
 #define rmt_LogText(text)													\
 	RMT_OPTIONAL(_rmt_LogText(text))
 
@@ -195,8 +198,8 @@ enum rmtError
 #define rmt_EndCPUSample()													\
 	RMT_OPTIONAL(_rmt_EndCPUSample())
 
-#define rmt_SendThreadSamples(thread_name)									\
-	RMT_OPTIONAL_RET(_rmt_SendThreadSamples(thread_name), RMT_ERROR_NONE)
+#define rmt_SendThreadSamples()												\
+	RMT_OPTIONAL_RET(_rmt_SendThreadSamples(), RMT_ERROR_NONE)
 
 
 
@@ -265,6 +268,8 @@ enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery);
 void _rmt_DestroyGlobalInstance(Remotery* remotery);
 void _rmt_SetGlobalInstance(Remotery* remotery);
 
+void _rmt_SetCurrentThreadName(rmtPStr thread_name);
+
 void _rmt_LogText(rmtPStr text);
 
 rmtBool _rmt_IsClientConnected(void);
@@ -280,7 +285,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache);
 
 void _rmt_EndCPUSample(void);
 
-enum rmtError _rmt_SendThreadSamples(rmtPStr thread_name);
+enum rmtError _rmt_SendThreadSamples();
 
 
 #ifdef __cplusplus
