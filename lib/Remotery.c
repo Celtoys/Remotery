@@ -598,27 +598,28 @@ static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 
 
 static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
 {
+	ObjectLink* link = NULL;
+
 	assert(allocator != NULL);
 	assert(object != NULL);
 
-	// Allocate objects on-demand
+	// Push free objects onto the list whenever it runs out
 	if (allocator->first_free == NULL)
 	{
-		*object = malloc(allocator->object_size);
-		if (*object == NULL)
+		void* free_object = malloc(allocator->object_size);
+		if (free_object == NULL)
 			return RMT_ERROR_MALLOC_FAIL;
-		((ObjectLink*)(*object))->next = NULL;
+		((ObjectLink*)free_object)->next = NULL;
+		allocator->first_free = (ObjectLink*)free_object;
 		allocator->nb_allocated++;
-	}
-	else
-	{
-		// Or pull available ones from the free list
-		ObjectLink* link = (ObjectLink*)allocator->first_free;
-		allocator->first_free = (ObjectLink*)link->next;
-		*object = link;
-		allocator->nb_free--;
+		allocator->nb_free++;
 	}
 
+	// Pull available objects from the free list
+	link = (ObjectLink*)allocator->first_free;
+	allocator->first_free = (ObjectLink*)link->next;
+	*object = link;
+	allocator->nb_free--;
 	allocator->nb_inuse++;
 
 	return RMT_ERROR_NONE;
