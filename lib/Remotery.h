@@ -120,6 +120,7 @@ enum rmtError
 	// System errors
 	RMT_ERROR_MALLOC_FAIL,						// Malloc call within remotery failed
 	RMT_ERROR_TLS_ALLOC_FAIL,					// Attempt to allocate thread local storage failed
+	RMT_ERROR_CREATE_THREAD_FAIL,				// Failed to create a thread for the server
 
 	// Network TCP/IP socket errors
 	RMT_ERROR_SOCKET_INIT_NETWORK_FAIL,			// Network initialisation failure (e.g. on Win32, WSAStartup fails)

@@ -145,7 +145,7 @@ static rmtU64 usTimer_Get(usTimer* timer)
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
-   Platform-specific threading
+   Thread-Local Storage
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
@@ -231,6 +231,17 @@ static void* tlsGet(rmtU32 handle)
 }
 
 
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Atomic Operations
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
 static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
@@ -245,6 +256,7 @@ static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, l
 
 //
 // NOTE: Does not guarantee a memory barrier
+// TODO: Make sure all platforms don't insert a memory barrier as this is only for stats
 //
 static void AtomicAdd(rmtS32 volatile* value, rmtS32 add)
 {
@@ -262,6 +274,137 @@ static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 {
 	// Not all platforms have an implementation so just negate and add
 	AtomicAdd(value, -sub);
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   Threads
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct
+{
+	// OS-specific data
+	#if defined(RMT_PLATFORM_WINDOWS)
+		HANDLE handle;
+	#endif
+
+	// Callback executed when the thread is created
+	void* callback;
+
+	// Caller-specified parameter passed to Thread_Create
+	void* param;
+
+	// Error state returned from callback
+	enum rmtError error;
+
+	// External threads can set this to request an exit
+	volatile rmtBool request_exit;
+
+} Thread;
+
+
+typedef enum rmtError (*ThreadProc)(Thread* thread);
+
+
+#if defined(RMT_PLATFORM_WINDOWS)
+
+	static DWORD WINAPI ThreadProcWindows(LPVOID lpParameter)
+	{
+		Thread* thread = (Thread*)lpParameter;
+		assert(thread != NULL);
+		thread->error = ((ThreadProc)thread->callback)(thread);
+		return thread->error == RMT_ERROR_NONE ? 1 : 0;
+	}
+
+#endif
+
+
+static void Thread_Destroy(Thread* thread);
+
+
+static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* param)
+{
+	assert(thread != NULL);
+
+	// Allocate space for the thread data
+	*thread = (Thread*)malloc(sizeof(Thread));
+	if (*thread == NULL)
+		return RMT_ERROR_MALLOC_FAIL;
+
+	(*thread)->param = callback;
+	(*thread)->param = param;
+	(*thread)->error = RMT_ERROR_NONE;
+	(*thread)->request_exit = RMT_FALSE;
+
+	// OS-specific thread creation
+
+	#if defined (RMT_PLATFORM_WINDOWS)
+
+		(*thread)->handle = CreateThread(
+			NULL,								// lpThreadAttributes
+			0,									// dwStackSize
+			ThreadProcWindows,					// lpStartAddress
+			thread,								// lpParameter
+			0,									// dwCreationFlags
+			NULL);								// lpThreadId
+
+		if ((*thread)->handle == NULL)
+		{
+			Thread_Destroy(*thread);
+			return RMT_ERROR_CREATE_THREAD_FAIL;
+		}
+
+	#endif
+
+	return RMT_ERROR_NONE;
+}
+
+
+static void Thread_RequestExit(Thread* thread)
+{
+	// Not really worried about memory barriers or delayed visibility to the target thread
+	assert(thread != NULL);
+	thread->request_exit = RMT_TRUE;
+}
+
+
+static void Thread_Join(Thread* thread)
+{
+	assert(thread != NULL);
+
+	#if defined(RMT_PLATFORM_WINDOWS)
+	assert(thread->handle != NULL);
+	WaitForSingleObject(thread->handle, INFINITE);
+	#endif
+}
+
+
+static void Thread_Destroy(Thread* thread)
+{
+	assert(thread != NULL);
+
+	if (thread->handle != NULL)
+	{
+		// Shutdown the thread
+		Thread_RequestExit(thread);
+		Thread_Join(thread);
+
+		// OS-specific release of thread resources
+
+		#if defined(RMT_PLATFORM_WINDOWS)
+		CloseHandle(thread->handle);
+		thread->handle = NULL;
+		#endif
+	}
+
+	free(thread);
 }
 
 
