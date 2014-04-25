@@ -2894,6 +2894,69 @@ struct Remotery
 };
 
 
+static void Remotery_Destroy(Remotery* rmt);
+static void Remotery_DestroyThreadSamplers(Remotery* rmt);
+
+
+static enum rmtError Remotery_Create(Remotery** rmt)
+{
+	enum rmtError error;
+
+	assert(rmt != NULL);
+
+	*rmt = (Remotery*)malloc(sizeof(Remotery));
+	if (*rmt == NULL)
+		return RMT_ERROR_MALLOC_FAIL;
+
+	// Set default state
+	(*rmt)->server = NULL;
+	(*rmt)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
+	(*rmt)->first_thread_sampler = NULL;
+
+	// Allocate a TLS handle for the thread sampler
+	error = tlsAlloc(&(*rmt)->thread_sampler_tls_handle);
+	if (error != RMT_ERROR_NONE)
+	{
+		Remotery_Destroy(*rmt);
+		*rmt = NULL;
+		return error;
+	}
+
+	// Create the server
+	error = Server_Create(0x4597, &(*rmt)->server);
+	if (error != RMT_ERROR_NONE)
+	{
+		Remotery_Destroy(*rmt);
+		*rmt = NULL;
+		return error;
+	}
+
+	return RMT_ERROR_NONE;
+}
+
+
+static void Remotery_Destroy(Remotery* rmt)
+{
+	assert(rmt != NULL);
+
+	Remotery_DestroyThreadSamplers(rmt);
+
+	if (rmt->server != NULL)
+	{
+		Server_Destroy(rmt->server);
+		rmt->server = NULL;
+	}
+
+	if (rmt->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
+	{
+		tlsFree(rmt->thread_sampler_tls_handle);
+		rmt->thread_sampler_tls_handle = NULL;
+	}
+
+	free(rmt);
+}
+
+
 static enum rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_sampler)
 {
 	ThreadSampler* ts;
@@ -2979,34 +3042,10 @@ enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 	assert(remotery != NULL);
 	assert(g_Remotery == NULL);
 
-	*remotery = (Remotery*)malloc(sizeof(Remotery));
-	if (*remotery == NULL)
-		return RMT_ERROR_MALLOC_FAIL;
-
-	// Set default state
-	(*remotery)->server = NULL;
-	(*remotery)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
-	(*remotery)->first_thread_sampler = NULL;
-
-	// Allocate a TLS handle for the thread sampler
-	error = tlsAlloc(&(*remotery)->thread_sampler_tls_handle);
+	// Create and set as the global instance
+	error = Remotery_Create(remotery);
 	if (error != RMT_ERROR_NONE)
-	{
-		_rmt_DestroyGlobalInstance(*remotery);
-		*remotery = NULL;
 		return error;
-	}
-
-	// Create the server
-	error = Server_Create(0x4597, &(*remotery)->server);
-	if (error != RMT_ERROR_NONE)
-	{
-		_rmt_DestroyGlobalInstance(*remotery);
-		*remotery = NULL;
-		return error;
-	}
-
-	// Set global context
 	g_Remotery = *remotery;
 	g_RemoterySet = RMT_FALSE;
 
@@ -3021,23 +3060,8 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
 
 	// Ensure this is the module that created it
 	assert(g_RemoterySet == RMT_FALSE);
-
-	Remotery_DestroyThreadSamplers(remotery);
-
-	if (remotery->server != NULL)
-	{
-		Server_Destroy(remotery->server);
-		remotery->server = NULL;
-	}
-
-	if (remotery->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
-	{
-		tlsFree(remotery->thread_sampler_tls_handle);
-		remotery->thread_sampler_tls_handle = NULL;
-	}
-
-	free(remotery);
-	remotery = NULL;
+	Remotery_Destroy(remotery);
+	g_Remotery = NULL;
 }
 
 
