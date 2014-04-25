@@ -579,11 +579,13 @@ typedef struct
 
 static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 object_size)
 {
+	// Allocate space for the allocator
 	assert(allocator != NULL);
 	*allocator = (ObjectAllocator*)malloc(sizeof(ObjectAllocator));
 	if (*allocator == NULL)
 		return RMT_ERROR_MALLOC_FAIL;
 
+	// Construct it
 	(*allocator)->object_size = object_size;
 	(*allocator)->nb_free = 0;
 	(*allocator)->nb_inuse = 0;
@@ -647,6 +649,7 @@ static void ObjectAllocator_FreeRange(ObjectAllocator* allocator, void* start, v
 static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
 {
 	// Ensure everything has been released to the allocator
+	assert(allocator != NULL);
 	assert(allocator->nb_inuse == 0);
 
 	// Destroy all objects released to the allocator
@@ -657,6 +660,8 @@ static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
 		free(allocator->first_free);
 		allocator->first_free = next;
 	}
+
+	free(allocator);
 }
 
 
