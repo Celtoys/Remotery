@@ -43,6 +43,7 @@
 	#include <specstrings.h>
 
 	extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
+	extern long __cdecl _InterlockedAdd(long volatile*, long);
 	#pragma intrinsic(_InterlockedCompareExchange)
 
 #else
@@ -229,7 +230,7 @@ static void* tlsGet(rmtU32 handle)
 }
 
 
-static rmtBool CompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
+static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
 		return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
@@ -238,6 +239,28 @@ static rmtBool CompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* n
 	#elif defined(RMT_PLATFORM_MACOS)
 		return OSAtomicCompareAndSwapPtr((long)old_ptr, (long)new_ptr, (long volatile*)ptr) ? RMT_TRUE : RMT_FALSE;
 	#endif
+}
+
+
+//
+// NOTE: Does not guarantee a memory barrier
+//
+static void AtomicAdd(long volatile* value, long add)
+{
+	#if defined(RMT_PLATFORM_WINDOWS)
+		_InterlockedAdd(value, add);
+	#elif defined(RMT_PLATFORM_LINUX)
+		__sync_fetch_and_add(value, add);
+	#elif defined(RMT_PLATFORM_MACOS)
+		OSAtomicAdd32(add, value);
+	#endif
+}
+
+
+static void AtomicSub(long volatile* value, long sub)
+{
+	// Not all platforms have an implementation so just negate and add
+	AtomicAdd(value, -sub);
 }
 
 
@@ -2534,7 +2557,7 @@ static enum rmtError ThreadSampler_Get(Remotery* rmt, ThreadSampler** thread_sam
 
 			// If the old value is what we expect it to be then no other thread has
 			// changed it since this thread sampler was used as a candidate first list item
-			if (CompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)ts) == RMT_TRUE)
+			if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)ts) == RMT_TRUE)
 				break;
 		}
 
@@ -2595,7 +2618,7 @@ static void ThreadSampler_DestroyAll(Remotery* rmt)
 			ThreadSampler* old_ts = rmt->first_thread_sampler;
 			ThreadSampler* next_ts = old_ts->next;
 
-			if (CompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)next_ts) == RMT_TRUE)
+			if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)next_ts) == RMT_TRUE)
 			{
 				ts = old_ts;
 				break;
