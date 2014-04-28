@@ -30,7 +30,7 @@
 //
 // Required CRT dependencies
 //
-#define RMT_USE_TINYCRT
+//#define RMT_USE_TINYCRT
 #ifdef RMT_USE_TINYCRT
 
 	#include <TinyCRT/TinyCRT.h>
@@ -539,8 +539,9 @@ static void Thread_Destroy(Thread* thread)
 typedef int errno_t;
 #endif
 
-
+#ifndef _WIN64
 typedef unsigned int rsize_t;
+#endif
 
 
 static rsize_t
@@ -2717,9 +2718,9 @@ typedef struct ThreadSampler
 
 	// Queue of complete root samples to be sent to the client
 	CPUSample* complete_queue_head;
-	u8 __cache_line_pad_0__[64];
+	rmtU8 __cache_line_pad_0__[64];
 	CPUSample* complete_queue_tail;
-	u8 __cache_line_pad_1__[64];
+	rmtU8 __cache_line_pad_1__[64];
 } ThreadSampler;
 
 
