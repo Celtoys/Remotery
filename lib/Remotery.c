@@ -268,7 +268,11 @@ static void* tlsGet(rmtU32 handle)
 static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
-		return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
+		#ifdef _WIN64
+			return _InterlockedCompareExchange64((__int64 volatile*)ptr, (__int64)new_ptr, (__int64)old_ptr) == (__int64)old_ptr ? RMT_TRUE : RMT_FALSE;
+		#else
+			return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
+		#endif
 	#elif defined(RMT_PLATFORM_LINUX)
 		return __sync_bool_compare_and_swap((long volatile*)ptr, (long)old_ptr, (long)new_ptr) ? RMT_TRUE : RMT_FALSE;
 	#elif defined(RMT_PLATFORM_MACOS)
