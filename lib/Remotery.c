@@ -3079,8 +3079,10 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
 			last_link = ThreadSampler_ClearSamples(ts, sample, &nb_cleared_samples);
 
 			// Release the complete sample memory range
-			ObjectAllocator_FreeRange(ts->sample_allocator, sample->base.next, last_link, nb_cleared_samples);
-			//assert(ts->sample_allocator->nb_inuse == 2);
+			if (sample->base.next != NULL)
+				ObjectAllocator_FreeRange(ts->sample_allocator, sample->base.next, last_link, nb_cleared_samples);
+			else
+				ObjectAllocator_Free(ts->sample_allocator, sample);
 		}
 	}
 
