@@ -2,14 +2,16 @@
 #include <math.h>
 #include "Remotery.h"
 
-void delay() {
+double delay() {
     int i, end;
+    double j = 0;
 
     rmt_BeginCPUSample(delay);
-    for( i = 0, end = rand(); i < end; ++i ) {
-        double j = sin(i);
+    for( i = 0, end = rand()/100; i < end; ++i ) {
+        j += sin(i);
     }
     rmt_EndCPUSample();
+    return j;
 }
 
 
