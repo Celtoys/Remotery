@@ -338,21 +338,28 @@ static void ReadFence()
 {
 #ifdef RMT_PLATFORM_WINDOWS
 	_ReadBarrier();
+#else
+    asm volatile ("" : : : "memory");
 #endif
 }
 static void WriteFence()
 {
 #ifdef RMT_PLATFORM_WINDOWS
 	_WriteBarrier();
+#else
+    asm volatile ("" : : : "memory");
 #endif
 }
+/* //Not used for now - remove?
 static void ReadWriteFence()
 {
 #ifdef RMT_PLATFORM_WINDOWS
 	_ReadWriteBarrier();
+#else
+    asm volatile ("" : : : "memory");
 #endif
 }
-
+*/
 
 // Get a shared value with acquire semantics, ensuring the read is complete
 // before the function returns.
