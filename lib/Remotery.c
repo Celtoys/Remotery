@@ -435,7 +435,7 @@ typedef enum rmtError (*ThreadProc)(Thread* thread);
 		Thread* thread = (Thread*)pArgs;
 		assert(thread != NULL);
 		thread->error = ((ThreadProc)thread->callback)(thread);
-		return (void*)( thread->error == RMT_ERROR_NONE ? 1 : 0 );
+		return NULL; // returned error not use, check thread->error.
     }
 #endif
 
@@ -499,10 +499,12 @@ static void Thread_RequestExit(Thread* thread)
 static void Thread_Join(Thread* thread)
 {
 	assert(thread != NULL);
+	assert(thread->handle != NULL);
 
 	#if defined(RMT_PLATFORM_WINDOWS)
-	assert(thread->handle != NULL);
 	WaitForSingleObject(thread->handle, INFINITE);
+    #else
+    pthread_join(thread->handle, NULL);
 	#endif
 }
 
