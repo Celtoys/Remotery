@@ -161,8 +161,8 @@ static void usTimer_Init(usTimer* timer)
 	#elif defined(RMT_PLATFORM_MACOS)
         mach_timebase_info_data_t nsScale;
         mach_timebase_info( &nsScale );
-        const double ns_per_s = 1.0e9;
-        timer->counter_scale = (double)(nsScale.numer) / ((double)nsScale.denom * ns_per_s);
+        const double ns_per_us = 1.0e3;
+        timer->counter_scale = (double)(nsScale.numer) / ((double)nsScale.denom * ns_per_us);
 
         timer->counter_start = mach_absolute_time();
     #endif
@@ -422,8 +422,15 @@ typedef enum rmtError (*ThreadProc)(Thread* thread);
 		return thread->error == RMT_ERROR_NONE ? 1 : 0;
 	}
 
+#else
+    static void* StartFunc( void* pArgs )
+    {
+		Thread* thread = (Thread*)pArgs;
+		assert(thread != NULL);
+		thread->error = ((ThreadProc)thread->callback)(thread);
+		return (void*)( thread->error == RMT_ERROR_NONE ? 1 : 0 );
+    }
 #endif
-
 
 static void Thread_Destroy(Thread* thread);
 
@@ -460,7 +467,15 @@ static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* p
 			return RMT_ERROR_CREATE_THREAD_FAIL;
 		}
 
-	#endif
+	#else
+    int32_t error = pthread_create( &(*thread)->handle, NULL, StartFunc, *thread );
+    if (error)
+    {
+        Thread_Destroy(*thread);
+        return RMT_ERROR_CREATE_THREAD_FAIL;
+    }
+
+    #endif
 
 	return RMT_ERROR_NONE;
 }
@@ -1256,7 +1271,7 @@ static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 	// Poll socket status without blocking
 	tv.tv_sec = 0;
 	tv.tv_usec = 0;
-	if (select(0, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
+	if (select(tcp_socket->socket+1, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
 	{
 		status.error_state = RMT_ERROR_SOCKET_SELECT_FAIL;
 		return status;
