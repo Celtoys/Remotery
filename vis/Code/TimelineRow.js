@@ -72,18 +72,17 @@ TimelineRow = (function()
 		if (this.FrameHistory.length == 0)
 			return;
 
+		// The frame history can be reset outside this class
+		// This also catches the overflow to the end of the frame list below when a thread stops sending samples
+		var max_frame = Math.max(this.FrameHistory.length - 1, 0);
+		var start_frame_index = Math.min(this.StartFrameIndex, max_frame);
+
 		// First do a back-track in case the time range moves negatively
-		var start_frame_index = this.StartFrameIndex;
 		while (start_frame_index > 0)
 		{
-			// The frame history can be reset outside this class
-			// This also catches the overflow to the end of the frame list below when a thread stops sending samples
-			if (start_frame_index < this.FrameHistory.length)
-			{
-				var frame = this.FrameHistory[start_frame_index];
-				if (time_range.Start_us > frame.StartTime_us)
-					break;
-			}
+			var frame = this.FrameHistory[start_frame_index];
+			if (time_range.Start_us > frame.StartTime_us)
+				break;
 			start_frame_index--;
 		}
 
