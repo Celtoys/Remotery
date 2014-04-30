@@ -209,14 +209,19 @@ static void msSleep(rmtU32 time_ms)
 
 #define TLS_INVALID_HANDLE 0xFFFFFFFF
 
+#if defined(RMT_PLATFORM_WINDOWS)
+	typedef rmtU32 rmtTLS;
+#else
+	typedef pthread_key_t rmtTLS;
+#endif
 
-static enum rmtError tlsAlloc(rmtU32* handle)
+static enum rmtError tlsAlloc(rmtTLS* handle)
 {
 	assert(handle != NULL);
 
 #if defined(RMT_PLATFORM_WINDOWS)
 
-	*handle = (rmtU32)TlsAlloc();
+	*handle = (rmtTLS)TlsAlloc();
 	if (*handle == TLS_OUT_OF_INDEXES)
 	{
 		*handle = TLS_INVALID_HANDLE;
@@ -225,8 +230,7 @@ static enum rmtError tlsAlloc(rmtU32* handle)
 
 #elif defined(RMT_PLATFORM_POSIX)
 
-	assert(sizeof(handle) == sizeof(pthread_key_t));
-	if (pthread_key_create((pthread_key_t*)handle, NULL) != 0)
+	if (pthread_key_create(handle, NULL) != 0)
 	{
 		*handle = TLS_INVALID_HANDLE;
 		return RMT_ERROR_TLS_ALLOC_FAIL;
@@ -238,7 +242,7 @@ static enum rmtError tlsAlloc(rmtU32* handle)
 }
 
 
-static void tlsFree(rmtU32 handle)
+static void tlsFree(rmtTLS handle)
 {
 	assert(handle != TLS_INVALID_HANDLE);
 
@@ -254,7 +258,7 @@ static void tlsFree(rmtU32 handle)
 }
 
 
-static void tlsSet(rmtU32 handle, void* value)
+static void tlsSet(rmtTLS handle, void* value)
 {
 	assert(handle != TLS_INVALID_HANDLE);
 
@@ -270,7 +274,7 @@ static void tlsSet(rmtU32 handle, void* value)
 }
 
 
-static void* tlsGet(rmtU32 handle)
+static void* tlsGet(rmtTLS handle)
 {
 	assert(handle != TLS_INVALID_HANDLE);
 
@@ -3084,12 +3088,11 @@ static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash
 */
 
 
-
 struct Remotery
 {
 	Server* server;
 
-	rmtU32 thread_sampler_tls_handle;
+	rmtTLS thread_sampler_tls_handle;
 
 	// Linked list of all known threads being sampled
 	ThreadSampler* volatile first_thread_sampler;
