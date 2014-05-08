@@ -39,6 +39,15 @@ Remotery = (function()
 		// Hook up resize event handler
 		DOM.Event.AddHandler(window, "resize", Bind(OnResizeWindow, this));
 		OnResizeWindow(this);
+
+		// Hook up browser-native canvas refresh
+		this.DisplayFrame = 0;
+		var self = this;
+		(function display_loop()
+		{
+			window.requestAnimationFrame(display_loop);
+			DrawTimeline(self);
+		})();
 	}
 
 
@@ -69,6 +78,18 @@ Remotery = (function()
 		// Update and disconnect, relying on auto-connect to reconnect
 		self.ConnectionAddress = node.value;
 		self.Server.Disconnect();
+	}
+
+
+	function DrawTimeline(self)
+	{
+		// requestAnimationFrame can run up to 60hz which is way too much for drawing the timeline
+		// Assume it's running at 60hz and skip frames to achieve 10hz instead
+		// Doing this instead of using setTimeout because it's better for browser rendering (or; will be once WebGL is in use)
+		if ((self.DisplayFrame % 10) == 0)
+			self.TimelineWindow.DrawAllRows();
+
+		self.DisplayFrame++;
 	}
 
 

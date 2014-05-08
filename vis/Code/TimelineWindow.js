@@ -73,7 +73,7 @@ TimelineWindow = (function()
 
 		// Adjust time range to new width
 		this.TimeRange.SetPixelSpan(row_width);
-		DrawAllRows(this, true);
+		this.DrawAllRows();
 	}
 
 
@@ -105,25 +105,22 @@ TimelineWindow = (function()
 		// If this thread has not been seen before, add a new row to the list and re-sort
 		if (thread_index == -1)
 		{
-			var row = new TimelineRow(thread_name, RowWidth(this), this.TimelineContainer.Node);
+			var row = new TimelineRow(thread_name, RowWidth(this), this.TimelineContainer.Node, frame_history);
 			this.ThreadRows.push(row);
 			this.ThreadRows.sort(function(a, b) { return b.Name.localeCompare(a.Name); });
-
-			// Search again for this new index
-			for (var i in this.ThreadRows)
-			{
-				if (this.ThreadRows[i].Name == thread_name)
-				{
-					thread_index = i;
-					break;
-				}
-			}			
 		}
+	}
 
-		// Update visible frames for this row and redraw
-		var thread_row = this.ThreadRows[thread_index];
-		thread_row.SetVisibleFrames(frame_history, this.TimeRange);
-		thread_row.Draw(this.TimeRange);
+
+	TimelineWindow.prototype.DrawAllRows = function()
+	{
+		var time_range = this.TimeRange;
+		for (var i in this.ThreadRows)
+		{
+			var thread_row = this.ThreadRows[i];
+			thread_row.SetVisibleFrames(time_range);
+			thread_row.Draw(time_range);
+		}
 	}
 
 
@@ -143,19 +140,6 @@ TimelineWindow = (function()
 	}
 
 
-	function DrawAllRows(self, update_visibility)
-	{
-		var time_range = self.TimeRange;
-		for (var i in self.ThreadRows)
-		{
-			var thread_row = self.ThreadRows[i];
-			if (update_visibility)
-				thread_row.SetVisibleFrames(null, time_range);
-			thread_row.Draw(time_range);
-		}
-	}
-
-
 	function OnMouseScroll(self, evt)
 	{
 		var mouse_state = new Mouse.State(evt);
@@ -172,8 +156,7 @@ TimelineWindow = (function()
 
 		// Scale and offset back to the hover time
 		self.TimeRange.Set(time_start_us * scale + time_us, self.TimeRange.Span_us * scale);
-
-		DrawAllRows(self, true);
+		self.DrawAllRows();
 	}
 
 
@@ -228,7 +211,7 @@ TimelineWindow = (function()
 			if (time_offset_us)
 			{
 				self.TimeRange.SetStart(self.TimeRange.Start_us - time_offset_us);
-				DrawAllRows(self, true);
+				self.DrawAllRows();
 				self.TimelineMoved = true;
 			}
 		}
