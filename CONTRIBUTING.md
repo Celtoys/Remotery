@@ -27,8 +27,8 @@ The CLAs were created based on the [Project Harmony][Project-Harmony] templates,
 More information on what a CLA means to you and the project can be found over at [OSS Watch][OSS-Watch-CLA] and [Civic Commons][Civic-Commons-CLA]
 
 [Github]: https://github.com/join
-[Individual-CLA]: https://github.com/Celtoys/Remotery/blob/master/docs/INDIVIDUAL_CLA.md
-[Entity-CLA]: https://github.com/Celtoys/Remotery/blob/master/docs/ENTITY_CLA.md
+[Individual-CLA]: https://github.com/Celtoys/Remotery/blob/master/doc/INDIVIDUAL_CLA.md
+[Entity-CLA]: https://github.com/Celtoys/Remotery/blob/master/doc/ENTITY_CLA.md
 [Project-Harmony]: http://www.harmonyagreements.org/index.html
 [Project-Harmony-Guide]: http://www.harmonyagreements.org/guide.html
 [OSS-Watch-CLA]: http://oss-watch.ac.uk/resources/cla
