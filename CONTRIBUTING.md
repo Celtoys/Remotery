@@ -11,7 +11,8 @@ To get setup:
 2. Fork your [own copy of Remotery](https://github.com/Celtoys/Remotery/fork) to your account.
 3. Read the [Indivdual CLA][Individual-CLA] completely, or if you are contributing on behalf of your company, the [Entity CLA][Entity-CLA].
 4. Ensure you understand your rights and the rights of the project.
-5. Add the comment "I agree" to the list in section 7 of either CLA that applies to you.
+5. Add the comment "I agree" to the list in section 6 of either CLA that applies to you.
+6. Create a pull request for your change.
 
 Use of comments in the CLA as a form of acceptance give several benefits:
 
