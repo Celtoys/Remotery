@@ -8,7 +8,7 @@ TimelineRow = (function()
 			<canvas class='TimelineRowCanvas'></canvas>		\
 		</div>";
 
-	function TimelineRow(name, width, parent_node)
+	function TimelineRow(name, width, parent_node, frame_history)
 	{
 		this.Name = name;
 
@@ -28,7 +28,7 @@ TimelineRow = (function()
 		// Frame index to start at when looking for first visible sample
 		this.StartFrameIndex = 0;
 
-		this.FrameHistory = null;
+		this.FrameHistory = frame_history;
 		this.VisibleFrames = [ ];
 
 		// Sample the mouse is currently hovering over
@@ -58,15 +58,8 @@ TimelineRow = (function()
 	}
 
 
-	TimelineRow.prototype.SetVisibleFrames = function(frame_history, time_range)
+	TimelineRow.prototype.SetVisibleFrames = function(time_range)
 	{
-		// Allow null frame history to use existing ones
-		// Keep track of frame history for redraw events
-		if (frame_history != null)
-			this.FrameHistory = frame_history;
-		if (this.FrameHistory == null)
-			return;
-
 		// Clear previous visible list
 		this.VisibleFrames = [ ];
 		if (this.FrameHistory.length == 0)
