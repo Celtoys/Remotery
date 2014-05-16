@@ -27,6 +27,7 @@
 
 #include "Remotery.h"
 
+#pragma comment(lib, "ws2_32.lib")
 
 #ifdef RMT_ENABLED
 
@@ -45,7 +46,7 @@
 //
 // Required CRT dependencies
 //
-#define RMT_USE_TINYCRT
+//#define RMT_USE_TINYCRT
 #ifdef RMT_USE_TINYCRT
 
 	#include <TinyCRT/TinyCRT.h>
@@ -54,6 +55,7 @@
 	#include <TinyCRT/TinyWin.h>
 	#include <sal.h>
 	#include <specstrings.h>
+	#include <assert.h>
 
 	// Prototypes for Microsoft atomic op intrinsics
 	extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
@@ -71,7 +73,14 @@
 
 #else
 
-	#include <malloc.h>
+    #ifdef RMT_PLATFORM_MACOS
+        #include <stdlib.h>
+        #include <mach/mach_time.h>
+        #include <sys/time.h>
+    #else
+        #include <malloc.h>
+    #endif
+
 	#include <assert.h>
 
 	#ifdef RMT_PLATFORM_WINDOWS
@@ -79,7 +88,13 @@
 	#endif
 
 	#if defined(RMT_PLATFORM_POSIX)
-		#include <pthreads.h>
+		#include <pthread.h>
+        #include <unistd.h>
+        #include <string.h>
+        #include <sys/socket.h>
+        #include <netinet/in.h>
+        #include <fcntl.h>
+        #include <errno.h>
 	#endif
 
 #endif
@@ -124,6 +139,10 @@ static rmtU32 msTimer_Get()
 {
 	#ifdef RMT_PLATFORM_WINDOWS
 		return (rmtU32)GetTickCount();
+    #else
+    clock_t time = clock();
+    rmtU32 msTime = (rmtU32) (time / (CLOCKS_PER_SEC / 1000));
+    return msTime;
 	#endif
 }
 
@@ -131,6 +150,9 @@ static rmtU32 msTimer_Get()
 //
 // Micro-second accuracy high performance counter
 //
+#ifndef RMT_PLATFORM_WINDOWS
+typedef rmtU64 LARGE_INTEGER;
+#endif
 typedef struct
 {
 	LARGE_INTEGER counter_start;
@@ -151,7 +173,14 @@ static void usTimer_Init(usTimer* timer)
 
 		// Record the offset for each read of the counter
 		QueryPerformanceCounter(&timer->counter_start);
-	#endif
+	#elif defined(RMT_PLATFORM_MACOS)
+        mach_timebase_info_data_t nsScale;
+        mach_timebase_info( &nsScale );
+        const double ns_per_us = 1.0e3;
+        timer->counter_scale = (double)(nsScale.numer) / ((double)nsScale.denom * ns_per_us);
+
+        timer->counter_start = mach_absolute_time();
+    #endif
 }
 
 
@@ -165,7 +194,10 @@ static rmtU64 usTimer_Get(usTimer* timer)
 		// Read counter and convert to microseconds
 		QueryPerformanceCounter(&performance_count);
 		return (rmtU64)((performance_count.QuadPart - timer->counter_start.QuadPart) * timer->counter_scale);
-	#endif
+    #elif defined(RMT_PLATFORM_MACOS)
+        rmtU64 curr_time = mach_absolute_time();
+        return (rmtU64)((curr_time - timer->counter_start) * timer->counter_scale);
+    #endif
 }
 
 
@@ -173,7 +205,7 @@ static void msSleep(rmtU32 time_ms)
 {
 	#ifdef RMT_PLATFORM_WINDOWS
 		Sleep(time_ms);
-	#elif RMT_PLATFORM_POSIX
+	#elif defined(RMT_PLATFORM_POSIX)
 		usleep(time_ms * 1000);
 	#endif
 }
@@ -192,14 +224,19 @@ static void msSleep(rmtU32 time_ms)
 
 #define TLS_INVALID_HANDLE 0xFFFFFFFF
 
+#if defined(RMT_PLATFORM_WINDOWS)
+	typedef rmtU32 rmtTLS;
+#else
+	typedef pthread_key_t rmtTLS;
+#endif
 
-static enum rmtError tlsAlloc(rmtU32* handle)
+static enum rmtError tlsAlloc(rmtTLS* handle)
 {
 	assert(handle != NULL);
 
 #if defined(RMT_PLATFORM_WINDOWS)
 
-	*handle = (rmtU32)TlsAlloc();
+	*handle = (rmtTLS)TlsAlloc();
 	if (*handle == TLS_OUT_OF_INDEXES)
 	{
 		*handle = TLS_INVALID_HANDLE;
@@ -208,8 +245,7 @@ static enum rmtError tlsAlloc(rmtU32* handle)
 
 #elif defined(RMT_PLATFORM_POSIX)
 
-	assert(sizeof(rmtU32) == sizeof(pthread_key_t));
-	if (pthread_key_create((pthread_key_t*)handle, NULL) != 0)
+	if (pthread_key_create(handle, NULL) != 0)
 	{
 		*handle = TLS_INVALID_HANDLE;
 		return RMT_ERROR_TLS_ALLOC_FAIL;
@@ -221,7 +257,7 @@ static enum rmtError tlsAlloc(rmtU32* handle)
 }
 
 
-static void tlsFree(rmtU32 handle)
+static void tlsFree(rmtTLS handle)
 {
 	assert(handle != TLS_INVALID_HANDLE);
 
@@ -237,7 +273,7 @@ static void tlsFree(rmtU32 handle)
 }
 
 
-static void tlsSet(rmtU32 handle, void* value)
+static void tlsSet(rmtTLS handle, void* value)
 {
 	assert(handle != TLS_INVALID_HANDLE);
 
@@ -253,7 +289,7 @@ static void tlsSet(rmtU32 handle, void* value)
 }
 
 
-static void* tlsGet(rmtU32 handle)
+static void* tlsGet(rmtTLS handle)
 {
 	assert(handle != TLS_INVALID_HANDLE);
 
@@ -283,11 +319,13 @@ static void* tlsGet(rmtU32 handle)
 static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
-		return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
-	#elif defined(RMT_PLATFORM_LINUX)
-		return __sync_bool_compare_and_swap((long volatile*)ptr, (long)old_ptr, (long)new_ptr) ? RMT_TRUE : RMT_FALSE;
-	#elif defined(RMT_PLATFORM_MACOS)
-		return OSAtomicCompareAndSwapPtr((long)old_ptr, (long)new_ptr, (long volatile*)ptr) ? RMT_TRUE : RMT_FALSE;
+		#ifdef _WIN64
+			return _InterlockedCompareExchange64((__int64 volatile*)ptr, (__int64)new_ptr, (__int64)old_ptr) == (__int64)old_ptr ? RMT_TRUE : RMT_FALSE;
+		#else
+			return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
+		#endif
+	#elif defined(RMT_PLATFORM_POSIX)
+		return __sync_bool_compare_and_swap(ptr, old_ptr, new_ptr) ? RMT_TRUE : RMT_FALSE;
 	#endif
 }
 
@@ -301,10 +339,8 @@ static void AtomicAdd(rmtS32 volatile* value, rmtS32 add)
 {
 	#if defined(RMT_PLATFORM_WINDOWS)
 		_InterlockedExchangeAdd((long volatile*)value, (long)add);
-	#elif defined(RMT_PLATFORM_LINUX)
+	#elif defined(RMT_PLATFORM_POSIX)
 		__sync_fetch_and_add(value, add);
-	#elif defined(RMT_PLATFORM_MACOS)
-		OSAtomicAdd32(add, value);
 	#endif
 }
 
@@ -321,21 +357,28 @@ static void ReadFence()
 {
 #ifdef RMT_PLATFORM_WINDOWS
 	_ReadBarrier();
+#else
+    asm volatile ("" : : : "memory");
 #endif
 }
 static void WriteFence()
 {
 #ifdef RMT_PLATFORM_WINDOWS
 	_WriteBarrier();
+#else
+    asm volatile ("" : : : "memory");
 #endif
 }
+/* //Not used for now - remove?
 static void ReadWriteFence()
 {
 #ifdef RMT_PLATFORM_WINDOWS
 	_ReadWriteBarrier();
+#else
+    asm volatile ("" : : : "memory");
 #endif
 }
-
+*/
 
 // Get a shared value with acquire semantics, ensuring the read is complete
 // before the function returns.
@@ -373,7 +416,9 @@ typedef struct
 	// OS-specific data
 	#if defined(RMT_PLATFORM_WINDOWS)
 		HANDLE handle;
-	#endif
+	#else
+        pthread_t handle;
+    #endif
 
 	// Callback executed when the thread is created
 	void* callback;
@@ -403,8 +448,15 @@ typedef enum rmtError (*ThreadProc)(Thread* thread);
 		return thread->error == RMT_ERROR_NONE ? 1 : 0;
 	}
 
+#else
+    static void* StartFunc( void* pArgs )
+    {
+		Thread* thread = (Thread*)pArgs;
+		assert(thread != NULL);
+		thread->error = ((ThreadProc)thread->callback)(thread);
+		return NULL; // returned error not use, check thread->error.
+    }
 #endif
-
 
 static void Thread_Destroy(Thread* thread);
 
@@ -441,7 +493,15 @@ static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* p
 			return RMT_ERROR_CREATE_THREAD_FAIL;
 		}
 
-	#endif
+	#else
+    int32_t error = pthread_create( &(*thread)->handle, NULL, StartFunc, *thread );
+    if (error)
+    {
+        Thread_Destroy(*thread);
+        return RMT_ERROR_CREATE_THREAD_FAIL;
+    }
+
+    #endif
 
 	return RMT_ERROR_NONE;
 }
@@ -458,10 +518,12 @@ static void Thread_RequestExit(Thread* thread)
 static void Thread_Join(Thread* thread)
 {
 	assert(thread != NULL);
+	assert(thread->handle != NULL);
 
 	#if defined(RMT_PLATFORM_WINDOWS)
-	assert(thread->handle != NULL);
 	WaitForSingleObject(thread->handle, INFINITE);
+    #else
+    pthread_join(thread->handle, NULL);
 	#endif
 }
 
@@ -554,8 +616,9 @@ static void Thread_Destroy(Thread* thread)
 typedef int errno_t;
 #endif
 
-
+#ifndef _WIN64
 typedef unsigned int rsize_t;
+#endif
 
 
 static rsize_t
@@ -1048,7 +1111,13 @@ static enum rmtError Buffer_WriteString(Buffer* buffer, rmtPStr string)
 ------------------------------------------------------------------------------------------------------------------------
 */
 
-
+#ifndef RMT_PLATFORM_WINDOWS
+    typedef int SOCKET;
+    #define INVALID_SOCKET -1
+    #define SOCKET_ERROR   -1
+    #define SD_SEND SHUT_WR
+    #define closesocket close
+#endif
 typedef struct
 {
 	SOCKET socket;
@@ -1120,7 +1189,9 @@ static enum rmtError TCPSocket_CreateServer(rmtU16 port, TCPSocket** tcp_socket)
 {
 	SOCKET s = INVALID_SOCKET;
 	struct sockaddr_in sin = { 0 };
-	u_long nonblock = 1;
+    #ifdef RMT_PLATFORM_WINDOWS
+        u_long nonblock = 1;
+    #endif
 
 	// Create socket container
 	enum rmtError error = TCPSocket_Create(tcp_socket);
@@ -1147,8 +1218,13 @@ static enum rmtError TCPSocket_CreateServer(rmtU16 port, TCPSocket** tcp_socket)
 		return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_LISTEN_FAIL);
 
 	// Set as non-blocking
-	if (ioctlsocket((*tcp_socket)->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
-		return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL);
+    #ifdef RMT_PLATFORM_WINDOWS
+        if (ioctlsocket((*tcp_socket)->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
+            return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL);
+    #else
+        if (fcntl((*tcp_socket)->socket, F_SETFL, O_NONBLOCK) == SOCKET_ERROR)
+            return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL);
+    #endif
 
 	return RMT_ERROR_NONE;
 }
@@ -1183,7 +1259,7 @@ static void TCPSocket_Close(TCPSocket* tcp_socket)
 			char temp_buf[128];
 			while (result > 0)
 			{
-				result = recv(tcp_socket->socket, temp_buf, sizeof(temp_buf), 0);
+				result = (int)recv(tcp_socket->socket, temp_buf, sizeof(temp_buf), 0);
 				total += result;
 			}
 		}
@@ -1223,7 +1299,7 @@ static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 	// Poll socket status without blocking
 	tv.tv_sec = 0;
 	tv.tv_usec = 0;
-	if (select(0, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
+	if (select(tcp_socket->socket+1, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
 	{
 		status.error_state = RMT_ERROR_SOCKET_SELECT_FAIL;
 		return status;
@@ -1269,6 +1345,17 @@ static enum rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket
 	return RMT_ERROR_NONE;
 }
 
+int TCPSocketWouldBlock()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    DWORD error = WSAGetLastError();
+    return (error == WSAEWOULDBLOCK);
+ #else
+    int error = errno;
+    return (error == EAGAIN || error == EWOULDBLOCK);
+#endif
+
+}
 
 static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
@@ -1294,17 +1381,16 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
 	while (cur_data < end_data)
 	{
 		// Attempt to send the remaining chunk of data
-		int bytes_sent = send(tcp_socket->socket, cur_data, end_data - cur_data, 0);
+		int bytes_sent = (int)send(tcp_socket->socket, cur_data, end_data - cur_data, 0);
 
 		if (bytes_sent == SOCKET_ERROR || bytes_sent == 0)
 		{
 			// Close the connection if sending fails for any other reason other than blocking
-			DWORD error = WSAGetLastError();
-			if (error != WSAEWOULDBLOCK)
-			{
-				TCPSocket_Close(tcp_socket);
-				return RMT_ERROR_SOCKET_SEND_FAIL;
-			}
+            if (!TCPSocketWouldBlock())
+            {
+                TCPSocket_Close(tcp_socket);
+                return RMT_ERROR_SOCKET_SEND_FAIL;
+            }
 
 			// First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
 			cur_ms = msTimer_Get();
@@ -1365,12 +1451,11 @@ static enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32
 	start_ms = msTimer_Get();
 	while (cur_data < end_data)
 	{
-		int bytes_received = recv(tcp_socket->socket, cur_data, end_data - cur_data, 0);
+		int bytes_received = (int)recv(tcp_socket->socket, cur_data, end_data - cur_data, 0);
 		if (bytes_received == SOCKET_ERROR || bytes_received == 0)
 		{
 			// Close the connection if receiving fails for any other reason other than blocking
-			DWORD error = WSAGetLastError();
-			if (error != WSAEWOULDBLOCK)
+            if (!TCPSocketWouldBlock())
 			{
 				TCPSocket_Close(tcp_socket);
 				return RMT_ERROR_SOCKET_RECV_FAILED;
@@ -2732,9 +2817,9 @@ typedef struct ThreadSampler
 
 	// Queue of complete root samples to be sent to the client
 	CPUSample* complete_queue_head;
-	u8 __cache_line_pad_0__[64];
+	rmtU8 __cache_line_pad_0__[64];
 	CPUSample* complete_queue_tail;
-	u8 __cache_line_pad_1__[64];
+	rmtU8 __cache_line_pad_1__[64];
 } ThreadSampler;
 
 
@@ -3018,12 +3103,11 @@ static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash
 */
 
 
-
 struct Remotery
 {
 	Server* server;
 
-	rmtU32 thread_sampler_tls_handle;
+	rmtTLS thread_sampler_tls_handle;
 
 	// Linked list of all known threads being sampled
 	ThreadSampler* volatile first_thread_sampler;
@@ -3285,9 +3369,7 @@ enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 	error = Remotery_Create(remotery);
 	if (error != RMT_ERROR_NONE)
 		return error;
-	g_Remotery = *remotery;
-	g_RemoterySet = RMT_FALSE;
-
+	_rmt_SetGlobalInstance( *remotery );
 	return RMT_ERROR_NONE;
 }
 
@@ -3298,7 +3380,7 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
 		return;
 
 	// Ensure this is the module that created it
-	assert(g_RemoterySet == RMT_FALSE);
+	assert(g_RemoterySet == RMT_TRUE);
 	assert(g_Remotery == remotery);
 	Remotery_Destroy(remotery);
 	g_Remotery = NULL;
