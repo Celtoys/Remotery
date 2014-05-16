@@ -55,7 +55,6 @@
 	#include <TinyCRT/TinyWin.h>
 	#include <sal.h>
 	#include <specstrings.h>
-	#include <assert.h>
 
 	// Prototypes for Microsoft atomic op intrinsics
 	extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
@@ -64,10 +63,8 @@
 	#pragma intrinsic(_InterlockedExchangeAdd)
 
 	// Prototypes for MSVC compiler read/write fences
-	extern void _ReadWriteBarrier();
 	extern void _WriteBarrier();
 	extern void _ReadBarrier();
-	#pragma intrinsic(_ReadWriteBarrier)
 	#pragma intrinsic(_WriteBarrier)
 	#pragma intrinsic(_ReadBarrier)
 
@@ -369,16 +366,7 @@ static void WriteFence()
     asm volatile ("" : : : "memory");
 #endif
 }
-/* //Not used for now - remove?
-static void ReadWriteFence()
-{
-#ifdef RMT_PLATFORM_WINDOWS
-	_ReadWriteBarrier();
-#else
-    asm volatile ("" : : : "memory");
-#endif
-}
-*/
+
 
 // Get a shared value with acquire semantics, ensuring the read is complete
 // before the function returns.
