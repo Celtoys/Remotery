@@ -27,6 +27,7 @@
 
 #include "Remotery.h"
 
+#pragma comment(lib, "ws2_32.lib")
 
 #ifdef RMT_ENABLED
 
@@ -45,7 +46,7 @@
 //
 // Required CRT dependencies
 //
-#define RMT_USE_TINYCRT
+//#define RMT_USE_TINYCRT
 #ifdef RMT_USE_TINYCRT
 
 	#include <TinyCRT/TinyCRT.h>
@@ -54,6 +55,7 @@
 	#include <TinyCRT/TinyWin.h>
 	#include <sal.h>
 	#include <specstrings.h>
+	#include <assert.h>
 
 	// Prototypes for Microsoft atomic op intrinsics
 	extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
@@ -3285,9 +3287,7 @@ enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 	error = Remotery_Create(remotery);
 	if (error != RMT_ERROR_NONE)
 		return error;
-	g_Remotery = *remotery;
-	g_RemoterySet = RMT_FALSE;
-
+	_rmt_SetGlobalInstance( *remotery );
 	return RMT_ERROR_NONE;
 }
 
@@ -3298,7 +3298,7 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
 		return;
 
 	// Ensure this is the module that created it
-	assert(g_RemoterySet == RMT_FALSE);
+	assert(g_RemoterySet == RMT_TRUE);
 	assert(g_Remotery == remotery);
 	Remotery_Destroy(remotery);
 	g_Remotery = NULL;
