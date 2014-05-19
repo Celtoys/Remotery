@@ -46,27 +46,10 @@
 //
 // Required CRT dependencies
 //
-//#define RMT_USE_TINYCRT
 #ifdef RMT_USE_TINYCRT
 
     #include <TinyCRT/TinyCRT.h>
-
-    // Allows inclusion of winsock2.h without windows.h
-    #include <TinyCRT/TinyWin.h>
-    #include <sal.h>
-    #include <specstrings.h>
-
-    // Prototypes for Microsoft atomic op intrinsics
-    extern long __cdecl _InterlockedCompareExchange(long volatile*, long, long);
-    extern long __cdecl _InterlockedExchangeAdd(long volatile*, long);
-    #pragma intrinsic(_InterlockedCompareExchange)
-    #pragma intrinsic(_InterlockedExchangeAdd)
-
-    // Prototypes for MSVC compiler read/write fences
-    extern void _WriteBarrier();
-    extern void _ReadBarrier();
-    #pragma intrinsic(_WriteBarrier)
-    #pragma intrinsic(_ReadBarrier)
+    #include <TinyCRT/TinyWinsock.h>
 
 #else
 
@@ -81,7 +64,10 @@
     #include <assert.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
+        #include <winsock2.h>
         #include <intrin.h>
+        #undef min
+        #undef max
     #endif
 
     #if defined(RMT_PLATFORM_POSIX)
@@ -94,13 +80,6 @@
         #include <errno.h>
     #endif
 
-#endif
-
-
-#ifdef RMT_PLATFORM_WINDOWS
-    #include <winsock2.h>
-    #undef min
-    #undef max
 #endif
 
 
