@@ -1852,9 +1852,6 @@ typedef struct
     rmtU32 mask_offset;
 
     rmtU8 data_mask[4];
-
-    rmtU8* frame_data_cache;
-    rmtU32 frame_data_cache_size;
 } WebSocket;
 
 
@@ -2023,8 +2020,6 @@ static enum rmtError WebSocket_Create(WebSocket** web_socket)
     (*web_socket)->data_mask[1] = 0;
     (*web_socket)->data_mask[2] = 0;
     (*web_socket)->data_mask[3] = 0;
-    (*web_socket)->frame_data_cache = NULL;
-    (*web_socket)->frame_data_cache_size = 0;
 
     return RMT_ERROR_NONE;
 }
@@ -2058,12 +2053,6 @@ static enum rmtError WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode
 static void WebSocket_Close(WebSocket* web_socket)
 {
     assert(web_socket != NULL);
-
-    if (web_socket->frame_data_cache != NULL)
-    {
-        free(web_socket->frame_data_cache);
-        web_socket->frame_data_cache = NULL;
-    }
 
     if (web_socket->tcp_socket != NULL)
     {
@@ -2132,9 +2121,10 @@ static void WriteSize(rmtU32 size, rmtU8* dest, rmtU32 dest_size, rmtU32 dest_of
 
 static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
+    enum rmtError error;
     SocketStatus status;
     rmtU8 final_fragment, frame_type, frame_header[10];
-    rmtU32 frame_header_size, frame_size;
+    rmtU32 frame_header_size;
 
     assert(web_socket != NULL);
 
@@ -2169,23 +2159,12 @@ static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmt
         WriteSize(length, frame_header + 2, 8, 4);
     }
 
-    // Only reallocate the frame cache if its not big enough
-    frame_size = frame_header_size + length;
-    if (web_socket->frame_data_cache == NULL || frame_size > web_socket->frame_data_cache_size)
-    {
-        if (web_socket->frame_data_cache != NULL)
-            free(web_socket->frame_data_cache);
-        web_socket->frame_data_cache = (rmtU8*)malloc(frame_size);
-        web_socket->frame_data_cache_size = frame_size;
-    }
-
-    // Copy in the header and data contiguously
+    // Send frame header followed by data
     assert(data != NULL);
-    memcpy(web_socket->frame_data_cache, frame_header, frame_header_size);
-    memcpy(web_socket->frame_data_cache + frame_header_size, data, length);
-
-    // Pass Send result onto the caller
-    return TCPSocket_Send(web_socket->tcp_socket, web_socket->frame_data_cache, frame_size, timeout_ms);
+    error = TCPSocket_Send(web_socket->tcp_socket, frame_header, frame_header_size, timeout_ms);
+    if (error != RMT_ERROR_NONE)
+        return error;
+    return TCPSocket_Send(web_socket->tcp_socket, data, length, timeout_ms);
 }
 
 
