@@ -180,6 +180,9 @@ enum rmtError
 #define rmt_SetGlobalInstance(rmt)                                          \
     RMT_OPTIONAL(_rmt_SetGlobalInstance(rmt))
 
+#define rmt_GetGlobalInstance()                                             \
+    RMT_OPTIONAL_RET(_rmt_GetGlobalInstance(), NULL)
+
 #define rmt_SetCurrentThreadName(rmt)                                       \
     RMT_OPTIONAL(_rmt_SetCurrentThreadName(rmt))
 
@@ -261,6 +264,7 @@ extern "C" {
 enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery);
 void _rmt_DestroyGlobalInstance(Remotery* remotery);
 void _rmt_SetGlobalInstance(Remotery* remotery);
+Remotery* _rmt_GetGlobalInstance();
 
 void _rmt_SetCurrentThreadName(rmtPStr thread_name);
 

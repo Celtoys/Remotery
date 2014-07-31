@@ -3301,7 +3301,13 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 // Global remotery context
 //
 static Remotery* g_Remotery = NULL;
-static rmtBool g_RemoterySet = RMT_FALSE;
+
+
+//
+// This flag marks the EXE/DLL that created the global remotery instance. We want to allow
+// only the creating EXE/DLL to destroy the remotery instance.
+//
+static rmtBool g_RemoteryCreated = RMT_FALSE;
 
 
 enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
@@ -3315,7 +3321,8 @@ enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
     error = Remotery_Create(remotery);
     if (error != RMT_ERROR_NONE)
         return error;
-    _rmt_SetGlobalInstance( *remotery );
+    g_Remotery = *remotery;
+    g_RemoteryCreated = (remotery == NULL) ? RMT_FALSE : RMT_TRUE;
     return RMT_ERROR_NONE;
 }
 
@@ -3326,7 +3333,7 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
         return;
 
     // Ensure this is the module that created it
-    assert(g_RemoterySet == RMT_TRUE);
+    assert(g_RemoteryCreated == RMT_TRUE);
     assert(g_Remotery == remotery);
     Remotery_Destroy(remotery);
     g_Remotery = NULL;
@@ -3336,7 +3343,12 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
 void _rmt_SetGlobalInstance(Remotery* remotery)
 {
     g_Remotery = remotery;
-    g_RemoterySet = (remotery == NULL) ? RMT_FALSE : RMT_TRUE;
+}
+
+
+Remotery* _rmt_GetGlobalInstance()
+{
+    return g_Remotery;
 }
 
 
