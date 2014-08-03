@@ -33,6 +33,7 @@
     @NETWORK:       Network Server
     @JSON:          Basic, text-based JSON serialisation
     @SAMPLE:        Base Sample Description (CPU by default)
+    @SAMPLETREE: A tree of samples with their allocator
     @TSAMPLER:      Per-Thread Sampler
     @REMOTERY:      Remotery
 */
@@ -2769,6 +2770,164 @@ static enum rmtError json_SampleArray(Buffer* buffer, Sample* first_sample, rmtP
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+   @SAMPLETREE: A tree of samples with their allocator
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct SampleTree
+{
+    // Allocator for all samples 
+    ObjectAllocator* allocator;
+
+    // Root sample for all samples created by this thread
+    Sample* root;
+
+    // Most recently pushed sample
+    Sample* current_parent;
+
+} SampleTree;
+
+
+static void SampleTree_Destroy(SampleTree* tree);
+
+
+static enum rmtError SampleTree_Create(SampleTree** tree)
+{
+    enum rmtError error;
+
+    assert(tree != NULL);
+
+    *tree = (SampleTree*)malloc(sizeof(SampleTree));
+    if (*tree == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    (*tree)->allocator = NULL;
+    (*tree)->root = NULL;
+    (*tree)->current_parent = NULL;
+
+    // Create the sample allocator
+    error = ObjectAllocator_Create(&(*tree)->allocator, (ObjCreateFunc)Sample_Create, (ObjDestroyFunc)Sample_Destroy);
+    if (error != RMT_ERROR_NONE)
+    {
+        SampleTree_Destroy(*tree);
+        return error;
+    }
+
+    // Create a root sample that's around for the lifetime of the thread
+    error = ObjectAllocator_Alloc((*tree)->allocator, (void**)&(*tree)->root);
+    if (error != RMT_ERROR_NONE)
+    {
+        SampleTree_Destroy(*tree);
+        return error;
+    }
+    Sample_SetDefaults((*tree)->root, "<Root Sample>", 0, NULL);
+    (*tree)->current_parent = (*tree)->root;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void SampleTree_Destroy(SampleTree* tree)
+{
+    assert(tree != NULL);
+
+    if (tree->root != NULL)
+    {
+        ObjectAllocator_Free(tree->allocator, tree->root);
+        tree->root = NULL;
+    }
+
+    if (tree->allocator != NULL)
+    {
+        ObjectAllocator_Destroy(tree->allocator);
+        tree->allocator = NULL;
+    }
+
+    free(tree);
+}
+
+
+static enum rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
+{
+    Sample* parent;
+    enum rmtError error;
+    rmtU32 hash_src[3];
+
+    // As each tree has a root sample node allocated, a parent must always be present
+    assert(tree != NULL);
+    assert(tree->current_parent != NULL);
+    parent = tree->current_parent;
+
+    if (parent->last_child != NULL && parent->last_child->name_hash == name_hash)
+    {
+        // TODO: Collapse siblings with flag exception?
+    }
+    if (parent->name_hash == name_hash)
+    {
+        // TODO: Collapse recursion on flag?
+    }
+
+    // Allocate a new sample
+    error = ObjectAllocator_Alloc(tree->allocator, (void**)sample);
+    if (error != RMT_ERROR_NONE)
+        return error;
+    Sample_SetDefaults(*sample, name, name_hash, parent);
+
+    // Generate a unique ID for this sample in the tree
+    hash_src[0] = parent->name_hash;
+    hash_src[1] = parent->nb_children;
+    hash_src[2] = (*sample)->name_hash;
+    (*sample)->unique_id = MurmurHash3_x86_32(hash_src, sizeof(hash_src), 0);
+
+    // Add sample to its parent
+    parent->nb_children++;
+    if (parent->first_child == NULL)
+    {
+        parent->first_child = *sample;
+        parent->last_child = *sample;
+    }
+    else
+    {
+        assert(parent->last_child != NULL);
+        parent->last_child->next_sibling = *sample;
+        parent->last_child = *sample;
+    }
+
+    // Make this sample the new parent of any newly created samples
+    tree->current_parent = *sample;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static Sample* SampleTree_Pop(SampleTree* tree, Sample* sample)
+{
+    assert(tree != NULL);
+    assert(sample != NULL);
+    assert(sample != tree->root);
+    tree->current_parent = sample->parent;
+
+    if (tree->current_parent == tree->root)
+    {
+        // Disconnect all samples from the root
+        Sample* root = tree->root;
+        root->first_child = NULL;
+        root->last_child = NULL;
+        root->nb_children = 0;
+        return sample;
+    }
+
+    return NULL;
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    @TSAMPLER: Per-Thread Sampler
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -2781,14 +2940,7 @@ typedef struct ThreadSampler
     // Name to assign to the thread in the viewer
     rmtS8 name[64];
 
-    // Sample allocator for all samples in this thread
-    ObjectAllocator* sample_allocator;
-
-    // Root sample for all samples created by this thread
-    Sample* root_sample;
-
-    // Most recently pushed sample
-    Sample* current_parent_sample;
+    SampleTree* sample_tree;
 
     // Microsecond accuracy timer for CPU timestamps
     usTimer timer;
@@ -2821,9 +2973,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
         return RMT_ERROR_MALLOC_FAIL;
 
     // Set defaults
-    (*thread_sampler)->sample_allocator = NULL;
-    (*thread_sampler)->root_sample = NULL;
-    (*thread_sampler)->current_parent_sample = NULL;
+    (*thread_sampler)->sample_tree = NULL; 
     (*thread_sampler)->json_buf = NULL;
     (*thread_sampler)->next = NULL;
     (*thread_sampler)->complete_queue_head = NULL;
@@ -2832,23 +2982,13 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     // Set the initial name based on the unique thread sampler address
     Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
 
-    // Create the sample allocator
-    error = ObjectAllocator_Create(&(*thread_sampler)->sample_allocator, (ObjCreateFunc)Sample_Create, (ObjDestroyFunc)Sample_Destroy);
+    // Create the sample tree
+    error = SampleTree_Create(&(*thread_sampler)->sample_tree);
     if (error != RMT_ERROR_NONE)
     {
         ThreadSampler_Destroy(*thread_sampler);
         return error;
     }
-
-    // Create a root sample that's around for the lifetime of the thread
-    error = ObjectAllocator_Alloc((*thread_sampler)->sample_allocator, (void**)&(*thread_sampler)->root_sample);
-    if (error != RMT_ERROR_NONE)
-    {
-        ThreadSampler_Destroy(*thread_sampler);
-        return error;
-    }
-    Sample_SetDefaults((*thread_sampler)->root_sample, "<Root Sample>", 0, NULL);
-    (*thread_sampler)->current_parent_sample = (*thread_sampler)->root_sample;
 
     // Kick-off the timer
     usTimer_Init(&(*thread_sampler)->timer);
@@ -2862,7 +3002,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     }
 
     // Setup the complete queue to point at an empty sample
-    error = ObjectAllocator_Alloc((*thread_sampler)->sample_allocator, (void**)&empty_sample);
+    error = ObjectAllocator_Alloc((*thread_sampler)->sample_tree->allocator, (void**)&empty_sample);
     if (error != RMT_ERROR_NONE)
     {
         ThreadSampler_Destroy(*thread_sampler);
@@ -2879,10 +3019,12 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 {
     assert(ts != NULL);
 
+    // Release all allocated samples
+    // Ideally the user has already done this before requesting Remotery shut down
     while (ts->complete_queue_head != NULL)
     {
         Sample* next = (Sample*)ts->complete_queue_head->base.next;
-        ObjectAllocator_Free(ts->sample_allocator, ts->complete_queue_head);
+        ObjectAllocator_Free(ts->sample_tree->allocator, ts->complete_queue_head);
         ts->complete_queue_head = next;
     }
 
@@ -2892,16 +3034,10 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
         ts->json_buf = NULL;
     }
 
-    if (ts->root_sample != NULL)
+    if (ts->sample_tree != NULL)
     {
-        ObjectAllocator_Free(ts->sample_allocator, ts->root_sample);
-        ts->root_sample = NULL;
-    }
-
-    if (ts->sample_allocator != NULL)
-    {
-        ObjectAllocator_Destroy(ts->sample_allocator);
-        ts->sample_allocator = NULL;
+        SampleTree_Destroy(ts->sample_tree);
+        ts->sample_tree = NULL;
     }
 
     free(ts);
@@ -2956,77 +3092,19 @@ static Sample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
 }
 
 
-static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 name_hash, Sample** sample)
+static enum rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
-    Sample* parent;
-    enum rmtError error;
-    rmtU32 hash_src[3];
-
-    // As each thread has a root sample node allocated, a parent must always be present
-    assert(ts->current_parent_sample != NULL);
-    parent = ts->current_parent_sample;
-
-    if (parent->last_child != NULL && parent->last_child->name_hash == name_hash)
-    {
-        // TODO: Collapse siblings with flag exception?
-    }
-    if (parent->name_hash == name_hash)
-    {
-        // TODO: Collapse recursion on flag?
-    }
-
-    // Allocate a new sample
-    assert(ts != NULL);
-    error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)sample);
-    if (error != RMT_ERROR_NONE)
-        return error;
-    Sample_SetDefaults(*sample, name, name_hash, parent);
-
-    // Generate a unique ID for this sample in the tree
-    hash_src[0] = parent->name_hash;
-    hash_src[1] = parent->nb_children;
-    hash_src[2] = (*sample)->name_hash;
-    (*sample)->unique_id = MurmurHash3_x86_32(hash_src, sizeof(hash_src), 0);
-
-    // Add sample to its parent
-    parent->nb_children++;
-    if (parent->first_child == NULL)
-    {
-        parent->first_child = *sample;
-        parent->last_child = *sample;
-    }
-    else
-    {
-        assert(parent->last_child != NULL);
-        parent->last_child->next_sibling = *sample;
-        parent->last_child = *sample;
-    }
-
-    // Make this sample the new parent of any newly created samples
-    ts->current_parent_sample = *sample;
-
-    return RMT_ERROR_NONE;
+    return SampleTree_Push(tree, name, name_hash, sample);
 }
 
 
-static void ThreadSampler_Pop(ThreadSampler* ts, Sample* sample)
+static void ThreadSampler_Pop(ThreadSampler* ts, SampleTree* tree, Sample* sample)
 {
-    assert(ts != NULL);
-    assert(sample != NULL);
-    assert(sample != ts->root_sample);
-    ts->current_parent_sample = sample->parent;
+    sample = SampleTree_Pop(tree, sample);
 
-    if (ts->current_parent_sample == ts->root_sample)
-    {
-        // Disconnect all samples from the root
-        Sample* root = ts->root_sample;
-        root->first_child = NULL;
-        root->last_child = NULL;
-        root->nb_children = 0;
-
-        // Add them to the queue to be sent to the client
+    // Add top-level samples to the queue to be sent to the client
+    if (sample != NULL)
         ThreadSampler_QueueCompleteSample(ts, sample);
-    }
 }
 
 
@@ -3135,7 +3213,7 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
                 // Get digest hash of samples so that viewer can efficiently rebuild its tables
                 digest_hash = 0;
                 nb_samples = 0;
-                ThreadSampler_GetSampleDigest(ts->root_sample, &digest_hash, &nb_samples);
+                ThreadSampler_GetSampleDigest(ts->sample_tree->root, &digest_hash, &nb_samples);
 
                 // Build the sample data
                 JSON_ERROR_CHECK(json_OpenObject(buffer));
@@ -3163,9 +3241,9 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
 
             // Release the complete sample memory range
             if (sample->base.next != NULL)
-                ObjectAllocator_FreeRange(ts->sample_allocator, sample, last_link, nb_cleared_samples);
+                ObjectAllocator_FreeRange(ts->sample_tree->allocator, sample, last_link, nb_cleared_samples);
             else
-                ObjectAllocator_Free(ts->sample_allocator, sample);
+                ObjectAllocator_Free(ts->sample_tree->allocator, sample);
         }
     }
 
@@ -3449,7 +3527,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
     {
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
-        if (ThreadSampler_Push(ts, name, name_hash, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(ts, ts->sample_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
             sample->us_start = usTimer_Get(&ts->timer);
     }
 }
@@ -3464,9 +3542,9 @@ void _rmt_EndCPUSample(void)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
-        Sample* sample = ts->current_parent_sample;
+        Sample* sample = ts->sample_tree->current_parent;
         sample->us_end = usTimer_Get(&ts->timer);
-        ThreadSampler_Pop(ts, sample);
+        ThreadSampler_Pop(ts, ts->sample_tree, sample);
     }
 }
 
