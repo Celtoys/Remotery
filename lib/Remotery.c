@@ -2677,8 +2677,8 @@ typedef struct Sample
     rmtU32 nb_children;
 
     // Start and end of the sample in microseconds
-    rmtU64 start_us;
-    rmtU64 end_us;
+    rmtU64 us_start;
+    rmtU64 us_end;
 
 } Sample;
 
@@ -2693,8 +2693,8 @@ static void Sample_SetDefaults(Sample* sample, rmtPStr name, rmtU32 name_hash, S
     sample->last_child = NULL;
     sample->next_sibling = NULL;
     sample->nb_children = 0;
-    sample->start_us = 0;
-    sample->end_us = 0;
+    sample->us_start = 0;
+    sample->us_end = 0;
 }
 
 
@@ -2732,9 +2732,9 @@ static enum rmtError json_Sample(Buffer* buffer, Sample* sample)
         JSON_ERROR_CHECK(json_Comma(buffer));
         JSON_ERROR_CHECK(json_FieldU64(buffer, "id", sample->unique_id));
         JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_FieldU64(buffer, "cpu_us_start", sample->start_us));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "us_start", sample->us_start));
         JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_FieldU64(buffer, "cpu_us_length", max(sample->end_us - sample->start_us, 0)));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "us_length", max(sample->us_end - sample->us_start, 0)));
 
         if (sample->first_child != NULL)
         {
@@ -3438,44 +3438,36 @@ static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 
 void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 {
-    rmtU32 name_hash = 0;
     ThreadSampler* ts;
-    Sample* sample;
 
     if (g_Remotery == NULL)
         return;
 
-    // Get data for this thread
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) != RMT_ERROR_NONE)
-        return;
-
-    name_hash = GetNameHash(name, hash_cache);
-
     // TODO: Time how long the bits outside here cost and subtract them from the parent
 
-    if (ThreadSampler_Push(ts, name, name_hash, &sample) != RMT_ERROR_NONE)
-        return;
-
-    sample->start_us = usTimer_Get(&ts->timer);
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        Sample* sample;
+        rmtU32 name_hash = GetNameHash(name, hash_cache);
+        if (ThreadSampler_Push(ts, name, name_hash, &sample) == RMT_ERROR_NONE)
+            sample->us_start = usTimer_Get(&ts->timer);
+    }
 }
 
 
 void _rmt_EndCPUSample(void)
 {
     ThreadSampler* ts;
-    Sample* sample;
 
     if (g_Remotery == NULL)
         return;
 
-    // Get data for this thread
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) != RMT_ERROR_NONE)
-        return;
-
-    sample = ts->current_parent_sample;
-    sample->end_us = usTimer_Get(&ts->timer);
-
-    ThreadSampler_Pop(ts, sample);
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        Sample* sample = ts->current_parent_sample;
+        sample->us_end = usTimer_Get(&ts->timer);
+        ThreadSampler_Pop(ts, sample);
+    }
 }
 
 

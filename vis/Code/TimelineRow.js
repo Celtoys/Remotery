@@ -183,7 +183,7 @@ TimelineRow = (function()
 				for (var j in frame.Samples)
 				{
 					var sample = frame.Samples[j];
-					if (time_us >= sample.cpu_us_start && time_us < sample.cpu_us_start + sample.cpu_us_length)
+					if (time_us >= sample.us_start && time_us < sample.us_start + sample.us_length)
 						return [ frame, sample ];
 				}
 			}
@@ -199,8 +199,8 @@ TimelineRow = (function()
 			return;
 
 		// Determine location of the sample
-		var offset_x = time_range.PixelOffset(sample.cpu_us_start);
-		var size_x = time_range.PixelSize(sample.cpu_us_length);
+		var offset_x = time_range.PixelOffset(sample.us_start);
+		var size_x = time_range.PixelSize(sample.us_length);
 
 		// Clip to padded range
 		size_x = Math.min(offset_x + size_x, self.CanvasNode.width - 5) - offset_x;

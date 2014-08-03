@@ -64,7 +64,7 @@ SampleWindow = (function()
 			};
 
 			var row = parent_row.Rows.Add(cell_data, null, cell_classes);
-			row.CellData.Control.SetText(sample.cpu_us_length);
+			row.CellData.Control.SetText(sample.us_length);
 
 			AddSamples(parent_row, sample.children, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
 		}
@@ -79,7 +79,7 @@ SampleWindow = (function()
 
 			var row = parent_row.Rows.GetBy("_ID", sample.id);
 			if (row)
-				row.CellData.Control.SetText(sample.cpu_us_length);
+				row.CellData.Control.SetText(sample.us_length);
 
 			UpdateSamples(parent_row, sample.children);
 		}

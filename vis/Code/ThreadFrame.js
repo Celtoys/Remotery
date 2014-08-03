@@ -16,8 +16,8 @@ ThreadFrame = (function()
 		if (nb_root_samples > 0)
 		{
 			var last_sample = this.Samples[nb_root_samples - 1];
-			this.StartTime_us = this.Samples[0].cpu_us_start;
-			this.EndTime_us = last_sample.cpu_us_start + last_sample.cpu_us_length;
+			this.StartTime_us = this.Samples[0].us_start;
+			this.EndTime_us = last_sample.us_start + last_sample.us_length;
 		}
 
 		this.Length_us = this.EndTime_us - this.StartTime_us;
