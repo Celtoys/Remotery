@@ -32,7 +32,7 @@
     @WEBSOCKETS:    WebSockets
     @NETWORK:       Network Server
     @JSON:          Basic, text-based JSON serialisation
-    @CPUSAMPLE:     CPU Sample Description
+    @SAMPLE:        Base Sample Description (CPU by default)
     @TSAMPLER:      Per-Thread Sampler
     @REMOTERY:      Remotery
 */
@@ -2647,14 +2647,14 @@ static enum rmtError json_CloseArray(Buffer* buffer)
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
-   @CPUSAMPLE: CPU Sample Description
+   @SAMPLE: Base Sample Description for CPU by default
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
 
 
 
-typedef struct CPUSample
+typedef struct Sample
 {
     // Inherit so that samples can be quickly allocated
     ObjectLink base;
@@ -2667,10 +2667,10 @@ typedef struct CPUSample
     rmtU32 unique_id;
 
     // Links to related samples in the tree
-    struct CPUSample* parent;
-    struct CPUSample* first_child;
-    struct CPUSample* last_child;
-    struct CPUSample* next_sibling;
+    struct Sample* parent;
+    struct Sample* first_child;
+    struct Sample* last_child;
+    struct Sample* next_sibling;
 
     // Keep track of child count to distinguish from repeated calls to the same function at the same stack level
     // This is also mixed with the callstack hash to allow consistent addressing of any point in the tree
@@ -2680,10 +2680,10 @@ typedef struct CPUSample
     rmtU64 start_us;
     rmtU64 end_us;
 
-} CPUSample;
+} Sample;
 
 
-static void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_hash, CPUSample* parent)
+static void Sample_SetDefaults(Sample* sample, rmtPStr name, rmtU32 name_hash, Sample* parent)
 {
     sample->name = name;
     sample->name_hash = name_hash;
@@ -2698,29 +2698,29 @@ static void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_h
 }
 
 
-static enum rmtError CPUSample_Create(CPUSample** sample)
+static enum rmtError Sample_Create(Sample** sample)
 {
     assert(sample != NULL);
-    *sample = (CPUSample*)malloc(sizeof(CPUSample));
+    *sample = (Sample*)malloc(sizeof(Sample));
     if (*sample == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
-    CPUSample_SetDefaults(*sample, NULL, 0, NULL);
+    Sample_SetDefaults(*sample, NULL, 0, NULL);
     return RMT_ERROR_NONE;
 }
 
 
-static void CPUSample_Destroy(CPUSample* sample)
+static void Sample_Destroy(Sample* sample)
 {
     assert(sample != NULL);
     free(sample);
 }
 
 
-static enum rmtError json_CPUSampleArray(Buffer* buffer, CPUSample* first_sample, rmtPStr name);
+static enum rmtError json_SampleArray(Buffer* buffer, Sample* first_sample, rmtPStr name);
 
 
-static enum rmtError json_CPUSample(Buffer* buffer, CPUSample* sample)
+static enum rmtError json_Sample(Buffer* buffer, Sample* sample)
 {
     enum rmtError error;
 
@@ -2739,24 +2739,24 @@ static enum rmtError json_CPUSample(Buffer* buffer, CPUSample* sample)
         if (sample->first_child != NULL)
         {
             JSON_ERROR_CHECK(json_Comma(buffer));
-            JSON_ERROR_CHECK(json_CPUSampleArray(buffer, sample->first_child, "children"));
+            JSON_ERROR_CHECK(json_SampleArray(buffer, sample->first_child, "children"));
         }
 
     return json_CloseObject(buffer);
 }
 
 
-static enum rmtError json_CPUSampleArray(Buffer* buffer, CPUSample* first_sample, rmtPStr name)
+static enum rmtError json_SampleArray(Buffer* buffer, Sample* first_sample, rmtPStr name)
 {
     enum rmtError error;
 
-    CPUSample* sample;
+    Sample* sample;
 
     JSON_ERROR_CHECK(json_OpenArray(buffer, name));
 
     for (sample = first_sample; sample != NULL; sample = sample->next_sibling)
     {
-        JSON_ERROR_CHECK(json_CPUSample(buffer, sample));
+        JSON_ERROR_CHECK(json_Sample(buffer, sample));
         if (sample->next_sibling != NULL)
             JSON_ERROR_CHECK(json_Comma(buffer));
     }
@@ -2785,10 +2785,10 @@ typedef struct ThreadSampler
     ObjectAllocator* sample_allocator;
 
     // Root sample for all samples created by this thread
-    CPUSample* root_sample;
+    Sample* root_sample;
 
     // Most recently pushed sample
-    CPUSample* current_parent_sample;
+    Sample* current_parent_sample;
 
     // Microsecond accuracy timer for CPU timestamps
     usTimer timer;
@@ -2800,9 +2800,9 @@ typedef struct ThreadSampler
     struct ThreadSampler* volatile next;
 
     // Queue of complete root samples to be sent to the client
-    CPUSample* complete_queue_head;
+    Sample* complete_queue_head;
     rmtU8 __cache_line_pad_0__[64];
-    CPUSample* complete_queue_tail;
+    Sample* complete_queue_tail;
     rmtU8 __cache_line_pad_1__[64];
 } ThreadSampler;
 
@@ -2813,7 +2813,7 @@ static void ThreadSampler_Destroy(ThreadSampler* ts);
 static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 {
     enum rmtError error;
-    CPUSample* empty_sample;
+    Sample* empty_sample;
 
     // Allocate space for the thread sampler
     *thread_sampler = (ThreadSampler*)malloc(sizeof(ThreadSampler));
@@ -2833,7 +2833,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
 
     // Create the sample allocator
-    error = ObjectAllocator_Create(&(*thread_sampler)->sample_allocator, (ObjCreateFunc)CPUSample_Create, (ObjDestroyFunc)CPUSample_Destroy);
+    error = ObjectAllocator_Create(&(*thread_sampler)->sample_allocator, (ObjCreateFunc)Sample_Create, (ObjDestroyFunc)Sample_Destroy);
     if (error != RMT_ERROR_NONE)
     {
         ThreadSampler_Destroy(*thread_sampler);
@@ -2847,7 +2847,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
         ThreadSampler_Destroy(*thread_sampler);
         return error;
     }
-    CPUSample_SetDefaults((*thread_sampler)->root_sample, "<Root Sample>", 0, NULL);
+    Sample_SetDefaults((*thread_sampler)->root_sample, "<Root Sample>", 0, NULL);
     (*thread_sampler)->current_parent_sample = (*thread_sampler)->root_sample;
 
     // Kick-off the timer
@@ -2881,7 +2881,7 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 
     while (ts->complete_queue_head != NULL)
     {
-        CPUSample* next = (CPUSample*)ts->complete_queue_head->base.next;
+        Sample* next = (Sample*)ts->complete_queue_head->base.next;
         ObjectAllocator_Free(ts->sample_allocator, ts->complete_queue_head);
         ts->complete_queue_head = next;
     }
@@ -2908,9 +2908,9 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 }
 
 
-static void ThreadSampler_QueueCompleteSample(ThreadSampler* ts, CPUSample* root_sample)
+static void ThreadSampler_QueueCompleteSample(ThreadSampler* ts, Sample* root_sample)
 {
-    CPUSample* tail;
+    Sample* tail;
 
     assert(ts != NULL);
     assert(root_sample != NULL);
@@ -2930,10 +2930,10 @@ static void ThreadSampler_QueueCompleteSample(ThreadSampler* ts, CPUSample* root
 }
 
 
-static CPUSample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
+static Sample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
 {
-    CPUSample* head;
-    CPUSample* next;
+    Sample* head;
+    Sample* next;
 
     assert(ts != NULL);
 
@@ -2942,11 +2942,11 @@ static CPUSample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
 
     // The head always points to the empty sample so look ahead one to see if anything is in the list
     // This value is shared with the producer
-    next = (CPUSample*)LoadAcquire((void *const volatile *)&head->base.next);
+    next = (Sample*)LoadAcquire((void *const volatile *)&head->base.next);
     if (next == NULL)
         return NULL;
 
-    // Move the CPUSample data to the empty sample at the front
+    // Move the sample data to the empty sample at the front
     *head = *next;
 
     // As the consumer owns the head pointer, we're free to update it
@@ -2956,9 +2956,9 @@ static CPUSample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
 }
 
 
-static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 name_hash, CPUSample** sample)
+static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
-    CPUSample* parent;
+    Sample* parent;
     enum rmtError error;
     rmtU32 hash_src[3];
 
@@ -2980,7 +2980,7 @@ static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 
     error = ObjectAllocator_Alloc(ts->sample_allocator, (void**)sample);
     if (error != RMT_ERROR_NONE)
         return error;
-    CPUSample_SetDefaults(*sample, name, name_hash, parent);
+    Sample_SetDefaults(*sample, name, name_hash, parent);
 
     // Generate a unique ID for this sample in the tree
     hash_src[0] = parent->name_hash;
@@ -3009,7 +3009,7 @@ static enum rmtError ThreadSampler_Push(ThreadSampler* ts, rmtPStr name, rmtU32 
 }
 
 
-static void ThreadSampler_Pop(ThreadSampler* ts, CPUSample* sample)
+static void ThreadSampler_Pop(ThreadSampler* ts, Sample* sample)
 {
     assert(ts != NULL);
     assert(sample != NULL);
@@ -3019,7 +3019,7 @@ static void ThreadSampler_Pop(ThreadSampler* ts, CPUSample* sample)
     if (ts->current_parent_sample == ts->root_sample)
     {
         // Disconnect all samples from the root
-        CPUSample* root = ts->root_sample;
+        Sample* root = ts->root_sample;
         root->first_child = NULL;
         root->last_child = NULL;
         root->nb_children = 0;
@@ -3030,9 +3030,9 @@ static void ThreadSampler_Pop(ThreadSampler* ts, CPUSample* sample)
 }
 
 
-static ObjectLink* ThreadSampler_ClearSamples(ThreadSampler* ts, CPUSample* sample, rmtU32* nb_samples)
+static ObjectLink* ThreadSampler_ClearSamples(ThreadSampler* ts, Sample* sample, rmtU32* nb_samples)
 {
-    CPUSample* child;
+    Sample* child;
     ObjectLink* cur_link = &sample->base;
 
     assert(ts != NULL);
@@ -3059,9 +3059,9 @@ static ObjectLink* ThreadSampler_ClearSamples(ThreadSampler* ts, CPUSample* samp
 }
 
 
-static void ThreadSampler_GetSampleDigest(CPUSample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
+static void ThreadSampler_GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
 {
-    CPUSample* child;
+    Sample* child;
 
     assert(sample != NULL);
     assert(digest_hash != NULL);
@@ -3121,7 +3121,7 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
             rmtU32 digest_hash, nb_samples, nb_cleared_samples = 0;
             ObjectLink* last_link;
 
-            CPUSample* sample = ThreadSampler_DequeueCompleteSample(ts);
+            Sample* sample = ThreadSampler_DequeueCompleteSample(ts);
             if (sample == NULL)
                 break;
 
@@ -3148,7 +3148,7 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
                     JSON_ERROR_CHECK(json_Comma(buffer));
                     JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
                     JSON_ERROR_CHECK(json_Comma(buffer));
-                    JSON_ERROR_CHECK(json_CPUSampleArray(buffer, sample, "samples"));
+                    JSON_ERROR_CHECK(json_SampleArray(buffer, sample, "samples"));
 
                 JSON_ERROR_CHECK(json_CloseObject(buffer));
 
@@ -3440,7 +3440,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 {
     rmtU32 name_hash = 0;
     ThreadSampler* ts;
-    CPUSample* sample;
+    Sample* sample;
 
     if (g_Remotery == NULL)
         return;
@@ -3463,7 +3463,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 void _rmt_EndCPUSample(void)
 {
     ThreadSampler* ts;
-    CPUSample* sample;
+    Sample* sample;
 
     if (g_Remotery == NULL)
         return;
