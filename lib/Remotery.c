@@ -849,10 +849,15 @@ typedef struct ObjectLink
 } ObjectLink;
 
 
+typedef enum rmtError (*ObjCreateFunc)(void**);
+typedef void (*ObjDestroyFunc)(void*);
+
+
 typedef struct
 {
-    // Size of objects to allocate
-    rmtU32 object_size;
+    // Object create/destroy function pointers
+    ObjCreateFunc create_func;
+    ObjDestroyFunc destroy_func;
 
     // Number of objects in the free list
     volatile rmtS32 nb_free;
@@ -867,7 +872,7 @@ typedef struct
 } ObjectAllocator;
 
 
-static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 object_size)
+static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, ObjCreateFunc create_func, ObjDestroyFunc destroy_func)
 {
     // Allocate space for the allocator
     assert(allocator != NULL);
@@ -876,7 +881,8 @@ static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 
         return RMT_ERROR_MALLOC_FAIL;
 
     // Construct it
-    (*allocator)->object_size = object_size;
+    (*allocator)->create_func = create_func;
+    (*allocator)->destroy_func = destroy_func;
     (*allocator)->nb_free = 0;
     (*allocator)->nb_inuse = 0;
     (*allocator)->nb_allocated = 0;
@@ -934,9 +940,10 @@ static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** ob
     // Push free objects onto the list whenever it runs out
     if (allocator->first_free == NULL)
     {
-        void* free_object = malloc(allocator->object_size);
-        if (free_object == NULL)
-            return RMT_ERROR_MALLOC_FAIL;
+        void* free_object;
+        enum rmtError error = allocator->create_func(&free_object);
+        if (error != RMT_ERROR_NONE)
+            return error;
 
         ObjectAllocator_Push(allocator, (ObjectLink*)free_object, (ObjectLink*)free_object);
         AtomicAdd(&allocator->nb_allocated, 1);
@@ -982,7 +989,7 @@ static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
     while (allocator->first_free != NULL)
     {
         ObjectLink* next = allocator->first_free->next;
-        free(allocator->first_free);
+        allocator->destroy_func(allocator->first_free);
         allocator->first_free = next;
     }
 
@@ -2691,6 +2698,25 @@ static void CPUSample_SetDefaults(CPUSample* sample, rmtPStr name, rmtU32 name_h
 }
 
 
+static enum rmtError CPUSample_Create(CPUSample** sample)
+{
+    assert(sample != NULL);
+    *sample = (CPUSample*)malloc(sizeof(CPUSample));
+    if (*sample == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    CPUSample_SetDefaults(*sample, NULL, 0, NULL);
+    return RMT_ERROR_NONE;
+}
+
+
+static void CPUSample_Destroy(CPUSample* sample)
+{
+    assert(sample != NULL);
+    free(sample);
+}
+
+
 static enum rmtError json_CPUSampleArray(Buffer* buffer, CPUSample* first_sample, rmtPStr name);
 
 
@@ -2807,7 +2833,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
 
     // Create the sample allocator
-    error = ObjectAllocator_Create(&(*thread_sampler)->sample_allocator, sizeof(CPUSample));
+    error = ObjectAllocator_Create(&(*thread_sampler)->sample_allocator, (ObjCreateFunc)CPUSample_Create, (ObjDestroyFunc)CPUSample_Destroy);
     if (error != RMT_ERROR_NONE)
     {
         ThreadSampler_Destroy(*thread_sampler);
