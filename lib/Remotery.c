@@ -850,15 +850,23 @@ typedef struct ObjectLink
 } ObjectLink;
 
 
-typedef enum rmtError (*ObjCreateFunc)(void**);
-typedef void (*ObjDestroyFunc)(void*);
+static void ObjectLink_Constructor(ObjectLink* link)
+{
+    assert(link != NULL);
+    link->next = NULL;
+}
+
+
+typedef enum rmtError (*ObjConstructor)(void*);
+typedef void (*ObjDestructor)(void*);
 
 
 typedef struct
 {
-    // Object create/destroy function pointers
-    ObjCreateFunc create_func;
-    ObjDestroyFunc destroy_func;
+    // Object create/destroy parameters
+    rmtU32 object_size;
+    ObjConstructor constructor;
+    ObjDestructor destructor;
 
     // Number of objects in the free list
     volatile rmtS32 nb_free;
@@ -873,7 +881,7 @@ typedef struct
 } ObjectAllocator;
 
 
-static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, ObjCreateFunc create_func, ObjDestroyFunc destroy_func)
+static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 object_size, ObjConstructor constructor, ObjDestructor destructor)
 {
     // Allocate space for the allocator
     assert(allocator != NULL);
@@ -882,8 +890,9 @@ static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, ObjCrea
         return RMT_ERROR_MALLOC_FAIL;
 
     // Construct it
-    (*allocator)->create_func = create_func;
-    (*allocator)->destroy_func = destroy_func;
+    (*allocator)->object_size = object_size;
+    (*allocator)->constructor = constructor;
+    (*allocator)->destructor = destructor;
     (*allocator)->nb_free = 0;
     (*allocator)->nb_inuse = 0;
     (*allocator)->nb_allocated = 0;
@@ -929,23 +938,36 @@ static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
         }
     }
 
+    link->next = NULL;
+
     return link;
 }
 
 
 static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
 {
+    // This function only calls the object constructor on initial malloc of an object
+
     assert(allocator != NULL);
     assert(object != NULL);
 
-    // Push free objects onto the list whenever it runs out
+    // Has the free list run out?
     if (allocator->first_free == NULL)
     {
-        void* free_object;
-        enum rmtError error = allocator->create_func(&free_object);
-        if (error != RMT_ERROR_NONE)
-            return error;
+        enum rmtError error;
 
+        // Allocate/construct a new object
+        void* free_object = malloc(allocator->object_size);
+        if (free_object == NULL)
+            return RMT_ERROR_MALLOC_FAIL;
+        error = allocator->constructor(free_object);
+        if (error != RMT_ERROR_NONE)
+        {
+            free(free_object);
+            return error;
+        }
+
+        // Add to the free list
         ObjectAllocator_Push(allocator, (ObjectLink*)free_object, (ObjectLink*)free_object);
         AtomicAdd(&allocator->nb_allocated, 1);
         AtomicAdd(&allocator->nb_free, 1);
@@ -990,7 +1012,8 @@ static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
     while (allocator->first_free != NULL)
     {
         ObjectLink* next = allocator->first_free->next;
-        allocator->destroy_func(allocator->first_free);
+        allocator->destructor(allocator->first_free);
+        free(allocator->first_free);
         allocator->first_free = next;
     }
 
@@ -2693,9 +2716,35 @@ typedef struct Sample
 } Sample;
 
 
-static void Sample_SetDefaults(Sample* sample, rmtPStr name, rmtU32 name_hash, Sample* parent)
+static enum rmtError Sample_Constructor(Sample* sample)
 {
+    assert(sample != NULL);
+
+    ObjectLink_Constructor((ObjectLink*)sample);
+
     sample->type = SampleType_CPU;
+    sample->name = NULL;
+    sample->name_hash = 0;
+    sample->unique_id = 0;
+    sample->parent = NULL;
+    sample->first_child = NULL;
+    sample->last_child = NULL;
+    sample->next_sibling = NULL;
+    sample->nb_children = 0;
+    sample->us_start = 0;
+    sample->us_end = 0;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void Sample_Destructor(Sample* sample)
+{
+}
+
+
+static void Sample_Prepare(Sample* sample, rmtPStr name, rmtU32 name_hash, Sample* parent)
+{
     sample->name = name;
     sample->name_hash = name_hash;
     sample->unique_id = 0;
@@ -2706,25 +2755,6 @@ static void Sample_SetDefaults(Sample* sample, rmtPStr name, rmtU32 name_hash, S
     sample->nb_children = 0;
     sample->us_start = 0;
     sample->us_end = 0;
-}
-
-
-static enum rmtError Sample_Create(Sample** sample)
-{
-    assert(sample != NULL);
-    *sample = (Sample*)malloc(sizeof(Sample));
-    if (*sample == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
-    Sample_SetDefaults(*sample, NULL, 0, NULL);
-    return RMT_ERROR_NONE;
-}
-
-
-static void Sample_Destroy(Sample* sample)
-{
-    assert(sample != NULL);
-    free(sample);
 }
 
 
@@ -2819,7 +2849,7 @@ static enum rmtError SampleTree_Create(SampleTree** tree)
     (*tree)->current_parent = NULL;
 
     // Create the sample allocator
-    error = ObjectAllocator_Create(&(*tree)->allocator, (ObjCreateFunc)Sample_Create, (ObjDestroyFunc)Sample_Destroy);
+    error = ObjectAllocator_Create(&(*tree)->allocator, sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
     if (error != RMT_ERROR_NONE)
     {
         SampleTree_Destroy(*tree);
@@ -2833,7 +2863,7 @@ static enum rmtError SampleTree_Create(SampleTree** tree)
         SampleTree_Destroy(*tree);
         return error;
     }
-    Sample_SetDefaults((*tree)->root, "<Root Sample>", 0, NULL);
+    Sample_Prepare((*tree)->root, "<Root Sample>", 0, NULL);
     (*tree)->current_parent = (*tree)->root;
 
     return RMT_ERROR_NONE;
@@ -2884,7 +2914,7 @@ static enum rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name
     error = ObjectAllocator_Alloc(tree->allocator, (void**)sample);
     if (error != RMT_ERROR_NONE)
         return error;
-    Sample_SetDefaults(*sample, name, name_hash, parent);
+    Sample_Prepare(*sample, name, name_hash, parent);
 
     // Generate a unique ID for this sample in the tree
     hash_src[0] = parent->name_hash;
@@ -3024,10 +3054,9 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
         ThreadSampler_Destroy(*thread_sampler);
         return RMT_ERROR_MALLOC_FAIL;
     }
-    Sample_SetDefaults(empty_sample, "<empty>", 0, NULL);
+    Sample_Constructor(empty_sample);
     (*thread_sampler)->complete_queue_head = empty_sample;
     (*thread_sampler)->complete_queue_tail = empty_sample;
-    empty_sample->ObjectLink.next = NULL;
 
 
     return RMT_ERROR_NONE;
