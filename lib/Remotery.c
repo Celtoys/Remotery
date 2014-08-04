@@ -3453,6 +3453,7 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
     assert(g_Remotery == remotery);
     Remotery_Destroy(remotery);
     g_Remotery = NULL;
+    g_RemoteryCreated = FALSE;
 }
 
 
