@@ -2665,7 +2665,7 @@ enum SampleType
 typedef struct Sample
 {
     // Inherit so that samples can be quickly allocated
-    ObjectLink base;
+    ObjectLink ObjectLink;
 
     enum SampleType type;
 
@@ -3027,7 +3027,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     Sample_SetDefaults(empty_sample, "<empty>", 0, NULL);
     (*thread_sampler)->complete_queue_head = empty_sample;
     (*thread_sampler)->complete_queue_tail = empty_sample;
-    empty_sample->base.next = NULL;
+    empty_sample->ObjectLink.next = NULL;
 
 
     return RMT_ERROR_NONE;
@@ -3078,14 +3078,14 @@ static void ThreadSampler_QueueCompleteSample(ThreadSampler* ts, Sample* root_sa
     assert(root_sample != NULL);
 
     // Producer owns the sample for now and sets it up for being last in the list
-    root_sample->base.next = NULL;
+    root_sample->ObjectLink.next = NULL;
 
     // Producer always owns the tail pointer so can safely read it
     tail = ts->complete_queue_tail;
 
     // After adding to the queue here, the sample becomes available to the consumer so use release semantics
     // to ensure the sample is defined before the store occurs.
-    StoreRelease((void * volatile *)&tail->base.next, root_sample);
+    StoreRelease((void * volatile *)&tail->ObjectLink.next, root_sample);
 
     // Safe to update the tail now as it is producer-owned
     ts->complete_queue_tail = root_sample;
@@ -3104,7 +3104,7 @@ static Sample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
 
     // The head always points to the empty sample so look ahead one to see if anything is in the list
     // This value is shared with the producer
-    next = (Sample*)LoadAcquire((void *const volatile *)&head->base.next);
+    next = (Sample*)LoadAcquire((void *const volatile *)&head->ObjectLink.next);
     if (next == NULL)
         return NULL;
 
@@ -3183,13 +3183,13 @@ static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samp
 static ObjectLink* FlattenSampleTree(Sample* sample, rmtU32* nb_samples)
 {
     Sample* child;
-    ObjectLink* cur_link = &sample->base;
+    ObjectLink* cur_link = &sample->ObjectLink;
 
     assert(sample != NULL);
     assert(nb_samples != NULL);
 
     *nb_samples += 1;
-    sample->base.next = (ObjectLink*)sample->first_child;
+    sample->ObjectLink.next = (ObjectLink*)sample->first_child;
 
     // Link all children together
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
@@ -3215,7 +3215,7 @@ static void FreeSampleTree(Sample* sample, ObjectAllocator* allocator)
     ObjectLink* last_link = FlattenSampleTree(sample, &nb_cleared_samples);
 
     // Release the complete sample memory range
-    if (sample->base.next != NULL)
+    if (sample->ObjectLink.next != NULL)
         ObjectAllocator_FreeRange(allocator, sample, last_link, nb_cleared_samples);
     else
         ObjectAllocator_Free(allocator, sample);
