@@ -2655,10 +2655,19 @@ static enum rmtError json_CloseArray(Buffer* buffer)
 
 
 
+enum SampleType
+{
+    SampleType_CPU,
+    SampleType_Count,
+};
+
+
 typedef struct Sample
 {
     // Inherit so that samples can be quickly allocated
     ObjectLink base;
+
+    enum SampleType type;
 
     // Sample name and unique hash
     rmtPStr name;
@@ -2686,6 +2695,7 @@ typedef struct Sample
 
 static void Sample_SetDefaults(Sample* sample, rmtPStr name, rmtU32 name_hash, Sample* parent)
 {
+    sample->type = SampleType_CPU;
     sample->name = name;
     sample->name_hash = name_hash;
     sample->unique_id = 0;
@@ -2940,7 +2950,8 @@ typedef struct ThreadSampler
     // Name to assign to the thread in the viewer
     rmtS8 name[64];
 
-    SampleTree* sample_tree;
+    // Store a unique sample tree for each type
+    SampleTree* sample_trees[SampleType_Count];
 
     // Microsecond accuracy timer for CPU timestamps
     usTimer timer;
@@ -2966,6 +2977,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 {
     enum rmtError error;
     Sample* empty_sample;
+    int i;
 
     // Allocate space for the thread sampler
     *thread_sampler = (ThreadSampler*)malloc(sizeof(ThreadSampler));
@@ -2973,7 +2985,8 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
         return RMT_ERROR_MALLOC_FAIL;
 
     // Set defaults
-    (*thread_sampler)->sample_tree = NULL; 
+    for (i = 0; i < SampleType_Count; i++)
+        (*thread_sampler)->sample_trees[i] = NULL; 
     (*thread_sampler)->json_buf = NULL;
     (*thread_sampler)->next = NULL;
     (*thread_sampler)->complete_queue_head = NULL;
@@ -2982,12 +2995,15 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     // Set the initial name based on the unique thread sampler address
     Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
 
-    // Create the sample tree
-    error = SampleTree_Create(&(*thread_sampler)->sample_tree);
-    if (error != RMT_ERROR_NONE)
+    // Create the sample trees
+    for (i = 0; i < SampleType_Count; i++)
     {
-        ThreadSampler_Destroy(*thread_sampler);
-        return error;
+        error = SampleTree_Create(&(*thread_sampler)->sample_trees[i]);
+        if (error != RMT_ERROR_NONE)
+        {
+            ThreadSampler_Destroy(*thread_sampler);
+            return error;
+        }
     }
 
     // Kick-off the timer
@@ -3002,14 +3018,17 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     }
 
     // Setup the complete queue to point at an empty sample
-    error = ObjectAllocator_Alloc((*thread_sampler)->sample_tree->allocator, (void**)&empty_sample);
-    if (error != RMT_ERROR_NONE)
+    empty_sample = (Sample*)malloc(sizeof(Sample));
+    if (empty_sample == NULL)
     {
         ThreadSampler_Destroy(*thread_sampler);
-        return error;
+        return RMT_ERROR_MALLOC_FAIL;
     }
+    Sample_SetDefaults(empty_sample, "<empty>", 0, NULL);
     (*thread_sampler)->complete_queue_head = empty_sample;
     (*thread_sampler)->complete_queue_tail = empty_sample;
+    empty_sample->base.next = NULL;
+
 
     return RMT_ERROR_NONE;
 }
@@ -3017,16 +3036,20 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 
 static void ThreadSampler_Destroy(ThreadSampler* ts)
 {
+    int i;
+
     assert(ts != NULL);
 
-    // Release all allocated samples
-    // Ideally the user has already done this before requesting Remotery shut down
-    while (ts->complete_queue_head != NULL)
-    {
-        Sample* next = (Sample*)ts->complete_queue_head->base.next;
-        ObjectAllocator_Free(ts->sample_tree->allocator, ts->complete_queue_head);
-        ts->complete_queue_head = next;
-    }
+    // Assuming the user has correctly shutdown remotery, all samples should have been
+    // release back to their allocators by this point. Ensure that's the case.
+    if (ts->complete_queue_head != NULL)
+        assert(ts->complete_queue_head == ts->complete_queue_tail);
+
+    // Release the empty sample
+    if (ts->complete_queue_head != NULL)
+        free(ts->complete_queue_head);
+    ts->complete_queue_head = NULL;
+    ts->complete_queue_tail = NULL;
 
     if (ts->json_buf != NULL)
     {
@@ -3034,10 +3057,13 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
         ts->json_buf = NULL;
     }
 
-    if (ts->sample_tree != NULL)
+    for (i = 0; i < SampleType_Count; i++)
     {
-        SampleTree_Destroy(ts->sample_tree);
-        ts->sample_tree = NULL;
+        if (ts->sample_trees[i] != NULL)
+        {
+            SampleTree_Destroy(ts->sample_trees[i]);
+            ts->sample_trees[i] = NULL;
+        }
     }
 
     free(ts);
@@ -3108,53 +3134,6 @@ static void ThreadSampler_Pop(ThreadSampler* ts, SampleTree* tree, Sample* sampl
 }
 
 
-static ObjectLink* ThreadSampler_ClearSamples(ThreadSampler* ts, Sample* sample, rmtU32* nb_samples)
-{
-    Sample* child;
-    ObjectLink* cur_link = &sample->base;
-
-    assert(ts != NULL);
-    assert(sample != NULL);
-    assert(nb_samples != NULL);
-
-    *nb_samples += 1;
-    sample->base.next = (ObjectLink*)sample->first_child;
-
-    // Link all children together
-    for (child = sample->first_child; child != NULL; child = child->next_sibling)
-    {
-        ObjectLink* last_link = ThreadSampler_ClearSamples(ts, child, nb_samples);
-        last_link->next = (ObjectLink*)child->next_sibling;
-        cur_link = last_link;
-    }
-
-    // Clear child info
-    sample->first_child = NULL;
-    sample->last_child = NULL;
-    sample->nb_children = 0;
-
-    return cur_link;
-}
-
-
-static void ThreadSampler_GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
-{
-    Sample* child;
-
-    assert(sample != NULL);
-    assert(digest_hash != NULL);
-    assert(nb_samples != NULL);
-
-    // Concatenate this sample
-    (*nb_samples)++;
-    *digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
-
-    // Concatenate children
-    for (child = sample->first_child; child != NULL; child = child->next_sibling)
-        ThreadSampler_GetSampleDigest(child, digest_hash, nb_samples);
-}
-
-
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -3163,6 +3142,7 @@ static void ThreadSampler_GetSampleDigest(Sample* sample, rmtU32* digest_hash, r
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
+
 
 
 struct Remotery
@@ -3182,6 +3162,66 @@ static void Remotery_Destroy(Remotery* rmt);
 static void Remotery_DestroyThreadSamplers(Remotery* rmt);
 
 
+static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
+{
+    Sample* child;
+
+    assert(sample != NULL);
+    assert(digest_hash != NULL);
+    assert(nb_samples != NULL);
+
+    // Concatenate this sample
+    (*nb_samples)++;
+    *digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
+
+    // Concatenate children
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+        GetSampleDigest(child, digest_hash, nb_samples);
+}
+
+
+static ObjectLink* FlattenSampleTree(Sample* sample, rmtU32* nb_samples)
+{
+    Sample* child;
+    ObjectLink* cur_link = &sample->base;
+
+    assert(sample != NULL);
+    assert(nb_samples != NULL);
+
+    *nb_samples += 1;
+    sample->base.next = (ObjectLink*)sample->first_child;
+
+    // Link all children together
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+    {
+        ObjectLink* last_link = FlattenSampleTree(child, nb_samples);
+        last_link->next = (ObjectLink*)child->next_sibling;
+        cur_link = last_link;
+    }
+
+    // Clear child info
+    sample->first_child = NULL;
+    sample->last_child = NULL;
+    sample->nb_children = 0;
+
+    return cur_link;
+}
+
+
+static void FreeSampleTree(Sample* sample, ObjectAllocator* allocator)
+{
+    // Chain all samples together in a flat list
+    rmtU32 nb_cleared_samples = 0;
+    ObjectLink* last_link = FlattenSampleTree(sample, &nb_cleared_samples);
+
+    // Release the complete sample memory range
+    if (sample->base.next != NULL)
+        ObjectAllocator_FreeRange(allocator, sample, last_link, nb_cleared_samples);
+    else
+        ObjectAllocator_Free(allocator, sample);
+}
+
+
 static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
 {
     enum rmtError error;
@@ -3195,10 +3235,6 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
         // Pull all samples from the thread sampler's complete queue
         while (1)
         {
-            Buffer* buffer;
-            rmtU32 digest_hash, nb_samples, nb_cleared_samples = 0;
-            ObjectLink* last_link;
-
             Sample* sample = ThreadSampler_DequeueCompleteSample(ts);
             if (sample == NULL)
                 break;
@@ -3206,14 +3242,14 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
             // Having a client not connected is typical and not an error
             if (Server_IsClientConnected(rmt->server))
             {
+                rmtU32 digest_hash = 0, nb_samples = 0;
+
                 // Reset the buffer position to the start
-                buffer = ts->json_buf;
+                Buffer* buffer = ts->json_buf;
                 buffer->bytes_used = 0;
 
                 // Get digest hash of samples so that viewer can efficiently rebuild its tables
-                digest_hash = 0;
-                nb_samples = 0;
-                ThreadSampler_GetSampleDigest(ts->sample_tree->root, &digest_hash, &nb_samples);
+                GetSampleDigest(sample, &digest_hash, &nb_samples);
 
                 // Build the sample data
                 JSON_ERROR_CHECK(json_OpenObject(buffer));
@@ -3236,18 +3272,32 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
                     return error;
             }
 
-            // Clear all samples and chain them together
-            last_link = ThreadSampler_ClearSamples(ts, sample, &nb_cleared_samples);
-
-            // Release the complete sample memory range
-            if (sample->base.next != NULL)
-                ObjectAllocator_FreeRange(ts->sample_tree->allocator, sample, last_link, nb_cleared_samples);
-            else
-                ObjectAllocator_Free(ts->sample_tree->allocator, sample);
+            // Release the sample tree back to its allocator
+            FreeSampleTree(sample, ts->sample_trees[sample->type]->allocator);
         }
     }
 
     return RMT_ERROR_NONE;
+}
+
+
+static void Remotery_FlushSampleQueue(Remotery* rmt)
+{
+    ThreadSampler* ts;
+
+    assert(rmt != 0);
+
+    // Deque all sample trees from all sample threads and release them back to their allocators
+    for (ts = rmt->first_thread_sampler; ts != NULL; ts = ts->next)
+    {
+        while (1)
+        {
+            Sample* sample = ThreadSampler_DequeueCompleteSample(ts);
+            if (sample == NULL)
+                break;
+            FreeSampleTree(sample, ts->sample_trees[sample->type]->allocator);
+        }
+    }
 }
 
 
@@ -3260,8 +3310,23 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
     {
         Server_Update(rmt->server);
         Remotery_SendCompleteSamples(rmt);
+
+        //
+        // [NOTE-A]
+        //
+        // Possible sequence of user events at this point:
+        //
+        //    1. Add samples to the queue.
+        //    2. Shutdown remotery.
+        //
+        // This loop will exit with unrelease samples.
+        //
+
         msSleep(10);
     }
+
+    // Release all samples to their allocators as a consequence of [NOTE-A]
+    Remotery_FlushSampleQueue(rmt);
 
     return RMT_ERROR_NONE;
 }
@@ -3528,7 +3593,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
     {
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
-        if (ThreadSampler_Push(ts, ts->sample_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(ts, ts->sample_trees[SampleType_CPU], name, name_hash, &sample) == RMT_ERROR_NONE)
             sample->us_start = usTimer_Get(&ts->timer);
     }
 }
@@ -3543,9 +3608,9 @@ void _rmt_EndCPUSample(void)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
-        Sample* sample = ts->sample_tree->current_parent;
+        Sample* sample = ts->sample_trees[SampleType_CPU]->current_parent;
         sample->us_end = usTimer_Get(&ts->timer);
-        ThreadSampler_Pop(ts, ts->sample_tree, sample);
+        ThreadSampler_Pop(ts, ts->sample_trees[SampleType_CPU], sample);
     }
 }
 
