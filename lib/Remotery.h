@@ -1,4 +1,126 @@
 
+
+/*
+Copyright 2014 Celtoys Ltd
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+
+/*
+
+Remotery
+--------
+
+A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in a web browser.
+
+Supported features:
+
+    * Lightweight instrumentation of multiple threads running on the CPU.
+    * Console output for logging text.
+    * Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
+      transmits sample data to the browser on a latent thread.
+    * Can optionally sample CUDA GPU activity.
+
+
+Compiling
+---------
+
+    * Windows (MSVC) - add lib/Remotery.c and lib/Remotery.h to your program. Set include
+      directories to add Remotery/lib path. The required library ws2_32.lib should be picked
+      up through the use of the #pragma comment(lib, "ws2_32.lib") directive in Remotery.c.
+
+    * Mac OS X (XCode) - simply add lib/Remotery.c and lib/Remotery.h to your program.
+
+    * Linux (GCC) - add the source in lib folder. Compilation of the code requires -pthreads for
+      library linkage. For example to compile the same run: cc lib/Remotery.c sample/sample.c
+      -I lib -pthread -lm
+
+You can define some extra macros to modify what features are compiled into Remotery:
+
+    Macro               Default             Description
+
+    RMT_ENABLED         <defined>           Disable this to not include any bits of Remotery in your build
+    RMT_USE_TINYCRT     <not defined>       Used by the Celtoys TinyCRT library (not released yet)
+    RMT_USE_CUDA        <not defined>       Assuming CUDA headers/libs are setup, allow CUDA profiling
+
+
+Basic Use
+---------
+
+See the sample directory for further examples. A quick example:
+
+    int main()
+    {
+        // Create the main instance of Remotery.
+        // You need only do this once per program.
+        Remotery* rmt;
+        rmt_CreateGlobalInstance(&rmt);
+
+        // Add a CPU sample that times how long it takes to log text.
+        rmt_BeginCPUSample(LogText);
+        rmt_LogText("Hello, world!");
+        rmt_EndCPUSample();
+
+        // Destroy the main instance of Remotery.
+        rmt_DestroyGlobalInstance(rmt);
+    }
+
+
+Running the Viewer
+------------------
+
+Double-click or launch vis/index.html from the browser.
+
+
+Sampling CUDA activity
+----------------------
+
+Remotery allows for profiling multiple threads of CUDA execution using different asynchronous streams
+that must all share the same context. After initialising both Remotery and CUDA you need to bind the
+two together using the call:
+
+    rmtCUDABind bind;
+    bind.context = m_Context;
+    bind.CtxSetCurrent = &cuCtxSetCurrent;
+    bind.EventCreate = &cuEventCreate;
+    bind.EventDestroy = &cuEventDestroy;
+    bind.EventRecord = &cuEventRecord;
+    bind.EventQuery = &cuEventQuery;
+    bind.EventElapsedTime = &cuEventElapsedTime;
+    rmt_BindCUDA(&bind);
+
+Explicitly pointing to the CUDA interface allows Remotery to be included anywhere in your project without
+need for you to link with the required CUDA libraries. After the bind completes you can safely sample any
+CUDA activity:
+
+    CUstream stream;
+
+    // Explicit begin/end for C
+    {
+        rmt_BeginCUDASample(UnscopedSample, stream);
+        // ... CUDA code ...
+        rmt_EndCUDASample(stream);
+    }
+
+    // Scoped begin/end for C++
+    {
+        rmt_ScopedCUDASample(ScopedSample, stream);
+        // ... CUDA code ...
+    }
+
+*/
+
 #ifndef RMT_INCLUDED_H
 #define RMT_INCLUDED_H
 
