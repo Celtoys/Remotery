@@ -14,8 +14,8 @@ body
 .Window
 {
 	background: #555;
-	/*box-shadow: none;
-	border-radius: 3px;*/
+	box-shadow: none;
+	border-radius: 3px;
 }
 /*.WindowTitleBar
 {
