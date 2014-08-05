@@ -153,8 +153,8 @@ WM.Window = (function()
 
 	Window.prototype.OpenAnimation = function(val)
 	{
-		// Map 0->1 to an elastic ease out
-		var t = 1 - Math.cos(val * Math.PI * 4) * Math.pow(1 - val, 4);
+		// Power ease in
+		var t = 1 - Math.pow(1 - val, 8);
 		this.Scale(t);
 		DOM.Node.SetOpacity(this.Node, 1 - Math.pow(1 - val, 8));
 		this.AnimatedShow = true;
