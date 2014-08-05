@@ -88,6 +88,35 @@ body
 	height: 16px;
 	width: 100%;
 }
+.TimelineRowCheckbox
+{
+	width: 12px;
+	height: 12px;
+	margin: 0px;
+}
+.TimelineRowCheck
+{
+	/* Pull .TimelineRowCanvas to the right of the label */
+	float:left;
+
+	width: 12px;
+
+	/* Following style generally copies GridRowCell.GridGroup from BrowserLib */
+
+	font: 9px Verdana;
+	color: #BBB;
+
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+	margin: 1px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+	background: #222;
+}
 .TimelineRowLabel
 {
 	/* Pull .TimelineRowCanvas to the right of the label */

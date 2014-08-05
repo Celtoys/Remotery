@@ -2,13 +2,17 @@
 
 TimelineRow = (function()
 {
-	var row_template = "								\
-		<div class='TimelineRow'>						\
-			<div class='TimelineRowLabel'></div>		\
-			<canvas class='TimelineRowCanvas'></canvas>		\
-		</div>";
+	var row_template = function(){/*
+		<div class='TimelineRow'>
+			<div class='TimelineRowCheck'>
+				<input class='TimelineRowCheckbox' type='checkbox' />
+			</div>
+			<div class='TimelineRowLabel'></div>
+			<canvas class='TimelineRowCanvas'></canvas>
+		</div>
+*/}.toString().split(/\n/).slice(1, -1).join("\n");
 
-	function TimelineRow(name, width, parent_node, frame_history)
+	function TimelineRow(name, width, parent_node, frame_history, check_handler)
 	{
 		this.Name = name;
 
@@ -17,8 +21,13 @@ TimelineRow = (function()
 		this.Node = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowData");
 		this.LabelNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowLabel");
 		this.LabelNode.innerHTML = name;
+		this.CheckboxNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowCheckbox");
 		this.CanvasNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowCanvas");
 		parent_node.appendChild(this.ContainerNode);
+
+		// All sample view windows visible by default
+		this.CheckboxNode.checked = true;
+		DOM.Event.AddHandler(this.CheckboxNode, "change", function(evt) { check_handler(name, evt); });
 
 		// Setup the canvas
 		this.Ctx = this.CanvasNode.getContext("2d");

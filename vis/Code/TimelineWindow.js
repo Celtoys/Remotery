@@ -8,10 +8,12 @@ TimelineWindow = (function()
 {
 	var BORDER = 10;
 
+	var ROW_START_SIZE = 168;
+
 	var box_template = "<div class='TimelineBox'></div>";
 
 
-	function TimelineWindow(wm, server)
+	function TimelineWindow(wm, server, check_handler)
 	{
 		// Ordered list of thread rows on the timeline
 		this.ThreadRows = [ ];
@@ -36,6 +38,8 @@ TimelineWindow = (function()
 
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
 		this.TimeRange = new PixelTimeRange(0, 1 * 1000 * 1000, RowWidth(this));
+
+		this.CheckHandler = check_handler;
 	}
 
 
@@ -56,12 +60,12 @@ TimelineWindow = (function()
 		// Resize window
 		var top = top_window.Position[1] + top_window.Size[1] + 10;
 		this.Window.SetPosition(10, top);
-		this.Window.SetSize(width - 2 * 10, 120);
+		this.Window.SetSize(width - 2 * 10, 200);
 
 		// Resize controls
 		var parent_size = this.Window.Size;
 		this.TimelineContainer.SetPosition(BORDER, 10);
-		this.TimelineContainer.SetSize(parent_size[0] - 2 * BORDER, 80);
+		this.TimelineContainer.SetSize(parent_size[0] - 2 * BORDER, 160);
 
 		// Resize rows
 		var row_width = RowWidth(this);
@@ -105,7 +109,7 @@ TimelineWindow = (function()
 		// If this thread has not been seen before, add a new row to the list and re-sort
 		if (thread_index == -1)
 		{
-			var row = new TimelineRow(thread_name, RowWidth(this), this.TimelineContainer.Node, frame_history);
+			var row = new TimelineRow(thread_name, RowWidth(this), this.TimelineContainer.Node, frame_history, this.CheckHandler);
 			this.ThreadRows.push(row);
 			this.ThreadRows.sort(function(a, b) { return b.Name.localeCompare(a.Name); });
 		}
@@ -128,7 +132,7 @@ TimelineWindow = (function()
 	{
 		// Add sizing of the label
 		// TODO: Use computed size
-		return DOM.Node.GetPosition(self.TimelineContainer.Node)[0] + 147;
+		return DOM.Node.GetPosition(self.TimelineContainer.Node)[0] + ROW_START_SIZE;
 	}
 
 
@@ -136,7 +140,7 @@ TimelineWindow = (function()
 	{
 		// Subtract sizing of the label
 		// TODO: Use computed size
-		return self.TimelineContainer.Size[0] - 147;
+		return self.TimelineContainer.Size[0] - ROW_START_SIZE;
 	}
 
 

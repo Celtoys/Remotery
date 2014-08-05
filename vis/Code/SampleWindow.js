@@ -9,16 +9,46 @@ SampleWindow = (function()
 
 		this.XPos = 10 + offset * 410;
 		this.Window = wm.AddWindow(name, 100, 100, 100, 100);
-		this.Window.ShowNoAnim();
+		this.Window.Show();
+		this.Visible = true;
 
 		// Create a grid that's indexed by the unique sample ID
-		this.Grid = this.Window.AddControlNew(new WM.Grid(0, 0, 380, 480));
+		this.Grid = this.Window.AddControlNew(new WM.Grid(0, 0, 380, 400));
 		this.RootRow = this.Grid.Rows.Add({ "Name": "Samples" }, "GridGroup", { "Name": "GridGroup" });
 		this.RootRow.Rows.AddIndex("_ID");
 	}
 
 
-	SampleWindow.prototype.WindowResized = function(width, height, top_window, bottom_window)
+	SampleWindow.prototype.SetXPos = function(xpos, top_window, bottom_window)
+	{
+		Anim.Animate(
+			Bind(AnimatedMove, this, top_window, bottom_window),
+			this.XPos, 10 + xpos * 410, 0.25);
+	}
+
+
+	function AnimatedMove(self, top_window, bottom_window, val)
+	{
+		self.XPos = val;
+		self.WindowResized(top_window, bottom_window);
+	}
+
+
+	SampleWindow.prototype.SetVisible = function(visible)
+	{
+		if (visible != this.Visible)
+		{
+			if (visible == true)
+				this.Window.Show();
+			else
+				this.Window.Hide();
+
+			this.Visible = visible;
+		}
+	}
+
+
+	SampleWindow.prototype.WindowResized = function(top_window, bottom_window)
 	{
 		var top = top_window.Position[1] + top_window.Size[1] + 10;
 		this.Window.SetPosition(this.XPos, top_window.Position[1] + top_window.Size[1] + 10);

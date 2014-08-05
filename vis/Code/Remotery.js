@@ -22,7 +22,7 @@ Remotery = (function()
 		// Create required windows
 		this.TitleWindow = new TitleWindow(this.WindowManager, this.Server, this.ConnectionAddress);
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
-		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Server);
+		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Server, Bind(OnTimelineCheck, this));
 		this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
 		this.TimelineWindow.SetOnSelected(Bind(OnSampleSelected, this));
 
@@ -110,13 +110,36 @@ Remotery = (function()
 		if (!(name in self.SampleWindows))
 		{
 			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
-			self.SampleWindows[name].WindowResized(window.innerWidth, window.innerHeight, self.TimelineWindow.Window, self.Console.Window);
+			self.SampleWindows[name].WindowResized(self.TimelineWindow.Window, self.Console.Window);
 			self.NbSampleWindows++;
+			MoveSampleWindows(this);
 		}
 
 		// Set on the window and timeline
 		self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
 		self.TimelineWindow.OnSamples(name, self.FrameHistory[name]);
+	}
+
+
+	function OnTimelineCheck(self, name, evt)
+	{
+		// Show/hide the equivalent sample window and move all the others to occupy any left-over space
+		var target = DOM.Event.GetNode(evt);
+		self.SampleWindows[name].SetVisible(target.checked);
+		MoveSampleWindows(self);
+	}
+
+
+	function MoveSampleWindows(self)
+	{
+		// Stack all windows next to each other
+		var xpos = 0;
+		for (var i in self.SampleWindows)
+		{
+			var sample_window = self.SampleWindows[i];
+			if (sample_window.Visible)
+				sample_window.SetXPos(xpos++, self.TimelineWindow.Window, self.Console.Window);
+		}
 	}
 
 
@@ -168,7 +191,7 @@ Remotery = (function()
 		self.TitleWindow.WindowResized(w, h);
 		self.TimelineWindow.WindowResized(w, h, self.TitleWindow.Window);
 		for (var i in self.SampleWindows)
-			self.SampleWindows[i].WindowResized(w, h, self.TimelineWindow.Window, self.Console.Window);
+			self.SampleWindows[i].WindowResized(self.TimelineWindow.Window, self.Console.Window);
 	}
 
 
