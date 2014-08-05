@@ -3473,11 +3473,21 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
     assert(rmt != NULL);
 
     SetDebuggerThreadName("Remotery");
+    rmt_SetCurrentThreadName("Remotery");
 
     while (thread->request_exit == RMT_FALSE)
     {
-        Server_Update(rmt->server);
-        Remotery_SendCompleteSamples(rmt);
+        rmt_BeginCPUSample(Wakeup);
+
+            rmt_BeginCPUSample(ServerUpdate);
+            Server_Update(rmt->server);
+            rmt_EndCPUSample();
+
+            rmt_BeginCPUSample(SendSamplesToViewer);
+            Remotery_SendCompleteSamples(rmt);
+            rmt_EndCPUSample();
+
+        rmt_EndCPUSample();
 
         //
         // [NOTE-A]
@@ -3953,22 +3963,28 @@ static rmtBool AreCUDASamplesReady(Sample* sample)
     CUDASample* cuda_sample = (CUDASample*)sample;
     assert(sample->type == SampleType_CUDA);
 
+    rmt_BeginCPUSample(AreCUDASamplesReady);
+
     // Check to see if both of the CUDA events have been processed
     error = CUDAEventQuery(cuda_sample->event_start);
     if (error != RMT_ERROR_NONE)
-        return RMT_FALSE;
+        goto error_exit;
     error = CUDAEventQuery(cuda_sample->event_end);
     if (error != RMT_ERROR_NONE)
-        return RMT_FALSE;
+        goto error_exit;
 
     // Check child sample events
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
         if (!AreCUDASamplesReady(child))
-            return RMT_FALSE;
+            goto error_exit;
     }
 
     return RMT_TRUE;
+
+error_exit:
+    rmt_EndCPUSample();
+    return RMT_FALSE;
 }
 
 
@@ -3986,9 +4002,9 @@ static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample)
 
     // Get millisecond timing of each sample event, relative to initial root sample
     if (CUDAEventElapsedTime(&ms_start, cuda_root_sample->event_start, cuda_sample->event_start) != RMT_ERROR_NONE)
-        return RMT_FALSE;
+        goto error_exit;
     if (CUDAEventElapsedTime(&ms_end, cuda_root_sample->event_start, cuda_sample->event_end) != RMT_ERROR_NONE)
-        return RMT_FALSE;
+        goto error_exit;
 
     // Convert to microseconds and add to the sample
     sample->us_start = (rmtU64)(ms_start * 1000);
@@ -3998,10 +4014,14 @@ static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample)
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
         if (!GetCUDASampleTimes(root_sample, child))
-            return RMT_FALSE;
+            goto error_exit;
     }
 
     return RMT_TRUE;
+
+error_exit:
+    rmt_EndCPUSample();
+    return RMT_FALSE;
 }
 
 
