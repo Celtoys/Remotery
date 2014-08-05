@@ -33,7 +33,8 @@
     @NETWORK:       Network Server
     @JSON:          Basic, text-based JSON serialisation
     @SAMPLE:        Base Sample Description (CPU by default)
-    @SAMPLETREE: A tree of samples with their allocator
+    @SAMPLETREE:    A tree of samples with their allocator
+    @SAMPLEQUEUE:   A lock-free SpSc sample queue
     @TSAMPLER:      Per-Thread Sampler
     @REMOTERY:      Remotery
     @CUDA:          CUDA event sampling
@@ -2978,6 +2979,119 @@ static Sample* SampleTree_Pop(SampleTree* tree, Sample* sample)
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+   @SAMPLEQUEUE: A lock-free SpSc sample queue
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct SampleQueue
+{
+    // Head/tail separated by cache line to avoid false sharing
+    Sample* head;
+    rmtU8 __cache_line_pad_0__[64];
+    Sample* tail;
+    rmtU8 __cache_line_pad_1__[64];
+} SampleQueue;
+
+
+static void SampleQueue_SetDefaults(SampleQueue* queue)
+{
+    assert(queue != NULL);
+    queue->head = NULL;
+    queue->tail = NULL;
+}
+
+
+static enum rmtError SampleQueue_Constructor(SampleQueue* queue)
+{
+    Sample* empty_sample;
+
+    assert(queue != NULL);
+
+    // Setup the queue to point at an empty sample
+    // The type of sample does not matter as it's never dequeued
+    empty_sample = (Sample*)malloc(sizeof(Sample));
+    if (empty_sample == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+    Sample_Constructor(empty_sample);
+    queue->head = empty_sample;
+    queue->tail = empty_sample;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void SampleQueue_Destructor(SampleQueue* queue)
+{
+    assert(queue != NULL);
+
+    // Assuming the user has correctly shutdown remotery, all samples should have been
+    // released back to their allocators by this point. Ensure that's the case.
+    if (queue->head != NULL)
+        assert(queue->head == queue->tail);
+
+    // Release the empty sample
+    if (queue->head != NULL)
+        free(queue->head);
+    queue->head = NULL;
+    queue->tail = NULL;
+}
+
+
+static void SampleQueue_Enqueue(SampleQueue* queue, Sample* sample)
+{
+    Sample* tail;
+
+    assert(queue != NULL);
+    assert(sample != NULL);
+
+    // Producer owns the sample for now and sets it up for being last in the list
+    sample->ObjectLink.next = NULL;
+
+    // Producer always owns the tail pointer so can safely read it
+    tail = queue->tail;
+
+    // After adding to the queue here, the sample becomes available to the consumer so use release semantics
+    // to ensure the sample is defined before the store occurs.
+    StoreRelease((void * volatile *)&tail->ObjectLink.next, sample);
+
+    // Safe to update the tail now as it is producer-owned
+    queue->tail = sample;
+}
+
+
+static Sample* SampleQueue_Dequeue(SampleQueue* queue)
+{
+    Sample* head;
+    Sample* next;
+
+    assert(queue != NULL);
+
+    // Consumer always owns the head pointer so can safely read it
+    head = queue->head;
+
+    // The head always points to the empty sample so look ahead one to see if anything is in the list
+    // This value is shared with the producer
+    next = (Sample*)LoadAcquire((void *const volatile *)&head->ObjectLink.next);
+    if (next == NULL)
+        return NULL;
+
+    // Move the sample data to the empty sample at the front
+    memcpy(head, next, next->size_bytes);
+
+    // As the consumer owns the head pointer, we're free to update it
+    queue->head = next;
+
+    return head;
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    @TSAMPLER: Per-Thread Sampler
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -3003,10 +3117,8 @@ typedef struct ThreadSampler
     struct ThreadSampler* volatile next;
 
     // Queue of complete root samples to be sent to the client
-    Sample* complete_queue_head;
-    rmtU8 __cache_line_pad_0__[64];
-    Sample* complete_queue_tail;
-    rmtU8 __cache_line_pad_1__[64];
+    SampleQueue complete_queue;
+
 } ThreadSampler;
 
 
@@ -3016,7 +3128,6 @@ static void ThreadSampler_Destroy(ThreadSampler* ts);
 static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
 {
     enum rmtError error;
-    Sample* empty_sample;
     int i;
 
     // Allocate space for the thread sampler
@@ -3029,8 +3140,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
         (*thread_sampler)->sample_trees[i] = NULL; 
     (*thread_sampler)->json_buf = NULL;
     (*thread_sampler)->next = NULL;
-    (*thread_sampler)->complete_queue_head = NULL;
-    (*thread_sampler)->complete_queue_tail = NULL;
+    SampleQueue_SetDefaults(&(*thread_sampler)->complete_queue);
 
     // Set the initial name based on the unique thread sampler address
     Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
@@ -3055,17 +3165,9 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
         return error;
     }
 
-    // Setup the complete queue to point at an empty sample
-    empty_sample = (Sample*)malloc(sizeof(Sample));
-    if (empty_sample == NULL)
-    {
-        ThreadSampler_Destroy(*thread_sampler);
-        return RMT_ERROR_MALLOC_FAIL;
-    }
-    Sample_Constructor(empty_sample);
-    (*thread_sampler)->complete_queue_head = empty_sample;
-    (*thread_sampler)->complete_queue_tail = empty_sample;
-
+    error = SampleQueue_Constructor(&(*thread_sampler)->complete_queue);
+    if (error != RMT_ERROR_NONE)
+        return error;
 
     return RMT_ERROR_NONE;
 }
@@ -3077,16 +3179,7 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 
     assert(ts != NULL);
 
-    // Assuming the user has correctly shutdown remotery, all samples should have been
-    // release back to their allocators by this point. Ensure that's the case.
-    if (ts->complete_queue_head != NULL)
-        assert(ts->complete_queue_head == ts->complete_queue_tail);
-
-    // Release the empty sample
-    if (ts->complete_queue_head != NULL)
-        free(ts->complete_queue_head);
-    ts->complete_queue_head = NULL;
-    ts->complete_queue_tail = NULL;
+    SampleQueue_Destructor(&ts->complete_queue);
 
     if (ts->json_buf != NULL)
     {
@@ -3107,54 +3200,6 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 }
 
 
-static void ThreadSampler_QueueCompleteSample(ThreadSampler* ts, Sample* root_sample)
-{
-    Sample* tail;
-
-    assert(ts != NULL);
-    assert(root_sample != NULL);
-
-    // Producer owns the sample for now and sets it up for being last in the list
-    root_sample->ObjectLink.next = NULL;
-
-    // Producer always owns the tail pointer so can safely read it
-    tail = ts->complete_queue_tail;
-
-    // After adding to the queue here, the sample becomes available to the consumer so use release semantics
-    // to ensure the sample is defined before the store occurs.
-    StoreRelease((void * volatile *)&tail->ObjectLink.next, root_sample);
-
-    // Safe to update the tail now as it is producer-owned
-    ts->complete_queue_tail = root_sample;
-}
-
-
-static Sample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
-{
-    Sample* head;
-    Sample* next;
-
-    assert(ts != NULL);
-
-    // Consumer always owns the head pointer so can safely read it
-    head = ts->complete_queue_head;
-
-    // The head always points to the empty sample so look ahead one to see if anything is in the list
-    // This value is shared with the producer
-    next = (Sample*)LoadAcquire((void *const volatile *)&head->ObjectLink.next);
-    if (next == NULL)
-        return NULL;
-
-    // Move the sample data to the empty sample at the front
-    memcpy(head, next, next->size_bytes);
-
-    // As the consumer owns the head pointer, we're free to update it
-    ts->complete_queue_head = next;
-
-    return head;
-}
-
-
 static enum rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
     return SampleTree_Push(tree, name, name_hash, sample);
@@ -3167,7 +3212,7 @@ static void ThreadSampler_Pop(ThreadSampler* ts, SampleTree* tree, Sample* sampl
 
     // Add top-level samples to the queue to be sent to the client
     if (sample != NULL)
-        ThreadSampler_QueueCompleteSample(ts, sample);
+        SampleQueue_Enqueue(&ts->complete_queue, sample);
 }
 
 
@@ -3277,7 +3322,7 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
         // Pull all samples from the thread sampler's complete queue
         while (1)
         {
-            Sample* sample = ThreadSampler_DequeueCompleteSample(ts);
+            Sample* sample = SampleQueue_Dequeue(&ts->complete_queue);
             if (sample == NULL)
                 break;
 
@@ -3334,7 +3379,7 @@ static void Remotery_FlushSampleQueue(Remotery* rmt)
     {
         while (1)
         {
-            Sample* sample = ThreadSampler_DequeueCompleteSample(ts);
+            Sample* sample = SampleQueue_Dequeue(&ts->complete_queue);
             if (sample == NULL)
                 break;
             FreeSampleTree(sample, ts->sample_trees[sample->type]->allocator);
