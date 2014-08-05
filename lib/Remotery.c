@@ -36,6 +36,7 @@
     @SAMPLETREE: A tree of samples with their allocator
     @TSAMPLER:      Per-Thread Sampler
     @REMOTERY:      Remotery
+    @CUDA:          CUDA event sampling
 */
 
 #include "Remotery.h"
@@ -95,6 +96,10 @@
 
 #endif
 
+
+#ifdef RMT_USE_CUDA
+    #include <cuda.h>
+#endif
 
 
 rmtU64 min(rmtS64 a, rmtS64 b)
@@ -2681,6 +2686,7 @@ static enum rmtError json_CloseArray(Buffer* buffer)
 enum SampleType
 {
     SampleType_CPU,
+    SampleType_CUDA,
     SampleType_Count,
 };
 
@@ -2838,7 +2844,7 @@ typedef struct SampleTree
 static void SampleTree_Destroy(SampleTree* tree);
 
 
-static enum rmtError SampleTree_Create(SampleTree** tree)
+static enum rmtError SampleTree_Create(SampleTree** tree, rmtU32 sample_size, ObjConstructor constructor, ObjDestructor destructor)
 {
     enum rmtError error;
 
@@ -2853,7 +2859,7 @@ static enum rmtError SampleTree_Create(SampleTree** tree)
     (*tree)->current_parent = NULL;
 
     // Create the sample allocator
-    error = ObjectAllocator_Create(&(*tree)->allocator, sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
+    error = ObjectAllocator_Create(&(*tree)->allocator, sample_size, constructor, destructor);
     if (error != RMT_ERROR_NONE)
     {
         SampleTree_Destroy(*tree);
@@ -3029,15 +3035,13 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     // Set the initial name based on the unique thread sampler address
     Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
 
-    // Create the sample trees
-    for (i = 0; i < SampleType_Count; i++)
+    // Create the CPU sample tree only - the rest are created on-demand as they need
+    // extra context information to function correctly.
+    error = SampleTree_Create(&(*thread_sampler)->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
+    if (error != RMT_ERROR_NONE)
     {
-        error = SampleTree_Create(&(*thread_sampler)->sample_trees[i]);
-        if (error != RMT_ERROR_NONE)
-        {
             ThreadSampler_Destroy(*thread_sampler);
             return error;
-        }
     }
 
     // Kick-off the timer
@@ -3187,7 +3191,12 @@ struct Remotery
     // Linked list of all known threads being sampled
     ThreadSampler* volatile first_thread_sampler;
 
+    // The main server thread
     Thread* thread;
+
+#ifdef RMT_USE_CUDA
+    rmtCUDABind cuda;
+#endif
 };
 
 
@@ -3442,6 +3451,16 @@ static enum rmtError Remotery_Create(Remotery** rmt)
         return error;
     }
 
+    #ifdef RMT_USE_CUDA
+
+        (*rmt)->cuda.EventCreate = NULL;
+        (*rmt)->cuda.EventDestroy = NULL;
+        (*rmt)->cuda.EventElapsedTime = NULL;
+        (*rmt)->cuda.EventQuery = NULL;
+        (*rmt)->cuda.EventRecord = NULL;
+
+    #endif
+
     return RMT_ERROR_NONE;
 }
 
@@ -3680,6 +3699,227 @@ void _rmt_EndCPUSample(void)
         ThreadSampler_Pop(ts, ts->sample_trees[SampleType_CPU], sample);
     }
 }
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @CUDA: CUDA event sampling
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+#ifdef RMT_USE_CUDA
+
+
+typedef struct CUDASample
+{
+    Sample Sample;
+
+    // Pair of events that wrap the sample
+    CUevent event_start;
+    CUevent event_end;
+
+} CUDASample;
+
+
+static enum rmtError MapCUDAResult(CUresult result)
+{
+    switch (result)
+    {
+        case CUDA_SUCCESS: return RMT_ERROR_NONE;
+        case CUDA_ERROR_DEINITIALIZED: return RMT_ERROR_CUDA_DEINITIALIZED;
+        case CUDA_ERROR_NOT_INITIALIZED: return RMT_ERROR_CUDA_NOT_INITIALIZED;
+        case CUDA_ERROR_INVALID_CONTEXT: return RMT_ERROR_CUDA_INVALID_CONTEXT;
+        case CUDA_ERROR_INVALID_VALUE: return RMT_ERROR_CUDA_INVALID_VALUE;
+        case CUDA_ERROR_INVALID_HANDLE: return RMT_ERROR_CUDA_INVALID_HANDLE;
+        case CUDA_ERROR_OUT_OF_MEMORY: return RMT_ERROR_CUDA_OUT_OF_MEMORY;
+        case CUDA_ERROR_NOT_READY: return RMT_ERROR_ERROR_NOT_READY;
+        default: return RMT_ERROR_CUDA_UNKNOWN;
+    }
+}
+
+
+#define CUDA_MAKE_FUNCTION(name, params)                    \
+    typedef CUresult (CUDAAPI *name##Ptr) params;           \
+    name##Ptr name = (name##Ptr)g_Remotery->cuda.name;
+
+
+#define CUDA_GUARD(call)                \
+    {                                   \
+        enum rmtError error = call;     \
+        if (error != RMT_ERROR_NONE)    \
+            return error;               \
+    }
+
+
+// Wrappers around CUDA driver functions that manage the active context.
+static enum rmtError CUDASetContext(void* context)
+{
+    CUDA_MAKE_FUNCTION(CtxSetCurrent, (CUcontext ctx));
+    assert(CtxSetCurrent != NULL);
+    return MapCUDAResult(CtxSetCurrent((CUcontext)context));
+}
+static enum rmtError CUDAPushContext()
+{
+    assert(g_Remotery != NULL);
+    return CUDASetContext(g_Remotery->cuda.context);
+}
+static enum rmtError CUDAPopContext()
+{
+    return CUDASetContext(NULL);
+}
+
+
+// Wrappers around CUDA driver functions that manage events
+static enum rmtError CUDAEventCreate(CUevent* phEvent, unsigned int Flags)
+{
+    CUDA_MAKE_FUNCTION(EventCreate, (CUevent *phEvent, unsigned int Flags));
+
+    CUDA_GUARD(CUDAPushContext());
+    CUDA_GUARD(MapCUDAResult(EventCreate(phEvent, Flags)));
+    return CUDAPopContext();
+}
+static enum rmtError CUDAEventDestroy(CUevent hEvent)
+{
+    CUDA_MAKE_FUNCTION(EventDestroy, (CUevent hEvent));
+
+    CUDA_GUARD(CUDAPushContext());
+    CUDA_GUARD(MapCUDAResult(EventDestroy(hEvent)));
+    return CUDAPopContext();
+}
+static enum rmtError CUDAEventRecord(CUevent hEvent, void* hStream)
+{
+    CUDA_MAKE_FUNCTION(EventRecord, (CUevent hEvent, CUstream hStream));
+
+    CUDA_GUARD(CUDAPushContext());
+    CUDA_GUARD(MapCUDAResult(EventRecord(hEvent, (CUstream)hStream)));
+    return CUDAPopContext();
+}
+static enum rmtError CUDAEventQuery(CUevent hEvent)
+{
+    CUDA_MAKE_FUNCTION(EventQuery,  (CUevent hEvent));
+
+    CUDA_GUARD(CUDAPushContext());
+    CUDA_GUARD(MapCUDAResult(EventQuery(hEvent)));
+    return CUDAPopContext();
+}
+static enum rmtError CUDAEventElapsedTime(float* pMilliseconds, CUevent hStart, CUevent hEnd)
+{
+    CUDA_MAKE_FUNCTION(EventElapsedTime, (float *pMilliseconds, CUevent hStart, CUevent hEnd));
+
+    CUDA_GUARD(CUDAPushContext());
+    CUDA_GUARD(MapCUDAResult(EventElapsedTime(pMilliseconds, hStart, hEnd)));
+    return CUDAPopContext();
+}
+
+
+static enum rmtError CUDASample_Constructor(CUDASample* sample)
+{
+    enum rmtError error;
+
+    assert(sample != NULL);
+
+    // Chain to sample constructor
+    Sample_Constructor((Sample*)sample);
+    sample->Sample.type = SampleType_CUDA;
+    sample->Sample.size_bytes = sizeof(CUDASample);
+    sample->event_start = NULL;
+    sample->event_end = NULL;
+
+    // Create non-blocking events with timing
+    assert(g_Remotery != NULL);
+    error = CUDAEventCreate(&sample->event_start, CU_EVENT_DEFAULT);
+    if (error == RMT_ERROR_NONE)
+        error = CUDAEventCreate(&sample->event_end, CU_EVENT_DEFAULT);
+    return error;
+}
+
+
+static void CUDASample_Destructor(CUDASample* sample)
+{
+    assert(sample != NULL);
+
+    // Destroy events
+    if (sample->event_start != NULL)
+        CUDAEventDestroy(sample->event_start);
+    if (sample->event_end != NULL)
+        CUDAEventDestroy(sample->event_end);
+
+    Sample_Destructor((Sample*)sample);
+}
+
+
+void _rmt_BindCUDA(const rmtCUDABind* bind)
+{
+    assert(bind != NULL);
+    if (g_Remotery != NULL)
+        g_Remotery->cuda = *bind;
+}
+
+
+void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        Sample* sample;
+        rmtU32 name_hash = GetNameHash(name, hash_cache);
+
+        // Create the CUDA tree on-demand as the tree needs an up-front-created root.
+        // This is not possible to create on initialisation as a CUDA binding is not yet available.
+        SampleTree** cuda_tree = &ts->sample_trees[SampleType_CUDA];
+        if (*cuda_tree == NULL)
+        {
+            CUDASample* root_sample;
+            
+            enum rmtError error = SampleTree_Create(cuda_tree, sizeof(CUDASample), (ObjConstructor)CUDASample_Constructor, (ObjDestructor)CUDASample_Destructor);
+            if (error != RMT_ERROR_NONE)
+                return;
+
+            // Record an event once on the root sample, used to measure absolute sample
+            // times since this point
+            root_sample = (CUDASample*)(*cuda_tree)->root;
+            error = CUDAEventRecord(root_sample->event_start, stream);
+            if (error != RMT_ERROR_NONE)
+                return;
+        }
+
+        // Push the same and record its event
+        if (ThreadSampler_Push(ts, *cuda_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
+        {
+            CUDASample* cuda_sample = (CUDASample*)sample;
+            CUDAEventRecord(cuda_sample->event_start, stream);
+        }
+    }
+}
+
+
+void _rmt_EndCUDASample(void* stream)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        CUDASample* sample = (CUDASample*)ts->sample_trees[SampleType_CUDA]->current_parent;
+        CUDAEventRecord(sample->event_end, stream);
+        ThreadSampler_Pop(ts, ts->sample_trees[SampleType_CUDA], (Sample*)sample);
+    }
+}
+
+
+#endif  // RMT_USE_CUDA
+
 
 
 #endif // RMT_ENABLED

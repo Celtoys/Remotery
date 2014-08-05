@@ -16,9 +16,7 @@
 
 
 
-//
 // Compiler identification
-//
 #if defined(_MSC_VER)
     #define RMT_COMPILER_MSVC
 #elif defined(__GNUC__)
@@ -28,9 +26,7 @@
 #endif
 
 
-//
 // Platform identification
-//
 #if defined(_WINDOWS) || defined(_WIN32)
     #define RMT_PLATFORM_WINDOWS
 #elif defined(__linux__)
@@ -42,17 +38,13 @@
 #endif
 
 
-//
 // Generate a unique symbol with the given prefix
-//
 #define RMT_JOIN2(x, y) x ## y
 #define RMT_JOIN(x, y) RMT_JOIN2(x, y)
 #define RMT_UNIQUE(x) RMT_JOIN(x, __COUNTER__)
 
 
-//
 // Public interface is implemented in terms of these macros to easily enable/disabl itself
-//
 #ifdef RMT_ENABLED
     #define RMT_OPTIONAL(x) x
     #define RMT_OPTIONAL_RET(x, y) x
@@ -72,47 +64,35 @@
 
 
 
-//
 // Boolean
-//
 typedef unsigned int rmtBool;
 #define RMT_TRUE ((rmtBool)1)
 #define RMT_FALSE ((rmtBool)0)
 
 
-//
 // Unsigned integer types
-//
 typedef unsigned char rmtU8;
 typedef unsigned short rmtU16;
 typedef unsigned int rmtU32;
 typedef unsigned long long rmtU64;
 
 
-//
 // Signed integer types
-//
 typedef char rmtS8;
 typedef short rmtS16;
 typedef int rmtS32;
 typedef long long rmtS64;
 
 
-//
 // Const, null-terminated string pointer
-//
 typedef const char* rmtPStr;
 
 
-//
 // Handle to the main remotery instance
-//
 typedef struct Remotery Remotery;
 
 
-//
 // All possible error codes
-//
 enum rmtError
 {
     RMT_ERROR_NONE,
@@ -155,6 +135,17 @@ enum rmtError
 
     RMT_ERROR_REMOTERY_NOT_CREATED,             // Remotery object has not been created
     RMT_ERROR_SEND_ON_INCOMPLETE_PROFILE,       // An attempt was made to send an incomplete profile tree to the client
+
+    // CUDA error messages
+    RMT_ERROR_CUDA_DEINITIALIZED,               // This indicates that the CUDA driver is in the process of shutting down
+    RMT_ERROR_CUDA_NOT_INITIALIZED,             // This indicates that the CUDA driver has not been initialized with cuInit() or that initialization has failed
+    RMT_ERROR_CUDA_INVALID_CONTEXT,             // This most frequently indicates that there is no context bound to the current thread
+    RMT_ERROR_CUDA_INVALID_VALUE,               // This indicates that one or more of the parameters passed to the API call is not within an acceptable range of values
+    RMT_ERROR_CUDA_INVALID_HANDLE,              // This indicates that a resource handle passed to the API call was not valid
+    RMT_ERROR_CUDA_OUT_OF_MEMORY,               // The API call failed because it was unable to allocate enough memory to perform the requested operation
+    RMT_ERROR_ERROR_NOT_READY,                  // This indicates that a resource handle passed to the API call was not valid
+
+    RMT_ERROR_CUDA_UNKNOWN,
 };
 
 
@@ -199,6 +190,48 @@ enum rmtError
     RMT_OPTIONAL(_rmt_EndCPUSample())
 
 
+#ifdef RMT_USE_CUDA
+
+
+// Structure to fill in when binding CUDA to Remotery
+typedef struct rmtCUDABind
+{
+    // The main context that all driver functions apply before each call
+    void* context;
+
+    // Driver API function pointers that need to be pointed to
+    // Untyped so that the CUDA headers are not required in this file
+    // NOTE: These are named differently to the CUDA functions because the CUDA API has a habit of using
+    // macros to point function calls to different versions, e.g. cuEventDestroy is a macro for
+    // cuEventDestroy_v2.
+    void* CtxSetCurrent;
+    void* EventCreate;
+    void* EventDestroy;
+    void* EventRecord;
+    void* EventQuery;
+    void* EventElapsedTime;
+
+} rmtCUDABind;
+
+
+// Call once after you've initialised CUDA to bind it to Remotery
+#define rmt_BindCUDA(bind)                                                  \
+    RMT_OPTIONAL(_rmt_BindCUDA(bind))
+
+// Mark the beginning of a CUDA sample on the specified asynchronous stream
+#define rmt_BeginCUDASample(name, stream)                                   \
+    RMT_OPTIONAL({                                                          \
+        static rmtU32 rmt_sample_hash_##name = 0;                           \
+        _rmt_BeginCUDASample(#name, &rmt_sample_hash_##name, stream);       \
+    })
+
+// Mark the end of a CUDA sample on the specified asynchronous stream
+#define rmt_EndCUDASample(stream)                                           \
+    RMT_OPTIONAL(_rmt_EndCUDASample(stream))
+
+
+#endif
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -213,12 +246,14 @@ enum rmtError
 #ifdef __cplusplus
 
 
-//
-// Forward-declartion of private interface for scoped sample type
-//
+// Forward-declartion of private interface for scoped sample types
 extern "C" void _rmt_EndCPUSample(void);
+#ifdef RMT_USE_CUDA
+extern "C" void _rmt_EndCUDASample(void* stream);
+#endif
 
 
+// Types that end samples in their destructors
 #ifdef RMT_ENABLED
 struct rmt_EndCPUSampleOnScopeExit
 {
@@ -227,18 +262,32 @@ struct rmt_EndCPUSampleOnScopeExit
         rmt_EndCPUSample();
     }
 };
+#ifdef RMT_USE_CUDA
+struct rmt_EndCUDASampleOnScopeExit
+{
+    rmt_EndCUDASampleOnScopeExit(void* stream) : stream(stream)
+    {
+    }
+    ~rmt_EndCUDASampleOnScopeExit()
+    {
+        _rmt_EndCUDASample(stream);
+    }
+    void* stream;
+};
+#endif
 #endif
 
 
 
-//
-// Pairs a call to rmt_BeginCPUSample with its call to rmt_EndCPUSample when leaving scope
-//
+// Pairs a call to rmt_Begin<TYPE>Sample with its call to rmt_End<TYPE>Sample when leaving scope
 #define rmt_ScopedCPUSample(name)                                               \
         RMT_OPTIONAL(rmt_BeginCPUSample(name));                                 \
         RMT_OPTIONAL(rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name);
-
-
+#ifdef RMT_USE_CUDA
+#define rmt_ScopedCUDASample(name, stream)                                      \
+        RMT_OPTIONAL(rmt_BeginCUDASample(name, stream));                        \
+        RMT_OPTIONAL(rmt_EndCUDASampleOnScopeExit rmt_ScopedCUDASample##name(stream));
+#endif
 
 #endif
 
@@ -266,7 +315,9 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery);
 void _rmt_SetGlobalInstance(Remotery* remotery);
 Remotery* _rmt_GetGlobalInstance();
 
+
 void _rmt_SetCurrentThreadName(rmtPStr thread_name);
+
 
 void _rmt_LogText(rmtPStr text);
 
@@ -278,8 +329,14 @@ void _rmt_LogText(rmtPStr text);
 // If 'hash_cache' is NULL then this call becomes more expensive, as it has to recalculate the hash of the name.
 //
 void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache);
-
 void _rmt_EndCPUSample(void);
+
+
+#ifdef RMT_USE_CUDA
+void _rmt_BindCUDA(const rmtCUDABind* bind);
+void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream);
+void _rmt_EndCUDASample(void* stream);
+#endif
 
 
 #ifdef __cplusplus
