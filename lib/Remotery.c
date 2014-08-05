@@ -3334,10 +3334,44 @@ static void Remotery_FlushSampleQueue(Remotery* rmt)
 }
 
 
+#ifdef RMT_PLATFORM_WINDOWS
+    #pragma pack(push,8)
+    typedef struct tagTHREADNAME_INFO
+    {
+       DWORD dwType; // Must be 0x1000.
+       LPCSTR szName; // Pointer to name (in user addr space).
+       DWORD dwThreadID; // Thread ID (-1=caller thread).
+       DWORD dwFlags; // Reserved for future use, must be zero.
+    } THREADNAME_INFO;
+    #pragma pack(pop)
+#endif
+
+static void SetDebuggerThreadName(const char* name)
+{
+    #ifdef RMT_PLATFORM_WINDOWS
+        THREADNAME_INFO info;
+        info.dwType = 0x1000;
+        info.szName = name;
+        info.dwThreadID = -1;
+        info.dwFlags = 0;
+
+        __try
+        {
+            RaiseException(0x406D1388, 0, sizeof(info)/sizeof(ULONG_PTR), (ULONG_PTR*)&info);
+        }
+        __except(1 /* EXCEPTION_EXECUTE_HANDLER */)
+        {
+        }
+    #endif
+}
+
+
 static enum rmtError Remotery_ThreadMain(Thread* thread)
 {
     Remotery* rmt = (Remotery*)thread->param;
     assert(rmt != NULL);
+
+    SetDebuggerThreadName("Remotery");
 
     while (thread->request_exit == RMT_FALSE)
     {
