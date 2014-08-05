@@ -2692,6 +2692,9 @@ typedef struct Sample
 
     enum SampleType type;
 
+    // Used to anonymously copy sample data without knowning its type
+    rmtU32 size_bytes;
+
     // Sample name and unique hash
     rmtPStr name;
     rmtU32 name_hash;
@@ -2723,6 +2726,7 @@ static enum rmtError Sample_Constructor(Sample* sample)
     ObjectLink_Constructor((ObjectLink*)sample);
 
     sample->type = SampleType_CPU;
+    sample->size_bytes = sizeof(Sample);
     sample->name = NULL;
     sample->name_hash = 0;
     sample->unique_id = 0;
@@ -3138,7 +3142,7 @@ static Sample* ThreadSampler_DequeueCompleteSample(ThreadSampler* ts)
         return NULL;
 
     // Move the sample data to the empty sample at the front
-    *head = *next;
+    memcpy(head, next, next->size_bytes);
 
     // As the consumer owns the head pointer, we're free to update it
     ts->complete_queue_head = next;
