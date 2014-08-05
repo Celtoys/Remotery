@@ -93,7 +93,7 @@ body
 	/* Pull .TimelineRowCanvas to the right of the label */
 	float:left;
 
-	width: 80px;
+	width: 140px;
 
 	/* Following style generally copies GridRowCell.GridGroup from BrowserLib */
 

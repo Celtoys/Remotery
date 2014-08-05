@@ -128,7 +128,7 @@ TimelineWindow = (function()
 	{
 		// Add sizing of the label
 		// TODO: Use computed size
-		return DOM.Node.GetPosition(self.TimelineContainer.Node)[0] + 87;
+		return DOM.Node.GetPosition(self.TimelineContainer.Node)[0] + 147;
 	}
 
 
@@ -136,7 +136,7 @@ TimelineWindow = (function()
 	{
 		// Subtract sizing of the label
 		// TODO: Use computed size
-		return self.TimelineContainer.Size[0] - 87;
+		return self.TimelineContainer.Size[0] - 147;
 	}
 
 

@@ -3088,6 +3088,18 @@ static Sample* SampleQueue_Dequeue(SampleQueue* queue)
 }
 
 
+static void SampleQueue_MoveFromTo(SampleQueue* from, SampleQueue* to)
+{
+    while (1)
+    {
+        Sample* sample = SampleQueue_Dequeue(from);
+        if (sample == NULL)
+            break;
+        SampleQueue_Enqueue(to, sample);
+    }
+}
+
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -3119,6 +3131,9 @@ typedef struct ThreadSampler
     // Queue of complete root samples to be sent to the client
     SampleQueue complete_queue;
 
+    // A transient queue of samples which are not ready for use during an update
+    SampleQueue not_ready_queue;
+
 } ThreadSampler;
 
 
@@ -3141,6 +3156,7 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     (*thread_sampler)->json_buf = NULL;
     (*thread_sampler)->next = NULL;
     SampleQueue_SetDefaults(&(*thread_sampler)->complete_queue);
+    SampleQueue_SetDefaults(&(*thread_sampler)->not_ready_queue);
 
     // Set the initial name based on the unique thread sampler address
     Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
@@ -3168,6 +3184,9 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     error = SampleQueue_Constructor(&(*thread_sampler)->complete_queue);
     if (error != RMT_ERROR_NONE)
         return error;
+    error = SampleQueue_Constructor(&(*thread_sampler)->not_ready_queue);
+    if (error != RMT_ERROR_NONE)
+        return error;
 
     return RMT_ERROR_NONE;
 }
@@ -3179,6 +3198,7 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 
     assert(ts != NULL);
 
+    SampleQueue_Destructor(&ts->not_ready_queue);
     SampleQueue_Destructor(&ts->complete_queue);
 
     if (ts->json_buf != NULL)
@@ -3309,6 +3329,10 @@ static void FreeSampleTree(Sample* sample, ObjectAllocator* allocator)
 }
 
 
+static rmtBool AreCUDASamplesReady(Sample* sample);
+static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
+
+
 static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
 {
     enum rmtError error;
@@ -3326,14 +3350,33 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
             if (sample == NULL)
                 break;
 
+            if (sample->type == SampleType_CUDA)
+            {
+                // If these CUDA samples aren't ready yet, stick them in the temp queue and continue
+                if (!AreCUDASamplesReady(sample))
+                {
+                    SampleQueue_Enqueue(&ts->not_ready_queue, sample);
+                    continue;
+                }
+
+                GetCUDASampleTimes(sample->parent, sample);
+            }
+
             // Having a client not connected is typical and not an error
             if (Server_IsClientConnected(rmt->server))
             {
                 rmtU32 digest_hash = 0, nb_samples = 0;
+                char thread_name[64];
 
                 // Reset the buffer position to the start
                 Buffer* buffer = ts->json_buf;
                 buffer->bytes_used = 0;
+
+                // Add any sample types as a thread name post-fix to ensure they get their own viewer
+                thread_name[0] = 0;
+                strncat_s(thread_name, sizeof(thread_name), ts->name, strnlen_s(ts->name, 64));
+                if (sample->type == SampleType_CUDA)
+                    strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
 
                 // Get digest hash of samples so that viewer can efficiently rebuild its tables
                 GetSampleDigest(sample, &digest_hash, &nb_samples);
@@ -3343,7 +3386,7 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
 
                     JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
                     JSON_ERROR_CHECK(json_Comma(buffer));
-                    JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", ts->name));
+                    JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", thread_name));
                     JSON_ERROR_CHECK(json_Comma(buffer));
                     JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
                     JSON_ERROR_CHECK(json_Comma(buffer));
@@ -3362,6 +3405,10 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
             // Release the sample tree back to its allocator
             FreeSampleTree(sample, ts->sample_trees[sample->type]->allocator);
         }
+
+        // Move any samples not ready during this update back to the complete queue
+        // for processing on the next update
+        SampleQueue_MoveFromTo(&ts->not_ready_queue, &ts->complete_queue);
     }
 
     return RMT_ERROR_NONE;
@@ -3895,6 +3942,66 @@ static void CUDASample_Destructor(CUDASample* sample)
         CUDAEventDestroy(sample->event_end);
 
     Sample_Destructor((Sample*)sample);
+}
+
+
+static rmtBool AreCUDASamplesReady(Sample* sample)
+{
+    enum rmtError error;
+    Sample* child;
+
+    CUDASample* cuda_sample = (CUDASample*)sample;
+    assert(sample->type == SampleType_CUDA);
+
+    // Check to see if both of the CUDA events have been processed
+    error = CUDAEventQuery(cuda_sample->event_start);
+    if (error != RMT_ERROR_NONE)
+        return RMT_FALSE;
+    error = CUDAEventQuery(cuda_sample->event_end);
+    if (error != RMT_ERROR_NONE)
+        return RMT_FALSE;
+
+    // Check child sample events
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+    {
+        if (!AreCUDASamplesReady(child))
+            return RMT_FALSE;
+    }
+
+    return RMT_TRUE;
+}
+
+
+static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample)
+{
+    Sample* child;
+
+    CUDASample* cuda_root_sample = (CUDASample*)root_sample;
+    CUDASample* cuda_sample = (CUDASample*)sample;
+
+    float ms_start, ms_end;
+
+    assert(root_sample != NULL);
+    assert(sample != NULL);
+
+    // Get millisecond timing of each sample event, relative to initial root sample
+    if (CUDAEventElapsedTime(&ms_start, cuda_root_sample->event_start, cuda_sample->event_start) != RMT_ERROR_NONE)
+        return RMT_FALSE;
+    if (CUDAEventElapsedTime(&ms_end, cuda_root_sample->event_start, cuda_sample->event_end) != RMT_ERROR_NONE)
+        return RMT_FALSE;
+
+    // Convert to microseconds and add to the sample
+    sample->us_start = (rmtU64)(ms_start * 1000);
+    sample->us_end = (rmtU64)(ms_end * 1000);
+
+    // Get child sample times
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+    {
+        if (!GetCUDASampleTimes(root_sample, child))
+            return RMT_FALSE;
+    }
+
+    return RMT_TRUE;
 }
 
 
