@@ -3581,6 +3581,7 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 
     #ifdef RMT_USE_CUDA
 
+        (*rmt)->cuda.CtxSetCurrent = NULL;
         (*rmt)->cuda.EventCreate = NULL;
         (*rmt)->cuda.EventDestroy = NULL;
         (*rmt)->cuda.EventElapsedTime = NULL;
