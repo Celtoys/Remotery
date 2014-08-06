@@ -2602,7 +2602,7 @@ static enum rmtError Server_Send(Server* server, void* data, rmtU32 length, rmtU
 //
 // Simple macro for hopefully making the serialisation a little clearer by hiding the error handling
 //
-#define JSON_ERROR_CHECK(stmt) error = stmt; if (error != RMT_ERROR_NONE) return error;
+#define JSON_ERROR_CHECK(stmt) { error = stmt; if (error != RMT_ERROR_NONE) return error; }
 
 
 
