@@ -85,6 +85,10 @@
         #undef max
     #endif
 
+    #ifdef RMT_PLATFORM_LINUX
+        #include <time.h>
+    #endif
+
     #if defined(RMT_PLATFORM_POSIX)
         #include <pthread.h>
         #include <unistd.h>
@@ -168,13 +172,22 @@ static void usTimer_Init(usTimer* timer)
 
         // Record the offset for each read of the counter
         QueryPerformanceCounter(&timer->counter_start);
+
     #elif defined(RMT_PLATFORM_MACOS)
+
         mach_timebase_info_data_t nsScale;
         mach_timebase_info( &nsScale );
         const double ns_per_us = 1.0e3;
         timer->counter_scale = (double)(nsScale.numer) / ((double)nsScale.denom * ns_per_us);
 
         timer->counter_start = mach_absolute_time();
+
+    #elif defined(RMT_PLATFORM_LINUX)
+
+        struct timespec tv;
+        clock_gettime(CLOCK_REALTIME, &tv);
+        timer->counter_start = tv.tv_nsec;
+
     #endif
 }
 
@@ -189,9 +202,18 @@ static rmtU64 usTimer_Get(usTimer* timer)
         // Read counter and convert to microseconds
         QueryPerformanceCounter(&performance_count);
         return (rmtU64)((performance_count.QuadPart - timer->counter_start.QuadPart) * timer->counter_scale);
+
     #elif defined(RMT_PLATFORM_MACOS)
+
         rmtU64 curr_time = mach_absolute_time();
         return (rmtU64)((curr_time - timer->counter_start) * timer->counter_scale);
+
+    #elif defined(RMT_PLATFORM_LINUX)
+
+        struct timespec tv;
+        clock_gettime(CLOCK_REALTIME, &tv);
+        return tv.tv_nsec - timer->counter_start;
+
     #endif
 }
 
