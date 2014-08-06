@@ -64,10 +64,12 @@ SampleWindow = (function()
 			this.NbSamples = nb_samples;
 			this.SampleDigest = sample_digest;
 			this.RootRow.Rows.Clear();
-			AddSamples(this.RootRow, samples, "");
+
+			if (this.Visible)
+				AddSamples(this.RootRow, samples, "");
 		}
 
-		else
+		else if (this.Visible)
 		{
 			// Otherwise just update the existing sample data
 			UpdateSamples(this.RootRow, samples);
