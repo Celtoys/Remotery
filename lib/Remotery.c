@@ -2057,7 +2057,7 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_hos
 static enum rmtError WebSocket_Create(WebSocket** web_socket)
 {
     *web_socket = (WebSocket*)malloc(sizeof(WebSocket));
-    if (web_socket == NULL)
+    if (*web_socket == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
     // Set default state
