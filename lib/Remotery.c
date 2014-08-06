@@ -3329,8 +3329,10 @@ static void FreeSampleTree(Sample* sample, ObjectAllocator* allocator)
 }
 
 
+#ifdef RMT_USE_CUDA
 static rmtBool AreCUDASamplesReady(Sample* sample);
 static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
+#endif
 
 
 static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
@@ -3350,6 +3352,7 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
             if (sample == NULL)
                 break;
 
+            #ifdef RMT_USE_CUDA
             if (sample->type == SampleType_CUDA)
             {
                 // If these CUDA samples aren't ready yet, stick them in the temp queue and continue
@@ -3361,6 +3364,7 @@ static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
 
                 GetCUDASampleTimes(sample->parent, sample);
             }
+            #endif
 
             // Having a client not connected is typical and not an error
             if (Server_IsClientConnected(rmt->server))
