@@ -498,16 +498,19 @@ static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* p
         if ((*thread)->handle == NULL)
         {
             Thread_Destroy(*thread);
+            *thread = NULL;
             return RMT_ERROR_CREATE_THREAD_FAIL;
         }
 
     #else
-    int32_t error = pthread_create( &(*thread)->handle, NULL, StartFunc, *thread );
-    if (error)
-    {
-        Thread_Destroy(*thread);
-        return RMT_ERROR_CREATE_THREAD_FAIL;
-    }
+
+        int32_t error = pthread_create( &(*thread)->handle, NULL, StartFunc, *thread );
+        if (error)
+        {
+            Thread_Destroy(*thread);
+            *thread = NULL;
+            return RMT_ERROR_CREATE_THREAD_FAIL;
+        }
 
     #endif
 
@@ -2886,6 +2889,7 @@ static enum rmtError SampleTree_Create(SampleTree** tree, rmtU32 sample_size, Ob
     if (error != RMT_ERROR_NONE)
     {
         SampleTree_Destroy(*tree);
+        *tree = NULL;
         return error;
     }
 
@@ -2894,6 +2898,7 @@ static enum rmtError SampleTree_Create(SampleTree** tree, rmtU32 sample_size, Ob
     if (error != RMT_ERROR_NONE)
     {
         SampleTree_Destroy(*tree);
+        *tree = NULL;
         return error;
     }
     Sample_Prepare((*tree)->root, "<Root Sample>", 0, NULL);
@@ -3188,8 +3193,9 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     error = SampleTree_Create(&(*thread_sampler)->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
     if (error != RMT_ERROR_NONE)
     {
-            ThreadSampler_Destroy(*thread_sampler);
-            return error;
+        ThreadSampler_Destroy(*thread_sampler);
+        *thread_sampler = NULL;
+        return error;
     }
 
     // Kick-off the timer
@@ -3200,15 +3206,25 @@ static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
     if (error != RMT_ERROR_NONE)
     {
         ThreadSampler_Destroy(*thread_sampler);
+        *thread_sampler = NULL;
         return error;
     }
 
+    // Construct the sample queues
     error = SampleQueue_Constructor(&(*thread_sampler)->complete_queue);
     if (error != RMT_ERROR_NONE)
+    {
+        ThreadSampler_Destroy(*thread_sampler);
+        *thread_sampler = NULL;
         return error;
+    }
     error = SampleQueue_Constructor(&(*thread_sampler)->not_ready_queue);
     if (error != RMT_ERROR_NONE)
+    {
+        ThreadSampler_Destroy(*thread_sampler);
+        *thread_sampler = NULL;
         return error;
+    }
 
     return RMT_ERROR_NONE;
 }
