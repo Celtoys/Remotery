@@ -331,7 +331,6 @@ typedef struct rmtCUDABind
     // macros to point function calls to different versions, e.g. cuEventDestroy is a macro for
     // cuEventDestroy_v2.
     void* CtxSetCurrent;
-    void* CtxGetCurrent;
     void* EventCreate;
     void* EventDestroy;
     void* EventRecord;
