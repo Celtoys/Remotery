@@ -1427,7 +1427,7 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
         if (bytes_sent == SOCKET_ERROR || bytes_sent == 0)
         {
             // Close the connection if sending fails for any other reason other than blocking
-            if (!TCPSocketWouldBlock())
+            if (bytes_sent != 0 && !TCPSocketWouldBlock())
             {
                 TCPSocket_Close(tcp_socket);
                 return RMT_ERROR_SOCKET_SEND_FAIL;
@@ -1493,10 +1493,11 @@ static enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32
     while (cur_data < end_data)
     {
         int bytes_received = (int)recv(tcp_socket->socket, cur_data, end_data - cur_data, 0);
+
         if (bytes_received == SOCKET_ERROR || bytes_received == 0)
         {
             // Close the connection if receiving fails for any other reason other than blocking
-            if (!TCPSocketWouldBlock())
+            if (bytes_received != 0 && !TCPSocketWouldBlock())
             {
                 TCPSocket_Close(tcp_socket);
                 return RMT_ERROR_SOCKET_RECV_FAILED;
