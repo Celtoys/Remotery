@@ -2446,71 +2446,99 @@ static void Server_Destroy(Server* server)
 static const char log_message[] = "{ \"id\": \"LOG\", \"text\": \"";
 
 
-static void Server_LogText(Server* server, rmtPStr text)
+static rmtBool Server_IsClientConnected(Server* server)
 {
     assert(server != NULL);
-    if (server->client_socket != NULL)
+    return server->client_socket != NULL ? RMT_TRUE : RMT_FALSE;
+}
+
+
+static enum rmtError Server_Send(Server* server, const void* data, rmtU32 length, rmtU32 timeout)
+{
+    assert(server != NULL);
+    if (Server_IsClientConnected(server))
     {
-        int start_offset, prev_offset, i;
-
-        // Start the line buffer off with the JSON message markup
-        char line_buffer[1024] = { 0 };
-        strncat_s(line_buffer, sizeof(line_buffer), log_message, sizeof(log_message));
-        start_offset = strnlen_s(line_buffer, sizeof(line_buffer) - 1);
-
-        // There might be newlines in the buffer, so split them into multiple network calls
-        prev_offset = start_offset;
-        for (i = 0; text[i] != 0; i++)
+        enum rmtError error = WebSocket_Send(server->client_socket, data, length, timeout);
+        if (error == RMT_ERROR_SOCKET_SEND_FAIL)
         {
-            char c = text[i];
-
-            // Line wrap when too long or newline encountered
-            if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
-            {
-                // End message and send
-                line_buffer[prev_offset++] = '\"';
-                line_buffer[prev_offset++] = '}';
-                line_buffer[prev_offset] = 0;
-                WebSocket_Send(server->client_socket, line_buffer, prev_offset, 20);
-
-                // Restart line
-                prev_offset = start_offset;
-            }
-
-            // Safe to insert 2 characters here as previous check would split lines if not enough space left
-            switch (c)
-            {
-                // Skip newline, dealt with above
-                case '\n':
-                    break;
-
-                // Escape these
-                case '\\':
-                    line_buffer[prev_offset++] = '\\';
-                    line_buffer[prev_offset++] = '\\';
-                    break;
-
-                case '\"':
-                    line_buffer[prev_offset++] = '\\';
-                    line_buffer[prev_offset++] = '\"';
-                    break;
-
-                // Add the rest
-                default:
-                    line_buffer[prev_offset++] = c;
-                    break;
-            }
+            WebSocket_Destroy(server->client_socket);
+            server->client_socket = NULL;
         }
+        return error;
+    }
 
-        // Send the last line
-        if (prev_offset > start_offset)
+    return RMT_ERROR_NONE;
+}
+
+
+static void Server_LogText(Server* server, rmtPStr text)
+{
+    int start_offset, prev_offset, i;
+    char line_buffer[1024] = { 0 };
+
+    assert(server != NULL);
+
+    // Discard log text if not connected
+    // TODO: Queue for later?
+    if (Server_IsClientConnected(server) == RMT_FALSE)
+        return;
+
+    // Start the line buffer off with the JSON message markup
+    strncat_s(line_buffer, sizeof(line_buffer), log_message, sizeof(log_message));
+    start_offset = strnlen_s(line_buffer, sizeof(line_buffer) - 1);
+
+    // There might be newlines in the buffer, so split them into multiple network calls
+    prev_offset = start_offset;
+    for (i = 0; text[i] != 0; i++)
+    {
+        char c = text[i];
+
+        // Line wrap when too long or newline encountered
+        if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
         {
-            assert(prev_offset < sizeof(line_buffer) - 3);
+            // End message and send
             line_buffer[prev_offset++] = '\"';
             line_buffer[prev_offset++] = '}';
             line_buffer[prev_offset] = 0;
-            WebSocket_Send(server->client_socket, line_buffer, prev_offset, 20);
+            Server_Send(server, line_buffer, prev_offset, 20);
+
+            // Restart line
+            prev_offset = start_offset;
         }
+
+        // Safe to insert 2 characters here as previous check would split lines if not enough space left
+        switch (c)
+        {
+            // Skip newline, dealt with above
+            case '\n':
+                break;
+
+            // Escape these
+            case '\\':
+                line_buffer[prev_offset++] = '\\';
+                line_buffer[prev_offset++] = '\\';
+                break;
+
+            case '\"':
+                line_buffer[prev_offset++] = '\\';
+                line_buffer[prev_offset++] = '\"';
+                break;
+
+            // Add the rest
+            default:
+                line_buffer[prev_offset++] = c;
+                break;
+        }
+    }
+
+    // Send the last line
+    if (prev_offset > start_offset)
+    {
+        assert(prev_offset < sizeof(line_buffer) - 3);
+        line_buffer[prev_offset++] = '\"';
+        line_buffer[prev_offset++] = '}';
+        line_buffer[prev_offset] = 0;
+        Server_Send(server, line_buffer, prev_offset, 20);
     }
 }
 
@@ -2521,7 +2549,7 @@ static void Server_Update(Server* server)
 
     assert(server != NULL);
 
-    if (server->client_socket == NULL)
+    if (Server_IsClientConnected(server) == RMT_FALSE)
     {
         // Accept connections as long as there is no client connected
         WebSocket* client_socket = NULL;
@@ -2556,39 +2584,14 @@ static void Server_Update(Server* server)
         }
     }
 
-    if (server->client_socket != NULL)
+    // Send pings to the client every second
+    cur_time = msTimer_Get();
+    if (cur_time - server->last_ping_time > 1000)
     {
-        // Send pings to the client every second
-        cur_time = msTimer_Get();
-        if (cur_time - server->last_ping_time > 1000)
-        {
-            rmtPStr ping_message = "{ \"id\": \"PING\" }";
-            enum rmtError error = WebSocket_Send(server->client_socket, ping_message, strlen(ping_message), 20);
-            if (error == RMT_ERROR_SOCKET_SEND_FAIL)
-            {
-                WebSocket_Destroy(server->client_socket);
-                server->client_socket = NULL;
-            }
-
-            server->last_ping_time = cur_time;
-        }
+        rmtPStr ping_message = "{ \"id\": \"PING\" }";
+        Server_Send(server, ping_message, strlen(ping_message), 20);
+        server->last_ping_time = cur_time;
     }
-}
-
-
-static rmtBool Server_IsClientConnected(Server* server)
-{
-    assert(server != NULL);
-    return server->client_socket != NULL ? RMT_TRUE : RMT_FALSE;
-}
-
-
-static enum rmtError Server_Send(Server* server, void* data, rmtU32 length, rmtU32 timeout)
-{
-    assert(server != NULL);
-    if (Server_IsClientConnected(server))
-        return WebSocket_Send(server->client_socket, data, length, timeout);
-    return RMT_ERROR_NONE;
 }
 
 
