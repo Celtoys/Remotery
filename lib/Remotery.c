@@ -2929,11 +2929,23 @@ static void SampleTree_Destroy(SampleTree* tree)
 }
 
 
+rmtU32 HashCombine(rmtU32 hash_a, rmtU32 hash_b)
+{
+    // A sequence of 32 uniformly random bits so that each bit of the combined hash is changed on application
+    // Derived from the golden ratio: UINT_MAX / ((1 + sqrt(5)) / 2)
+    // In reality it's just an arbitrary value which happens to work well, avoiding mapping all zeros to zeros.
+    // http://burtleburtle.net/bob/hash/doobs.html
+    static rmtU32 random_bits = 0x9E3779B9;
+    hash_a ^= hash_b + random_bits + (hash_a << 6) + (hash_a >> 2);
+    return hash_a;
+}
+
+
 static enum rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
     Sample* parent;
     enum rmtError error;
-    rmtU32 hash_src[3];
+    rmtU32 unique_id;
 
     // As each tree has a root sample node allocated, a parent must always be present
     assert(tree != NULL);
@@ -2943,6 +2955,7 @@ static enum rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name
     if (parent->last_child != NULL && parent->last_child->name_hash == name_hash)
     {
         // TODO: Collapse siblings with flag exception?
+        //       Note that above check is not enough - requires a linear search
     }
     if (parent->name_hash == name_hash)
     {
@@ -2956,10 +2969,10 @@ static enum rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name
     Sample_Prepare(*sample, name, name_hash, parent);
 
     // Generate a unique ID for this sample in the tree
-    hash_src[0] = parent->name_hash;
-    hash_src[1] = parent->nb_children;
-    hash_src[2] = (*sample)->name_hash;
-    (*sample)->unique_id = MurmurHash3_x86_32(hash_src, sizeof(hash_src), 0);
+    unique_id = parent->unique_id;
+    unique_id = HashCombine(unique_id, (*sample)->name_hash);
+    unique_id = HashCombine(unique_id, parent->nb_children);
+    (*sample)->unique_id = unique_id;
 
     // Add sample to its parent
     parent->nb_children++;
