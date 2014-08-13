@@ -210,6 +210,9 @@ WM.Grid = (function()
 		DOM.Node.SetSize(this.Node, [ width, height ]);
 
 		DOM.Event.AddHandler(this.Node, "dblclick", OnDblClick);
+
+		var mouse_wheel_event = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
+		DOM.Event.AddHandler(this.Node, mouse_wheel_event, Bind(OnMouseScroll, this));
 	}
 
 
@@ -224,6 +227,13 @@ WM.Grid = (function()
 			if (row)
 				row.Toggle();
 		}
+	}
+
+
+	function OnMouseScroll(self, evt)
+	{
+		var mouse_state = new Mouse.State(evt);
+		self.Node.scrollTop -= mouse_state.WheelDelta * 20;
 	}
 
 
