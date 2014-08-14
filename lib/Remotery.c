@@ -1368,19 +1368,13 @@ static enum rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket
     // Accept the connection
     s = accept(tcp_socket->socket, 0, 0);
     if (s == SOCKET_ERROR)
-    {
-        TCPSocket_Close(tcp_socket);
         return RMT_ERROR_SOCKET_ACCEPT_FAIL;
-    }
 
     // Create a client socket for the new connection
     assert(client_socket != NULL);
     error = TCPSocket_Create(client_socket);
     if (error != RMT_ERROR_NONE)
-    {
-        TCPSocket_Close(tcp_socket);
         return error;
-    }
     (*client_socket)->socket = s;
 
     return RMT_ERROR_NONE;
@@ -1428,10 +1422,7 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
         {
             // Close the connection if sending fails for any other reason other than blocking
             if (bytes_sent != 0 && !TCPSocketWouldBlock())
-            {
-                TCPSocket_Close(tcp_socket);
                 return RMT_ERROR_SOCKET_SEND_FAIL;
-            }
 
             // First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
             cur_ms = msTimer_Get();
@@ -1498,10 +1489,7 @@ static enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32
         {
             // Close the connection if receiving fails for any other reason other than blocking
             if (bytes_received != 0 && !TCPSocketWouldBlock())
-            {
-                TCPSocket_Close(tcp_socket);
                 return RMT_ERROR_SOCKET_RECV_FAILED;
-            }
 
             // First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
             cur_ms = msTimer_Get();
@@ -2167,13 +2155,13 @@ static enum rmtError WebSocket_AcceptConnection(WebSocket* web_socket, WebSocket
     // TODO: Specify limit_host
     error = WebSocketHandshake(tcp_socket, NULL);
     if (error != RMT_ERROR_NONE)
-        return TCPSocket_Destroy(&tcp_socket, error);
+        return error;
 
     // Allocate and return a new client socket
     assert(client_socket != NULL);
     error = WebSocket_Create(client_socket);
     if (error != RMT_ERROR_NONE)
-        return TCPSocket_Destroy(&tcp_socket, error);
+        return error;
 
     (*client_socket)->tcp_socket = tcp_socket;
     (*client_socket)->mode = web_socket->mode;
@@ -2335,21 +2323,14 @@ static enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32
         {
             error = ReceiveFrameHeader(web_socket);
             if (error != RMT_ERROR_NONE)
-            {
-                // Frame header potentially partially received so need to close
-                WebSocket_Close(web_socket);
                 return error;
-            }
         }
 
         // Read as much required data as possible
         bytes_to_read = web_socket->frame_bytes_remaining < length ? web_socket->frame_bytes_remaining : length;
         error = TCPSocket_Receive(web_socket->tcp_socket, cur_data, bytes_to_read, 20);
         if (error == RMT_ERROR_SOCKET_RECV_FAILED)
-        {
-            WebSocket_Close(web_socket);
             return error;
-        }
 
         // If there's a stall receiving the data, check for timeout
         if (error == RMT_ERROR_SOCKET_RECV_NO_DATA || error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
@@ -2397,6 +2378,8 @@ typedef struct
     WebSocket* client_socket;
 
     rmtU32 last_ping_time;
+
+    rmtU16 port;
 } Server;
 
 
