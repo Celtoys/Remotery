@@ -26,26 +26,26 @@ A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in
 
 Supported features:
 
-    * Lightweight instrumentation of multiple threads running on the CPU.
-    * Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
-      transmits sample data to the browser on a latent thread.
-    * Profiles itself and shows how it's performing in the viewer.
-    * Can optionally sample CUDA GPU activity.
-    * Console output for logging text.
+* Lightweight instrumentation of multiple threads running on the CPU.
+* Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
+  transmits sample data to the browser on a latent thread.
+* Profiles itself and shows how it's performing in the viewer.
+* Can optionally sample CUDA GPU activity.
+* Console output for logging text.
 
 
 Compiling
 ---------
 
-    * Windows (MSVC) - add lib/Remotery.c and lib/Remotery.h to your program. Set include
-      directories to add Remotery/lib path. The required library ws2_32.lib should be picked
-      up through the use of the #pragma comment(lib, "ws2_32.lib") directive in Remotery.c.
+* Windows (MSVC) - add lib/Remotery.c and lib/Remotery.h to your program. Set include
+  directories to add Remotery/lib path. The required library ws2_32.lib should be picked
+  up through the use of the #pragma comment(lib, "ws2_32.lib") directive in Remotery.c.
 
-    * Mac OS X (XCode) - simply add lib/Remotery.c and lib/Remotery.h to your program.
+* Mac OS X (XCode) - simply add lib/Remotery.c and lib/Remotery.h to your program.
 
-    * Linux (GCC) - add the source in lib folder. Compilation of the code requires -pthreads for
-      library linkage. For example to compile the same run: cc lib/Remotery.c sample/sample.c
-      -I lib -pthread -lm
+* Linux (GCC) - add the source in lib folder. Compilation of the code requires -pthreads for
+  library linkage. For example to compile the same run: cc lib/Remotery.c sample/sample.c
+  -I lib -pthread -lm
 
 You can define some extra macros to modify what features are compiled into Remotery:
 
@@ -68,10 +68,18 @@ See the sample directory for further examples. A quick example:
         Remotery* rmt;
         rmt_CreateGlobalInstance(&rmt);
 
-        // Add a CPU sample that times how long it takes to log text.
-        rmt_BeginCPUSample(LogText);
-        rmt_LogText("Hello, world!");
-        rmt_EndCPUSample();
+        // Explicit begin/end for C
+        {
+            rmt_BeginCPUSample(LogText);
+            rmt_LogText("Time me, please!");
+            rmt_EndCPUSample();
+        }
+
+        // Scoped begin/end for C++
+        {
+            rmt_BeginCPUSample(LogText);
+            rmt_LogText("Time me, too!");
+        }
 
         // Destroy the main instance of Remotery.
         rmt_DestroyGlobalInstance(rmt);
@@ -81,7 +89,7 @@ See the sample directory for further examples. A quick example:
 Running the Viewer
 ------------------
 
-Double-click or launch vis/index.html from the browser.
+Double-click or launch `vis/index.html` from the browser.
 
 
 Sampling CUDA activity
@@ -121,8 +129,8 @@ CUDA activity:
         // ... CUDA code ...
     }
 
- Remotery supports only one context for all threads and will use cuCtxGetCurrent and cuCtxSetCurrent to
- ensure the current thread has the context you specify in rmtCUDABind.context.
+Remotery supports only one context for all threads and will use cuCtxGetCurrent and cuCtxSetCurrent to
+ensure the current thread has the context you specify in rmtCUDABind.context.
 
 */
 
