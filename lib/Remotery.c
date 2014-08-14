@@ -2399,6 +2399,7 @@ static enum rmtError Server_Create(rmtU16 port, Server** server)
     (*server)->listen_socket = NULL;
     (*server)->client_socket = NULL;
     (*server)->last_ping_time = 0;
+    (*server)->port = port;
 
     // Create the listening WebSocket
     error = WebSocket_CreateServer(port, WEBSOCKET_TEXT, &(*server)->listen_socket);
@@ -2454,6 +2455,21 @@ static enum rmtError Server_Send(Server* server, const void* data, rmtU32 length
 }
 
 
+static rmtBool Server_SendLine(Server* server, char* text, rmtU32 size)
+{
+    assert(server != NULL);
+
+    // String/JSON block/null terminate
+    text[size++] = '\"';
+    text[size++] = '}';
+    text[size] = 0;
+
+    // Don't close socket on any errors as this can be called from any thread
+    // Rely on the server thread to re-detect the error and close itself
+    return (WebSocket_Send(server->client_socket, text, size, 20) == RMT_ERROR_SOCKET_SEND_FAIL) ? RMT_FALSE : RMT_TRUE;
+}
+
+
 static void Server_LogText(Server* server, rmtPStr text)
 {
     int start_offset, prev_offset, i;
@@ -2479,11 +2495,8 @@ static void Server_LogText(Server* server, rmtPStr text)
         // Line wrap when too long or newline encountered
         if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
         {
-            // End message and send
-            line_buffer[prev_offset++] = '\"';
-            line_buffer[prev_offset++] = '}';
-            line_buffer[prev_offset] = 0;
-            Server_Send(server, line_buffer, prev_offset, 20);
+            if (Server_SendLine(server, line_buffer, prev_offset) == RMT_FALSE)
+                break;
 
             // Restart line
             prev_offset = start_offset;
@@ -2518,10 +2531,7 @@ static void Server_LogText(Server* server, rmtPStr text)
     if (prev_offset > start_offset)
     {
         assert(prev_offset < sizeof(line_buffer) - 3);
-        line_buffer[prev_offset++] = '\"';
-        line_buffer[prev_offset++] = '}';
-        line_buffer[prev_offset] = 0;
-        Server_Send(server, line_buffer, prev_offset, 20);
+        Server_SendLine(server, line_buffer, prev_offset);
     }
 }
 
@@ -2532,12 +2542,26 @@ static void Server_Update(Server* server)
 
     assert(server != NULL);
 
-    if (Server_IsClientConnected(server) == RMT_FALSE)
+    // Recreate the listening socket if it's been destroyed earlier
+    if (server->listen_socket == NULL)
+        WebSocket_CreateServer(server->port, WEBSOCKET_TEXT, &server->listen_socket);
+
+    if (server->listen_socket != NULL && server->client_socket == NULL)
     {
         // Accept connections as long as there is no client connected
         WebSocket* client_socket = NULL;
-        WebSocket_AcceptConnection(server->listen_socket, &client_socket);
-        server->client_socket = client_socket;
+        enum rmtError error = WebSocket_AcceptConnection(server->listen_socket, &client_socket);
+        if (error == RMT_ERROR_NONE)
+        {
+            server->client_socket = client_socket;
+        }
+        else
+        {
+            // Destroy the listen socket on failure to accept
+            // It will get recreated in another update
+            WebSocket_Destroy(server->listen_socket);
+            server->listen_socket = NULL;
+        }
     }
 
     else
