@@ -27,10 +27,11 @@ A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in
 Supported features:
 
     * Lightweight instrumentation of multiple threads running on the CPU.
-    * Console output for logging text.
     * Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
       transmits sample data to the browser on a latent thread.
+    * Profiles itself and shows how it's performing in the viewer.
     * Can optionally sample CUDA GPU activity.
+    * Console output for logging text.
 
 
 Compiling
@@ -93,6 +94,7 @@ two together using the call:
     rmtCUDABind bind;
     bind.context = m_Context;
     bind.CtxSetCurrent = &cuCtxSetCurrent;
+    bind.CtxGetCurrent = &cuCtxGetCurrent;
     bind.EventCreate = &cuEventCreate;
     bind.EventDestroy = &cuEventDestroy;
     bind.EventRecord = &cuEventRecord;
@@ -118,6 +120,9 @@ CUDA activity:
         rmt_ScopedCUDASample(ScopedSample, stream);
         // ... CUDA code ...
     }
+
+ Remotery supports only one context for all threads and will use cuCtxGetCurrent and cuCtxSetCurrent to
+ ensure the current thread has the context you specify in rmtCUDABind.context.
 
 */
 
@@ -331,6 +336,7 @@ typedef struct rmtCUDABind
     // macros to point function calls to different versions, e.g. cuEventDestroy is a macro for
     // cuEventDestroy_v2.
     void* CtxSetCurrent;
+    void* CtxGetCurrent;
     void* EventCreate;
     void* EventDestroy;
     void* EventRecord;

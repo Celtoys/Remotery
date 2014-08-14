@@ -3939,14 +3939,22 @@ static enum rmtError CUDASetContext(void* context)
     assert(CtxSetCurrent != NULL);
     return MapCUDAResult(CtxSetCurrent((CUcontext)context));
 }
-static enum rmtError CUDAPushContext()
+static enum rmtError CUDAGetContext(void** context)
 {
-    assert(g_Remotery != NULL);
-    return CUDASetContext(g_Remotery->cuda.context);
+    CUDA_MAKE_FUNCTION(CtxGetCurrent, (CUcontext* ctx));
+    assert(CtxGetCurrent != NULL);
+    return MapCUDAResult(CtxGetCurrent((CUcontext*)context));
 }
-static enum rmtError CUDAPopContext()
+static enum rmtError CUDAEnsureContext()
 {
-    return CUDASetContext(NULL);
+    void* current_context;
+    CUDA_GUARD(CUDAGetContext(&current_context));
+
+    assert(g_Remotery != NULL);
+    if (current_context != g_Remotery->cuda.context)
+        CUDA_GUARD(CUDASetContext(g_Remotery->cuda.context));
+
+    return RMT_ERROR_NONE;
 }
 
 
@@ -3954,42 +3962,32 @@ static enum rmtError CUDAPopContext()
 static enum rmtError CUDAEventCreate(CUevent* phEvent, unsigned int Flags)
 {
     CUDA_MAKE_FUNCTION(EventCreate, (CUevent *phEvent, unsigned int Flags));
-
-    CUDA_GUARD(CUDAPushContext());
-    CUDA_GUARD(MapCUDAResult(EventCreate(phEvent, Flags)));
-    return CUDAPopContext();
+    CUDA_GUARD(CUDAEnsureContext());
+    return MapCUDAResult(EventCreate(phEvent, Flags));
 }
 static enum rmtError CUDAEventDestroy(CUevent hEvent)
 {
     CUDA_MAKE_FUNCTION(EventDestroy, (CUevent hEvent));
-
-    CUDA_GUARD(CUDAPushContext());
-    CUDA_GUARD(MapCUDAResult(EventDestroy(hEvent)));
-    return CUDAPopContext();
+    CUDA_GUARD(CUDAEnsureContext());
+    return MapCUDAResult(EventDestroy(hEvent));
 }
 static enum rmtError CUDAEventRecord(CUevent hEvent, void* hStream)
 {
     CUDA_MAKE_FUNCTION(EventRecord, (CUevent hEvent, CUstream hStream));
-
-    CUDA_GUARD(CUDAPushContext());
-    CUDA_GUARD(MapCUDAResult(EventRecord(hEvent, (CUstream)hStream)));
-    return CUDAPopContext();
+    CUDA_GUARD(CUDAEnsureContext());
+    return MapCUDAResult(EventRecord(hEvent, (CUstream)hStream));
 }
 static enum rmtError CUDAEventQuery(CUevent hEvent)
 {
     CUDA_MAKE_FUNCTION(EventQuery,  (CUevent hEvent));
-
-    CUDA_GUARD(CUDAPushContext());
-    CUDA_GUARD(MapCUDAResult(EventQuery(hEvent)));
-    return CUDAPopContext();
+    CUDA_GUARD(CUDAEnsureContext());
+    return MapCUDAResult(EventQuery(hEvent));
 }
 static enum rmtError CUDAEventElapsedTime(float* pMilliseconds, CUevent hStart, CUevent hEnd)
 {
     CUDA_MAKE_FUNCTION(EventElapsedTime, (float *pMilliseconds, CUevent hStart, CUevent hEnd));
-
-    CUDA_GUARD(CUDAPushContext());
-    CUDA_GUARD(MapCUDAResult(EventElapsedTime(pMilliseconds, hStart, hEnd)));
-    return CUDAPopContext();
+    CUDA_GUARD(CUDAEnsureContext());
+    return MapCUDAResult(EventElapsedTime(pMilliseconds, hStart, hEnd));
 }
 
 
