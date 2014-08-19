@@ -21,6 +21,7 @@
     @TIMERS:        Platform-specific timers
     @TLS:           Thread-Local Storage
     @ATOMIC:        Atomic Operations
+    @VMBUFFER:      Mirror Buffer using Virtual Memory for auto-wrap
     @THREADS:       Threads
     @SAFEC:         Safe C Library excerpts
     @OBJALLOC:      Reusable Object Allocator
@@ -30,6 +31,7 @@
     @BASE64:        Base-64 encoder
     @MURMURHASH:    Murmur-Hash 3
     @WEBSOCKETS:    WebSockets
+    @MESSAGEQ:      Multiple producer, single consumer message queue
     @NETWORK:       Network Server
     @JSON:          Basic, text-based JSON serialisation
     @SAMPLE:        Base Sample Description (CPU by default)
@@ -66,11 +68,14 @@
     #include <TinyCRT/TinyCRT.h>
     #include <TinyCRT/TinyWinsock.h>
 
+    #define CreateFileMapping CreateFileMappingA
+
 #else
 
     #ifdef RMT_PLATFORM_MACOS
-        #include <stdlib.h>
         #include <mach/mach_time.h>
+        #include <mach/vm_map.h>
+        #include <mach/mach.h>
         #include <sys/time.h>
     #else
         #include <malloc.h>
@@ -90,10 +95,12 @@
     #endif
 
     #if defined(RMT_PLATFORM_POSIX)
+        #include <stdlib.h>
         #include <pthread.h>
         #include <unistd.h>
         #include <string.h>
         #include <sys/socket.h>
+        #include <sys/mman.h>
         #include <netinet/in.h>
         #include <fcntl.h>
         #include <errno.h>
@@ -332,6 +339,15 @@ static void* tlsGet(rmtTLS handle)
 */
 
 
+static rmtBool AtomicCompareAndSwap(long volatile* val, long old_val, long new_val)
+{
+    #if defined(RMT_PLATFORM_WINDOWS)
+        return _InterlockedCompareExchange(val, new_val, old_val) == old_val ? RMT_TRUE : RMT_FALSE;
+    #elif defined(RMT_PLATFORM_POSIX)
+        return __sync_bool_compare_and_swap(val, old_val, new_val) ? RMT_TRUE : RMT_FALSE;
+    #endif
+}
+
 
 static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
 {
@@ -407,6 +423,273 @@ static void StoreRelease(void* volatile*  addr, void* v)
     WriteFence();
     *addr = v;
 }
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @VMBUFFER: Mirror Buffer using Virtual Memory for auto-wrap
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct VirtualMirrorBuffer
+{
+    // Page-rounded size of the buffer without mirroring
+    rmtU32 size;
+
+    // Pointer to the first part of the mirror
+    // The second part comes directly after at ptr+size bytes
+    rmtU8* ptr;
+
+#ifdef RMT_PLATFORM_WINDOWS
+    HANDLE file_map_handle;
+#endif
+
+} VirtualMirrorBuffer;
+
+
+static void VirtualMirrorBuffer_Destroy(VirtualMirrorBuffer* buffer)
+{
+    assert(buffer != 0);
+
+#ifdef RMT_PLATFORM_WINDOWS
+    if (buffer->file_map_handle != NULL)
+    {
+        CloseHandle(buffer->file_map_handle);
+        buffer->file_map_handle = NULL;
+    }
+#endif
+
+#ifdef RMT_PLATFORM_MACOS
+    if (buffer->ptr != NULL)
+        vm_deallocate(mach_task_self(), (vm_address_t)buffer->ptr, buffer->size * 2);
+#endif
+
+#ifdef RMT_PLATFORM_LINUX
+    if (buffer->ptr != NULL)
+        munmap(buffer->ptr, buffer->size * 2);
+#endif
+
+    buffer->ptr = NULL;
+
+    free(buffer);
+}
+
+
+static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rmtU32 size, int nb_attempts)
+{
+    static const rmtU32 k_64 = 64 * 1024;
+
+#ifdef RMT_PLATFORM_LINUX
+    char path[] = "/dev/shm/ring-buffer-XXXXXX";
+    int file_descriptor;
+#endif
+
+    assert(buffer != 0);
+
+    // Allocate container
+    *buffer = (VirtualMirrorBuffer*)malloc(sizeof(VirtualMirrorBuffer));
+    if (*buffer == 0)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    // Round up to page-granulation; the nearest 64k boundary for now
+    size = (size + k_64 - 1) / k_64 * k_64;
+
+    // Set defaults
+    (*buffer)->size = size;
+    (*buffer)->ptr = NULL;
+#ifdef RMT_PLATFORM_WINDOWS
+    (*buffer)->file_map_handle = INVALID_HANDLE_VALUE;
+#endif
+
+#ifdef RMT_PLATFORM_WINDOWS
+
+    // Windows version based on https://gist.github.com/rygorous/3158316
+
+    while (nb_attempts-- > 0)
+    {
+        rmtU8* desired_addr;
+
+        // Create a file mapping for pointing to its physical address with multiple virtual pages
+        (*buffer)->file_map_handle = CreateFileMapping(
+            INVALID_HANDLE_VALUE,
+            0,
+            PAGE_READWRITE,
+            0,
+            size,
+            0);
+        if ((*buffer)->file_map_handle == NULL)
+            break;
+
+        // Reserve two contiguous pages of virtual memory
+        desired_addr = (rmtU8*)VirtualAlloc(0, size * 2, MEM_RESERVE, PAGE_NOACCESS);
+        if (desired_addr == NULL)
+            break;
+
+        // Release the range immediately but retain the address for the next sequence of code to
+        // try and map to it. In the mean-time some other OS thread may come along and allocate this
+        // address range from underneath us so multiple attempts need to be made.
+        VirtualFree(desired_addr, 0, MEM_RELEASE);
+
+        // Immediately try to point both pages at the file mapping
+        if (MapViewOfFileEx((*buffer)->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr) == desired_addr &&
+            MapViewOfFileEx((*buffer)->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr + size) == desired_addr + size)
+        {
+            (*buffer)->ptr = desired_addr;
+            break;
+        }
+
+        // Failed to map the virtual pages; cleanup and try again
+        CloseHandle((*buffer)->file_map_handle);
+        (*buffer)->file_map_handle = NULL;
+    }
+
+#endif
+
+#ifdef RMT_PLATFORM_MACOS
+
+    //
+    // Mac version based on https://github.com/mikeash/MAMirroredQueue
+    //
+    // Copyright (c) 2010, Michael Ash
+    // All rights reserved.
+    //
+    // Redistribution and use in source and binary forms, with or without modification, are permitted provided that
+    // the following conditions are met:
+    //
+    // Redistributions of source code must retain the above copyright notice, this list of conditions and the following
+    // disclaimer.
+    //
+    // Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+    // following disclaimer in the documentation and/or other materials provided with the distribution.
+    // Neither the name of Michael Ash nor the names of its contributors may be used to endorse or promote products
+    // derived from this software without specific prior written permission.
+    //
+    // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+    // INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
+    // ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+    // INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+    // GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+    // LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+    // OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    //
+
+    while (nb_attempts-- > 0)
+    {
+        vmprot_t cur_prot, max_prot;
+        kern_return_t mach_error;
+        rmtU8* ptr = NULL;
+        rmtU8* target = NULL;
+
+        // Allocate 2 contiguous pages of virtual memory
+        if (vm_allocate(mach_task_self(), (vm_address_t*)&ptr, size * 2, VM_FLAGS_ANYWHERE) != KERN_SUCCESS)
+            break;
+
+        // Try to deallocate the last page, leaving its virtual memory address free
+        target = ptr + size;
+        if (vm_deallocate(mach_task_self(), (vm_address_t)target, size) != KERN_SUCCESS)
+        {
+            vm_deallocate(mach_task_self(), (vm_address_t)ptr, size * 2);
+            break;
+        }
+
+        // Attempt to remap the page just deallocated to the buffer again
+        mach_error = vm_remap(
+            mach_task_self(),
+            (vm_address_t*)&target,
+            size,
+            0,  // mask
+            0,  // anywhere
+            mach_task_self(),
+            (vm_address_t)ptr,
+            0,  //copy
+            &cur_prot,
+            &max_prot,
+            VM_INHERIT_COPY);
+
+        if (mach_error == KERN_NO_SPACE)
+        {
+            // Failed on this pass, cleanup and make another attempt
+            if (vm_deallocate(mach_task_self(), (vm_address_t)ptr, size) != KERN_SUCCESS)
+                break;
+        }
+
+        else if (mach_error == KERN_SUCCCESS)
+        {
+            // Leave the loop on success
+            (*buffer)->ptr = ptr;
+            break;
+        }
+
+        else
+        {
+            // Unknown error, can't recover
+            vm_deallocate(mach_task_self(), (vm_address_t)ptr, size);
+            break;
+        }
+    }
+
+#endif
+
+#ifdef RMT_PLATFORM_LINUX
+
+    // Linux version based on now-defunct Wikipedia section http://en.wikipedia.org/w/index.php?title=Circular_buffer&oldid=600431497
+
+    // Create a unique temporary filename in the shared memory folder
+    file_descriptor = mkstemp(path);
+    if (file_descriptor < 0)
+    {
+        VirtualMirrorBuffer_Destroy(*buffer);
+        return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
+    }
+
+    // Delete the name
+    if (unlink(path))
+    {
+        VirtualMirrorBuffer_Destroy(*buffer);
+        return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
+    }
+
+    // Set the file size to twice the buffer size
+    // TODO: this 2x behaviour can be avoided with similar solution to Win/Mac
+    if (ftruncate (file_descriptor, size * 2))
+    {
+        VirtualMirrorBuffer_Destroy(*buffer);
+        return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
+    }
+
+    // Map 2 contiguous pages
+    (*buffer)->ptr = mmap(NULL, size * 2, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if ((*buffer)->ptr == MAP_FAILED)
+    {
+        VirtualMirrorBuffer_Destroy(*buffer);
+        return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
+    }
+
+    // Point both pages to the same memory file
+    if (mmap((*buffer)->ptr, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr ||
+        mmap((*buffer)->ptr + size, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr + size)
+    {
+        VirtualMirrorBuffer_Destroy(*buffer);
+        return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
+    }
+
+#endif
+
+    // Cleanup if exceeded number of attempts or failed
+    if ((*buffer)->ptr == NULL)
+    {
+        VirtualMirrorBuffer_Destroy(*buffer);
+        return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
+    }
+
+    return RMT_ERROR_NONE;
+}
+
 
 
 /*
@@ -2364,6 +2647,174 @@ static enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+   @MESSAGEQ: Multiple producer, single consumer message queue
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct Message
+{
+    rmtU32 size;
+} Message;
+
+
+// Multiple producer, single consumer message queue that uses its own data buffer
+// to store the message data. 
+typedef struct MessageQueue
+{
+    rmtU32 size;
+
+    // The physical address of this data buffer is pointed to by two sequential
+    // virtual memory pages, allowing automatic wrap-around of any reads or writes
+    // that exceed the limits of the buffer.
+    VirtualMirrorBuffer* data;
+
+    // Read/write position never wrap allowing trivial overflow checks
+    // with easier debugging
+    rmtU32 read_pos;
+    rmtU32 write_pos;
+
+} MessageQueue;
+
+
+static void MessageQueue_Destroy(MessageQueue* queue)
+{
+    assert(queue != NULL);
+
+    if (queue->data != NULL)
+    {
+        VirtualMirrorBuffer_Destroy(queue->data);
+        queue->data = NULL;
+    }
+
+    free(queue);
+}
+
+
+static enum rmtError MessageQueue_Create(MessageQueue** queue, rmtU32 size)
+{
+    enum rmtError error;
+
+    assert(queue != NULL);
+
+    // Allocate the container
+    *queue = (MessageQueue*)malloc(sizeof(MessageQueue));
+    if (*queue == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    // Set defaults
+    (*queue)->size = 0;
+    (*queue)->data = NULL;
+    (*queue)->read_pos = 0;
+    (*queue)->write_pos = 0;
+
+    error = VirtualMirrorBuffer_Create(&(*queue)->data, size, 10);
+    if (error != RMT_ERROR_NONE)
+    {
+        MessageQueue_Destroy(*queue);
+        *queue = NULL;
+        return error;
+    }
+
+    // The mirror buffer needs to be page-aligned and will change the requested
+    // size to match that.
+    (*queue)->size = (*queue)->data->size;
+
+    // Set the entire buffer to zeroes, representing no ready message
+    memset((*queue)->data->ptr, 0, (*queue)->size);
+
+    return RMT_ERROR_NONE;
+}
+
+
+static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 write_size)
+{
+    Message* msg;
+
+    assert(queue != NULL);
+
+    while (1)
+    {
+        // Check for potential overflow
+        rmtU32 s = queue->size;
+        rmtU32 r = queue->read_pos;
+        rmtU32 w = queue->write_pos;
+        if ((int)(w - r) > s - write_size)
+            return NULL;
+
+        // Point to the newly allocated space
+        msg = (Message*)(queue->data->ptr + (w & (s - 1)));
+
+        // Setting the message size to zero serves as a marker to the consumer that even though
+        // space has been allocated for the message, the message isn't ready to be consumed
+        // yet.
+        //
+        // Multiple threads will come through here and simultaneously modify the same flag. This
+        // is fine given that a) this space has been guaranteed to be free, and b) they will all
+        // set it to the same value.
+        msg->size = 0;
+
+        // Increment the write position, leaving the loop if this is the thread that succeeded
+        if (AtomicCompareAndSwap((long volatile*)&queue->write_pos, w, w + write_size) == RMT_TRUE)
+            break;
+    }
+
+    return msg;
+}
+
+
+static void MessageQueue_CommitMessage(MessageQueue* queue, Message* message, rmtU32 write_size)
+{
+    assert(queue != NULL);
+    assert(message != NULL);
+
+    // Ensure message writes complete before commit
+    WriteFence();
+
+    // Commit flag is the size of the message data
+    assert(message->size == 0);
+    message->size = write_size;
+}
+
+
+Message* MessageQueue_PeekNextMessage(MessageQueue* queue)
+{
+    rmtU8* ptr;
+
+    assert(queue != NULL);
+
+    // First check that there are bytes queued
+    if (queue->write_pos - queue->read_pos == 0)
+        return NULL;
+
+    // Messages are in the queue but may not have been commit yet
+    // Messages behind this one may have been commit but it's not reachable until
+    // the next one in the queue is ready.
+    ptr = queue->data->ptr + (queue->read_pos & (queue->size - 1));
+    if (((Message*)ptr)->size > 0)
+        return (Message*)ptr;
+
+    return NULL;
+}
+
+
+static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* message)
+{
+    assert(queue != NULL);
+    assert(message != NULL);
+
+    // Ensure all reads from the message queue before this point complete before
+    // incrementing the read position
+    ReadFence();
+    queue->read_pos += message->size;
+}
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    @NETWORK: Network Server
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -2427,9 +2878,6 @@ static void Server_Destroy(Server* server)
 }
 
 
-static const char log_message[] = "{ \"id\": \"LOG\", \"text\": \"";
-
-
 static rmtBool Server_IsClientConnected(Server* server)
 {
     assert(server != NULL);
@@ -2452,87 +2900,6 @@ static enum rmtError Server_Send(Server* server, const void* data, rmtU32 length
     }
 
     return RMT_ERROR_NONE;
-}
-
-
-static rmtBool Server_SendLine(Server* server, char* text, rmtU32 size)
-{
-    assert(server != NULL);
-
-    // String/JSON block/null terminate
-    text[size++] = '\"';
-    text[size++] = '}';
-    text[size] = 0;
-
-    // Don't close socket on any errors as this can be called from any thread
-    // Rely on the server thread to re-detect the error and close itself
-    return (WebSocket_Send(server->client_socket, text, size, 20) == RMT_ERROR_SOCKET_SEND_FAIL) ? RMT_FALSE : RMT_TRUE;
-}
-
-
-static void Server_LogText(Server* server, rmtPStr text)
-{
-    int start_offset, prev_offset, i;
-    char line_buffer[1024] = { 0 };
-
-    assert(server != NULL);
-
-    // Discard log text if not connected
-    // TODO: Queue for later?
-    if (Server_IsClientConnected(server) == RMT_FALSE)
-        return;
-
-    // Start the line buffer off with the JSON message markup
-    strncat_s(line_buffer, sizeof(line_buffer), log_message, sizeof(log_message));
-    start_offset = strnlen_s(line_buffer, sizeof(line_buffer) - 1);
-
-    // There might be newlines in the buffer, so split them into multiple network calls
-    prev_offset = start_offset;
-    for (i = 0; text[i] != 0; i++)
-    {
-        char c = text[i];
-
-        // Line wrap when too long or newline encountered
-        if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
-        {
-            if (Server_SendLine(server, line_buffer, prev_offset) == RMT_FALSE)
-                break;
-
-            // Restart line
-            prev_offset = start_offset;
-        }
-
-        // Safe to insert 2 characters here as previous check would split lines if not enough space left
-        switch (c)
-        {
-            // Skip newline, dealt with above
-            case '\n':
-                break;
-
-            // Escape these
-            case '\\':
-                line_buffer[prev_offset++] = '\\';
-                line_buffer[prev_offset++] = '\\';
-                break;
-
-            case '\"':
-                line_buffer[prev_offset++] = '\\';
-                line_buffer[prev_offset++] = '\"';
-                break;
-
-            // Add the rest
-            default:
-                line_buffer[prev_offset++] = c;
-                break;
-        }
-    }
-
-    // Send the last line
-    if (prev_offset > start_offset)
-    {
-        assert(prev_offset < sizeof(line_buffer) - 3);
-        Server_SendLine(server, line_buffer, prev_offset);
-    }
 }
 
 
@@ -3318,6 +3685,9 @@ struct Remotery
     // Linked list of all known threads being sampled
     ThreadSampler* volatile first_thread_sampler;
 
+    // Queue between clients and main remotery thread
+    MessageQueue* msg_queue;
+
     // The main server thread
     Thread* thread;
 
@@ -3388,6 +3758,34 @@ static void FreeSampleTree(Sample* sample, ObjectAllocator* allocator)
         ObjectAllocator_FreeRange(allocator, sample, last_link, nb_cleared_samples);
     else
         ObjectAllocator_Free(allocator, sample);
+}
+
+
+static enum rmtError Remotery_SendLogText(Remotery* rmt)
+{
+    assert(rmt != NULL);
+
+    // Absorb as many messages in the queue while disconnected
+    if (Server_IsClientConnected(rmt->server) == RMT_FALSE)
+        return RMT_ERROR_NONE;
+
+    // Loop reading as many messages as possible
+    while (1)
+    {
+        enum rmtError error;
+        Message* message = MessageQueue_PeekNextMessage(rmt->msg_queue);
+        if (message == NULL)
+            break;
+
+        // Send the message to the viewer and consume before reacting to any errors
+        error = Server_Send(rmt->server, (rmtU8*)message + sizeof(Message), message->size - sizeof(Message), 20);
+        MessageQueue_ConsumeNextMessage(rmt->msg_queue, message);
+
+        if (error != RMT_ERROR_NONE)
+            return error;
+    }
+
+    return RMT_ERROR_NONE;
 }
 
 
@@ -3556,6 +3954,10 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
             Server_Update(rmt->server);
             rmt_EndCPUSample();
 
+            rmt_BeginCPUSample(SendLogText);
+            Remotery_SendLogText(rmt);
+            rmt_EndCPUSample();
+
             rmt_BeginCPUSample(SendSamplesToViewer);
             Remotery_SendCompleteSamples(rmt);
             rmt_EndCPUSample();
@@ -3597,6 +3999,7 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     (*rmt)->server = NULL;
     (*rmt)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
     (*rmt)->first_thread_sampler = NULL;
+    (*rmt)->msg_queue = NULL;
     (*rmt)->thread = NULL;
 
     // Allocate a TLS handle for the thread sampler
@@ -3610,6 +4013,16 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 
     // Create the server
     error = Server_Create(0x4597, &(*rmt)->server);
+    if (error != RMT_ERROR_NONE)
+    {
+        Remotery_Destroy(*rmt);
+        *rmt = NULL;
+        return error;
+    }
+
+    // Create the main message thread with only one page
+    // TODO: Allow configuration of this
+    error = MessageQueue_Create(&(*rmt)->msg_queue, 100);
     if (error != RMT_ERROR_NONE)
     {
         Remotery_Destroy(*rmt);
@@ -3649,6 +4062,12 @@ static void Remotery_Destroy(Remotery* rmt)
     {
         Thread_Destroy(rmt->thread);
         rmt->thread = NULL;
+    }
+
+    if (rmt->msg_queue != NULL)
+    {
+        MessageQueue_Destroy(rmt->msg_queue);
+        rmt->msg_queue = NULL;
     }
 
     Remotery_DestroyThreadSamplers(rmt);
@@ -3815,10 +4234,92 @@ void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 }
 
 
+static rmtBool QueueLine(MessageQueue* queue, char* text, rmtU32 size)
+{
+    Message* message;
+
+    assert(queue != NULL);
+
+    // String/JSON block/null terminate
+    text[size++] = '\"';
+    text[size++] = '}';
+    text[size] = 0;
+
+    // Allocate some space for the line
+    message = MessageQueue_AllocMessage(queue, sizeof(Message) + size);
+    if (message == NULL)
+        return RMT_FALSE;
+
+    // Copy the text and commit the message
+    memcpy((rmtU8*)message + sizeof(Message), text, size);
+    MessageQueue_CommitMessage(queue, message, sizeof(Message) + size);
+
+    return RMT_TRUE;
+}
+
+
+static const char log_message[] = "{ \"id\": \"LOG\", \"text\": \"";
+
+
 void _rmt_LogText(rmtPStr text)
 {
-    if (g_Remotery != NULL)
-        Server_LogText(g_Remotery->server, text);
+    int start_offset, prev_offset, i;
+    char line_buffer[1024] = { 0 };
+
+    if (g_Remotery == NULL)
+        return;
+
+    // Start the line buffer off with the JSON message markup
+    strncat_s(line_buffer, sizeof(line_buffer), log_message, sizeof(log_message));
+    start_offset = strnlen_s(line_buffer, sizeof(line_buffer) - 1);
+
+    // There might be newlines in the buffer, so split them into multiple network calls
+    prev_offset = start_offset;
+    for (i = 0; text[i] != 0; i++)
+    {
+        char c = text[i];
+
+        // Line wrap when too long or newline encountered
+        if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
+        {
+            if (QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset) == RMT_FALSE)
+                return;
+
+            // Restart line
+            prev_offset = start_offset;
+        }
+
+        // Safe to insert 2 characters here as previous check would split lines if not enough space left
+        switch (c)
+        {
+            // Skip newline, dealt with above
+            case '\n':
+                break;
+
+            // Escape these
+            case '\\':
+                line_buffer[prev_offset++] = '\\';
+                line_buffer[prev_offset++] = '\\';
+                break;
+
+            case '\"':
+                line_buffer[prev_offset++] = '\\';
+                line_buffer[prev_offset++] = '\"';
+                break;
+
+            // Add the rest
+            default:
+                line_buffer[prev_offset++] = c;
+                break;
+        }
+    }
+
+    // Send the last line
+    if (prev_offset > start_offset)
+    {
+        assert(prev_offset < sizeof(line_buffer) - 3);
+        QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset);
+    }
 }
 
 
