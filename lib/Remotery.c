@@ -36,7 +36,6 @@
     @JSON:          Basic, text-based JSON serialisation
     @SAMPLE:        Base Sample Description (CPU by default)
     @SAMPLETREE:    A tree of samples with their allocator
-    @SAMPLEQUEUE:   A lock-free SpSc sample queue
     @TSAMPLER:      Per-Thread Sampler
     @REMOTERY:      Remotery
     @CUDA:          CUDA event sampling
@@ -124,6 +123,23 @@ rmtU64 max(rmtS64 a, rmtS64 b)
 {
     return a > b ? a : b;
 }
+
+
+
+// Config
+// TODO: Expose to user
+
+// How long to sleep between server updates, hopefully trying to give
+// a little CPU back to other threads.
+static const rmtU32 MS_SLEEP_BETWEEN_SERVER_UPDATES = 10;
+
+// Will be rounded to page granularity of 64k
+static const rmtU32 MESSAGE_QUEUE_SIZE_BYTES = 64 * 1024;
+
+// If the user continuously pushes to the message queue, the server network
+// code won't get a chance to update unless there's an upper-limit on how
+// many messages can be consumed per loop.
+static const rmtU32 MAX_NB_MESSAGES_PER_UPDATE = 100;
 
 
 
@@ -2653,10 +2669,21 @@ static enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32
 */
 
 
+typedef enum MessageID
+{
+    MsgID_NotReady,
+    MsgID_LogText,
+    MsgID_SampleTree,
+} MessageID;
+
 
 typedef struct Message
 {
-    rmtU32 size;
+    MessageID id;
+
+    rmtU32 payload_size;
+
+    rmtU8 payload[0];
 } Message;
 
 
@@ -2722,16 +2749,18 @@ static enum rmtError MessageQueue_Create(MessageQueue** queue, rmtU32 size)
     // size to match that.
     (*queue)->size = (*queue)->data->size;
 
-    // Set the entire buffer to zeroes, representing no ready message
-    memset((*queue)->data->ptr, 0, (*queue)->size);
+    // Set the entire buffer to not ready message
+    memset((*queue)->data->ptr, MsgID_NotReady, (*queue)->size);
 
     return RMT_ERROR_NONE;
 }
 
 
-static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 write_size)
+static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_size)
 {
     Message* msg;
+
+    rmtU32 write_size = sizeof(Message) + payload_size;
 
     assert(queue != NULL);
 
@@ -2747,25 +2776,20 @@ static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 write_size
         // Point to the newly allocated space
         msg = (Message*)(queue->data->ptr + (w & (s - 1)));
 
-        // Setting the message size to zero serves as a marker to the consumer that even though
-        // space has been allocated for the message, the message isn't ready to be consumed
-        // yet.
-        //
-        // Multiple threads will come through here and simultaneously modify the same flag. This
-        // is fine given that a) this space has been guaranteed to be free, and b) they will all
-        // set it to the same value.
-        msg->size = 0;
-
         // Increment the write position, leaving the loop if this is the thread that succeeded
         if (AtomicCompareAndSwap((long volatile*)&queue->write_pos, w, w + write_size) == RMT_TRUE)
+        {
+            // Safe to set payload size after thread claims ownership of this allocated range
+            msg->payload_size = payload_size;
             break;
+        }
     }
 
     return msg;
 }
 
 
-static void MessageQueue_CommitMessage(MessageQueue* queue, Message* message, rmtU32 write_size)
+static void MessageQueue_CommitMessage(MessageQueue* queue, Message* message, MessageID id)
 {
     assert(queue != NULL);
     assert(message != NULL);
@@ -2773,15 +2797,16 @@ static void MessageQueue_CommitMessage(MessageQueue* queue, Message* message, rm
     // Ensure message writes complete before commit
     WriteFence();
 
-    // Commit flag is the size of the message data
-    assert(message->size == 0);
-    message->size = write_size;
+    // Setting the message ID signals to the consumer that the message is ready
+    assert(message->id == MsgID_NotReady);
+    message->id = id;
 }
 
 
 Message* MessageQueue_PeekNextMessage(MessageQueue* queue)
 {
-    rmtU8* ptr;
+    Message* ptr;
+    rmtU32 r;
 
     assert(queue != NULL);
 
@@ -2792,9 +2817,10 @@ Message* MessageQueue_PeekNextMessage(MessageQueue* queue)
     // Messages are in the queue but may not have been commit yet
     // Messages behind this one may have been commit but it's not reachable until
     // the next one in the queue is ready.
-    ptr = queue->data->ptr + (queue->read_pos & (queue->size - 1));
-    if (((Message*)ptr)->size > 0)
-        return (Message*)ptr;
+    r = queue->read_pos & (queue->size - 1);
+    ptr = (Message*)(queue->data->ptr + r);
+    if (ptr->id != MsgID_NotReady)
+        return ptr;
 
     return NULL;
 }
@@ -2802,13 +2828,26 @@ Message* MessageQueue_PeekNextMessage(MessageQueue* queue)
 
 static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* message)
 {
+    rmtU32 message_size;
+
     assert(queue != NULL);
     assert(message != NULL);
 
-    // Ensure all reads from the message queue before this point complete before
-    // incrementing the read position
-    ReadFence();
-    queue->read_pos += message->size;
+    // Setting the message ID to "not ready" serves as a marker to the consumer that even though
+    // space has been allocated for a message, the message isn't ready to be consumed
+    // yet.
+    //
+    // We can't do that when allocating the message because multiple threads will be fighting for
+    // the same location. Instead, clear out any messages just read by the consumer before advancing
+    // the read position so that a winning thread's allocation will inherit the "not ready" state.
+    //
+    // This costs some write bandwidth and has the potential to flush cache to other cores.
+    message_size = sizeof(Message) + message->payload_size;
+    memset(message, MsgID_NotReady, message_size);
+
+    // Ensure clear completes before advancing the read position
+    WriteFence();
+    queue->read_pos += message_size;
 }
 
 
@@ -3372,350 +3411,12 @@ static enum rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name
 }
 
 
-static Sample* SampleTree_Pop(SampleTree* tree, Sample* sample)
+static void SampleTree_Pop(SampleTree* tree, Sample* sample)
 {
     assert(tree != NULL);
     assert(sample != NULL);
     assert(sample != tree->root);
     tree->current_parent = sample->parent;
-
-    if (tree->current_parent == tree->root)
-    {
-        // Disconnect all samples from the root
-        Sample* root = tree->root;
-        root->first_child = NULL;
-        root->last_child = NULL;
-        root->nb_children = 0;
-        return sample;
-    }
-
-    return NULL;
-}
-
-
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-   @SAMPLEQUEUE: A lock-free SpSc sample queue
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-
-
-typedef struct SampleQueue
-{
-    // Head/tail separated by cache line to avoid false sharing
-    Sample* head;
-    rmtU8 __cache_line_pad_0__[64];
-    Sample* tail;
-    rmtU8 __cache_line_pad_1__[64];
-} SampleQueue;
-
-
-static void SampleQueue_SetDefaults(SampleQueue* queue)
-{
-    assert(queue != NULL);
-    queue->head = NULL;
-    queue->tail = NULL;
-}
-
-
-static enum rmtError SampleQueue_Constructor(SampleQueue* queue)
-{
-    Sample* empty_sample;
-
-    assert(queue != NULL);
-
-    // Setup the queue to point at an empty sample
-    // The type of sample does not matter as it's never dequeued
-    empty_sample = (Sample*)malloc(sizeof(Sample));
-    if (empty_sample == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-    Sample_Constructor(empty_sample);
-    queue->head = empty_sample;
-    queue->tail = empty_sample;
-
-    return RMT_ERROR_NONE;
-}
-
-
-static void SampleQueue_Destructor(SampleQueue* queue)
-{
-    assert(queue != NULL);
-
-    // Assuming the user has correctly shutdown remotery, all samples should have been
-    // released back to their allocators by this point. Ensure that's the case.
-    if (queue->head != NULL)
-        assert(queue->head == queue->tail);
-
-    // Release the empty sample
-    if (queue->head != NULL)
-        free(queue->head);
-    queue->head = NULL;
-    queue->tail = NULL;
-}
-
-
-static void SampleQueue_Enqueue(SampleQueue* queue, Sample* sample)
-{
-    Sample* tail;
-
-    assert(queue != NULL);
-    assert(sample != NULL);
-
-    // Producer owns the sample for now and sets it up for being last in the list
-    sample->ObjectLink.next = NULL;
-
-    // Producer always owns the tail pointer so can safely read it
-    tail = queue->tail;
-
-    // After adding to the queue here, the sample becomes available to the consumer so use release semantics
-    // to ensure the sample is defined before the store occurs.
-    StoreRelease((void * volatile *)&tail->ObjectLink.next, sample);
-
-    // Safe to update the tail now as it is producer-owned
-    queue->tail = sample;
-}
-
-
-static Sample* SampleQueue_Dequeue(SampleQueue* queue)
-{
-    Sample* head;
-    Sample* next;
-
-    assert(queue != NULL);
-
-    // Consumer always owns the head pointer so can safely read it
-    head = queue->head;
-
-    // The head always points to the empty sample so look ahead one to see if anything is in the list
-    // This value is shared with the producer
-    next = (Sample*)LoadAcquire((void *const volatile *)&head->ObjectLink.next);
-    if (next == NULL)
-        return NULL;
-
-    // Move the sample data to the empty sample at the front
-    memcpy(head, next, next->size_bytes);
-
-    // As the consumer owns the head pointer, we're free to update it
-    queue->head = next;
-
-    return head;
-}
-
-
-static void SampleQueue_MoveFromTo(SampleQueue* from, SampleQueue* to)
-{
-    while (1)
-    {
-        Sample* sample = SampleQueue_Dequeue(from);
-        if (sample == NULL)
-            break;
-        SampleQueue_Enqueue(to, sample);
-    }
-}
-
-
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-   @TSAMPLER: Per-Thread Sampler
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-
-
-typedef struct ThreadSampler
-{
-    // Name to assign to the thread in the viewer
-    rmtS8 name[64];
-
-    // Store a unique sample tree for each type
-    SampleTree* sample_trees[SampleType_Count];
-
-    // Microsecond accuracy timer for CPU timestamps
-    usTimer timer;
-
-    // A dynamically-sized buffer used for encoding the sample tree as JSON and sending to the client
-    Buffer* json_buf;
-
-    // Next in the global list of active thread samplers
-    struct ThreadSampler* volatile next;
-
-    // Queue of complete root samples to be sent to the client
-    SampleQueue complete_queue;
-
-    // A transient queue of samples which are not ready for use during an update
-    SampleQueue not_ready_queue;
-
-} ThreadSampler;
-
-
-static void ThreadSampler_Destroy(ThreadSampler* ts);
-
-
-static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
-{
-    enum rmtError error;
-    int i;
-
-    // Allocate space for the thread sampler
-    *thread_sampler = (ThreadSampler*)malloc(sizeof(ThreadSampler));
-    if (*thread_sampler == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
-    // Set defaults
-    for (i = 0; i < SampleType_Count; i++)
-        (*thread_sampler)->sample_trees[i] = NULL; 
-    (*thread_sampler)->json_buf = NULL;
-    (*thread_sampler)->next = NULL;
-    SampleQueue_SetDefaults(&(*thread_sampler)->complete_queue);
-    SampleQueue_SetDefaults(&(*thread_sampler)->not_ready_queue);
-
-    // Set the initial name based on the unique thread sampler address
-    Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
-
-    // Create the CPU sample tree only - the rest are created on-demand as they need
-    // extra context information to function correctly.
-    error = SampleTree_Create(&(*thread_sampler)->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
-    if (error != RMT_ERROR_NONE)
-    {
-        ThreadSampler_Destroy(*thread_sampler);
-        *thread_sampler = NULL;
-        return error;
-    }
-
-    // Kick-off the timer
-    usTimer_Init(&(*thread_sampler)->timer);
-
-    // Create the JSON serialisation buffer
-    error = Buffer_Create(&(*thread_sampler)->json_buf, 4096);
-    if (error != RMT_ERROR_NONE)
-    {
-        ThreadSampler_Destroy(*thread_sampler);
-        *thread_sampler = NULL;
-        return error;
-    }
-
-    // Construct the sample queues
-    error = SampleQueue_Constructor(&(*thread_sampler)->complete_queue);
-    if (error != RMT_ERROR_NONE)
-    {
-        ThreadSampler_Destroy(*thread_sampler);
-        *thread_sampler = NULL;
-        return error;
-    }
-    error = SampleQueue_Constructor(&(*thread_sampler)->not_ready_queue);
-    if (error != RMT_ERROR_NONE)
-    {
-        ThreadSampler_Destroy(*thread_sampler);
-        *thread_sampler = NULL;
-        return error;
-    }
-
-    return RMT_ERROR_NONE;
-}
-
-
-static void ThreadSampler_Destroy(ThreadSampler* ts)
-{
-    int i;
-
-    assert(ts != NULL);
-
-    SampleQueue_Destructor(&ts->not_ready_queue);
-    SampleQueue_Destructor(&ts->complete_queue);
-
-    if (ts->json_buf != NULL)
-    {
-        Buffer_Destroy(ts->json_buf);
-        ts->json_buf = NULL;
-    }
-
-    for (i = 0; i < SampleType_Count; i++)
-    {
-        if (ts->sample_trees[i] != NULL)
-        {
-            SampleTree_Destroy(ts->sample_trees[i]);
-            ts->sample_trees[i] = NULL;
-        }
-    }
-
-    free(ts);
-}
-
-
-static enum rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
-{
-    return SampleTree_Push(tree, name, name_hash, sample);
-}
-
-
-static void ThreadSampler_Pop(ThreadSampler* ts, SampleTree* tree, Sample* sample)
-{
-    sample = SampleTree_Pop(tree, sample);
-
-    // Add top-level samples to the queue to be sent to the client
-    if (sample != NULL)
-        SampleQueue_Enqueue(&ts->complete_queue, sample);
-}
-
-
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-   @REMOTERY: Remotery
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-
-
-struct Remotery
-{
-    Server* server;
-
-    rmtTLS thread_sampler_tls_handle;
-
-    // Linked list of all known threads being sampled
-    ThreadSampler* volatile first_thread_sampler;
-
-    // Queue between clients and main remotery thread
-    MessageQueue* msg_queue;
-
-    // The main server thread
-    Thread* thread;
-
-#ifdef RMT_USE_CUDA
-    rmtCUDABind cuda;
-#endif
-};
-
-
-static void Remotery_Destroy(Remotery* rmt);
-static void Remotery_DestroyThreadSamplers(Remotery* rmt);
-
-
-static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
-{
-    Sample* child;
-
-    assert(sample != NULL);
-    assert(digest_hash != NULL);
-    assert(nb_samples != NULL);
-
-    // Concatenate this sample
-    (*nb_samples)++;
-    *digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
-
-    // Concatenate children
-    for (child = sample->first_child; child != NULL; child = child->next_sibling)
-        GetSampleDigest(child, digest_hash, nb_samples);
 }
 
 
@@ -3761,31 +3462,202 @@ static void FreeSampleTree(Sample* sample, ObjectAllocator* allocator)
 }
 
 
-static enum rmtError Remotery_SendLogText(Remotery* rmt)
+typedef struct Msg_SampleTree
 {
-    assert(rmt != NULL);
+    Sample* root_sample;
 
-    // Absorb as many messages in the queue while disconnected
-    if (Server_IsClientConnected(rmt->server) == RMT_FALSE)
-        return RMT_ERROR_NONE;
+    ObjectAllocator* allocator;
 
-    // Loop reading as many messages as possible
-    while (1)
+    rmtPStr thread_name;
+} Msg_SampleTree;
+
+
+static void AddSampleTreeMessage(MessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name)
+{
+    Msg_SampleTree* payload;
+
+    // Attempt to allocate a message for sending the tree to the viewer
+    Message* message = MessageQueue_AllocMessage(queue, sizeof(Msg_SampleTree));
+    if (message == NULL)
     {
-        enum rmtError error;
-        Message* message = MessageQueue_PeekNextMessage(rmt->msg_queue);
-        if (message == NULL)
-            break;
-
-        // Send the message to the viewer and consume before reacting to any errors
-        error = Server_Send(rmt->server, (rmtU8*)message + sizeof(Message), message->size - sizeof(Message), 20);
-        MessageQueue_ConsumeNextMessage(rmt->msg_queue, message);
-
-        if (error != RMT_ERROR_NONE)
-            return error;
+        // Discard the tree on failure
+        FreeSampleTree(sample, allocator);
+        return;
     }
 
+    // Populate and commit
+    payload = (Msg_SampleTree*)message->payload;
+    payload->root_sample = sample;
+    payload->allocator = allocator;
+    payload->thread_name = thread_name;
+    MessageQueue_CommitMessage(queue, message, MsgID_SampleTree);
+}
+
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @TSAMPLER: Per-Thread Sampler
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+typedef struct ThreadSampler
+{
+    // Name to assign to the thread in the viewer
+    rmtS8 name[64];
+
+    // Store a unique sample tree for each type
+    SampleTree* sample_trees[SampleType_Count];
+
+    // Microsecond accuracy timer for CPU timestamps
+    usTimer timer;
+
+    // Next in the global list of active thread samplers
+    struct ThreadSampler* volatile next;
+
+} ThreadSampler;
+
+
+static void ThreadSampler_Destroy(ThreadSampler* ts);
+
+
+static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
+{
+    enum rmtError error;
+    int i;
+
+    // Allocate space for the thread sampler
+    *thread_sampler = (ThreadSampler*)malloc(sizeof(ThreadSampler));
+    if (*thread_sampler == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    // Set defaults
+    for (i = 0; i < SampleType_Count; i++)
+        (*thread_sampler)->sample_trees[i] = NULL; 
+    (*thread_sampler)->next = NULL;
+
+    // Set the initial name based on the unique thread sampler address
+    Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
+
+    // Create the CPU sample tree only - the rest are created on-demand as they need
+    // extra context information to function correctly.
+    error = SampleTree_Create(&(*thread_sampler)->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
+    if (error != RMT_ERROR_NONE)
+    {
+        ThreadSampler_Destroy(*thread_sampler);
+        *thread_sampler = NULL;
+        return error;
+    }
+
+    // Kick-off the timer
+    usTimer_Init(&(*thread_sampler)->timer);
+
     return RMT_ERROR_NONE;
+}
+
+
+static void ThreadSampler_Destroy(ThreadSampler* ts)
+{
+    int i;
+
+    assert(ts != NULL);
+
+    for (i = 0; i < SampleType_Count; i++)
+    {
+        if (ts->sample_trees[i] != NULL)
+        {
+            SampleTree_Destroy(ts->sample_trees[i]);
+            ts->sample_trees[i] = NULL;
+        }
+    }
+
+    free(ts);
+}
+
+
+static enum rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
+{
+    return SampleTree_Push(tree, name, name_hash, sample);
+}
+
+
+static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sample)
+{
+    SampleTree* tree = ts->sample_trees[sample->type];
+    SampleTree_Pop(tree, sample);
+
+    // Are we back at the root?
+    if (tree->current_parent == tree->root)
+    {
+        // Disconnect all samples from the root and send to the server thread
+        Sample* root = tree->root;
+        root->first_child = NULL;
+        root->last_child = NULL;
+        root->nb_children = 0;
+        AddSampleTreeMessage(queue, sample, tree->allocator, ts->name);
+    }
+}
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @REMOTERY: Remotery
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+struct Remotery
+{
+    Server* server;
+
+    rmtTLS thread_sampler_tls_handle;
+
+    // Linked list of all known threads being sampled
+    ThreadSampler* volatile first_thread_sampler;
+
+    // Queue between clients and main remotery thread
+    MessageQueue* msg_queue;
+
+    // A dynamically-sized buffer used for encoding the sample tree as JSON and sending to the client
+    Buffer* json_buf;
+
+    // The main server thread
+    Thread* thread;
+
+#ifdef RMT_USE_CUDA
+    rmtCUDABind cuda;
+#endif
+};
+
+
+static void Remotery_Destroy(Remotery* rmt);
+static void Remotery_DestroyThreadSamplers(Remotery* rmt);
+
+
+static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
+{
+    Sample* child;
+
+    assert(sample != NULL);
+    assert(digest_hash != NULL);
+    assert(nb_samples != NULL);
+
+    // Concatenate this sample
+    (*nb_samples)++;
+    *digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
+
+    // Concatenate children
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+        GetSampleDigest(child, digest_hash, nb_samples);
 }
 
 
@@ -3795,113 +3667,164 @@ static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
 #endif
 
 
-static enum rmtError Remotery_SendCompleteSamples(Remotery* rmt)
+static enum rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
 {
+    assert(rmt != NULL);
+    assert(message != NULL);
+    return Server_Send(rmt->server, message->payload, message->payload_size, 20);
+}
+
+
+static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
+{
+    Msg_SampleTree* sample_tree;
     enum rmtError error;
-    ThreadSampler* ts;
+    Sample* sample;
+    rmtU32 digest_hash = 0, nb_samples = 0;
+    char thread_name[64];
+    Buffer* buffer;
+
+    assert(rmt != NULL);
+    assert(message != NULL);
+
+    // Get the message root sample
+    sample_tree = (Msg_SampleTree*)message->payload;
+    sample = sample_tree->root_sample;
+    assert(sample != NULL);
+
+    #ifdef RMT_USE_CUDA
+    if (sample->type == SampleType_CUDA)
+    {
+        // If these CUDA samples aren't ready yet, stick them to the back of the queue and continue
+        rmtBool are_samples_ready;
+        rmt_BeginCPUSample(AreCUDASamplesReady);
+        are_samples_ready = AreCUDASamplesReady(sample);
+        rmt_EndCPUSample();
+        if (!are_samples_ready)
+        {
+            AddSampleTreeMessage(rmt->msg_queue, sample, sample_tree->allocator, sample_tree->thread_name);
+            return RMT_ERROR_NONE;
+        }
+
+        // Retrieve timing of all CUDA samples
+        rmt_BeginCPUSample(GetCUDASampleTimes);
+        GetCUDASampleTimes(sample->parent, sample);
+        rmt_EndCPUSample();
+    }
+    #endif
+
+    // Reset the buffer position to the start
+    buffer = rmt->json_buf;
+    buffer->bytes_used = 0;
+
+    // Add any sample types as a thread name post-fix to ensure they get their own viewer
+    thread_name[0] = 0;
+    strncat_s(thread_name, sizeof(thread_name), sample_tree->thread_name, strnlen_s(sample_tree->thread_name, 64));
+    if (sample->type == SampleType_CUDA)
+        strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
+
+    // Get digest hash of samples so that viewer can efficiently rebuild its tables
+    GetSampleDigest(sample, &digest_hash, &nb_samples);
+
+    // Build the sample data
+    JSON_ERROR_CHECK(json_OpenObject(buffer));
+
+        JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", thread_name));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_SampleArray(buffer, sample, "samples"));
+
+    JSON_ERROR_CHECK(json_CloseObject(buffer));
+
+    // Send to the client
+    error = Server_Send(rmt->server, buffer->data, buffer->bytes_used, 20);
+    if (error != RMT_ERROR_NONE)
+        return error;
+
+    // Release the sample tree back to its allocator
+    FreeSampleTree(sample, sample_tree->allocator);
+
+    return RMT_ERROR_NONE;
+}
+
+
+static enum rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
+{
+    rmtU32 nb_messages_sent = 0;
 
     assert(rmt != NULL);
 
-    // Visit all thread sampleers
-    for (ts = rmt->first_thread_sampler; ts != NULL; ts = ts->next)
+    // Absorb as many messages in the queue while disconnected
+    if (Server_IsClientConnected(rmt->server) == RMT_FALSE)
+        return RMT_ERROR_NONE;
+
+    // Loop reading the max number of messages for this update
+    while (nb_messages_sent++ < MAX_NB_MESSAGES_PER_UPDATE)
     {
-        // Pull all samples from the thread sampler's complete queue
-        while (1)
+        enum rmtError error = RMT_ERROR_NONE;
+        Message* message = MessageQueue_PeekNextMessage(rmt->msg_queue);
+        if (message == NULL)
+            break;
+
+        switch (message->id)
         {
-            Sample* sample = SampleQueue_Dequeue(&ts->complete_queue);
-            if (sample == NULL)
+            // This shouldn't be possible
+            case MsgID_NotReady:
+                assert(RMT_FALSE); 
                 break;
 
-            #ifdef RMT_USE_CUDA
-            if (sample->type == SampleType_CUDA)
-            {
-                // If these CUDA samples aren't ready yet, stick them in the temp queue and continue
-                rmtBool are_samples_ready;
-                rmt_BeginCPUSample(AreCUDASamplesReady);
-                are_samples_ready = AreCUDASamplesReady(sample);
-                rmt_EndCPUSample();
-                if (!are_samples_ready)
-                {
-                    SampleQueue_Enqueue(&ts->not_ready_queue, sample);
-                    continue;
-                }
-
-                // Retrieve timing of all CUDA samples
-                rmt_BeginCPUSample(GetCUDASampleTimes);
-                GetCUDASampleTimes(sample->parent, sample);
-                rmt_EndCPUSample();
-            }
-            #endif
-
-            // Having a client not connected is typical and not an error
-            if (Server_IsClientConnected(rmt->server))
-            {
-                rmtU32 digest_hash = 0, nb_samples = 0;
-                char thread_name[64];
-
-                // Reset the buffer position to the start
-                Buffer* buffer = ts->json_buf;
-                buffer->bytes_used = 0;
-
-                // Add any sample types as a thread name post-fix to ensure they get their own viewer
-                thread_name[0] = 0;
-                strncat_s(thread_name, sizeof(thread_name), ts->name, strnlen_s(ts->name, 64));
-                if (sample->type == SampleType_CUDA)
-                    strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
-
-                // Get digest hash of samples so that viewer can efficiently rebuild its tables
-                GetSampleDigest(sample, &digest_hash, &nb_samples);
-
-                // Build the sample data
-                JSON_ERROR_CHECK(json_OpenObject(buffer));
-
-                    JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
-                    JSON_ERROR_CHECK(json_Comma(buffer));
-                    JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", thread_name));
-                    JSON_ERROR_CHECK(json_Comma(buffer));
-                    JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
-                    JSON_ERROR_CHECK(json_Comma(buffer));
-                    JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
-                    JSON_ERROR_CHECK(json_Comma(buffer));
-                    JSON_ERROR_CHECK(json_SampleArray(buffer, sample, "samples"));
-
-                JSON_ERROR_CHECK(json_CloseObject(buffer));
-
-                // Send to the client
-                error = Server_Send(rmt->server, buffer->data, buffer->bytes_used, 20);
-                if (error != RMT_ERROR_NONE)
-                    return error;
-            }
-
-            // Release the sample tree back to its allocator
-            FreeSampleTree(sample, ts->sample_trees[sample->type]->allocator);
+            // Dispatch to message handler
+            case MsgID_LogText:
+                error = Remotery_SendLogTextMessage(rmt, message);
+                break;
+            case MsgID_SampleTree:
+                error = Remotery_SendSampleTreeMessage(rmt, message);
+                break;
         }
 
-        // Move any samples not ready during this update back to the complete queue
-        // for processing on the next update
-        SampleQueue_MoveFromTo(&ts->not_ready_queue, &ts->complete_queue);
+        // Consume the message before reacting to any errors
+        MessageQueue_ConsumeNextMessage(rmt->msg_queue, message);
+        if (error != RMT_ERROR_NONE)
+            return error;
     }
 
     return RMT_ERROR_NONE;
 }
 
 
-static void Remotery_FlushSampleQueue(Remotery* rmt)
+static void Remotery_FlushMessageQueue(Remotery* rmt)
 {
-    ThreadSampler* ts;
+    assert(rmt != NULL);
 
-    assert(rmt != 0);
-
-    // Deque all sample trees from all sample threads and release them back to their allocators
-    for (ts = rmt->first_thread_sampler; ts != NULL; ts = ts->next)
+    // Loop reading all remaining messages
+    while (1)
     {
-        while (1)
+        Message* message = MessageQueue_PeekNextMessage(rmt->msg_queue);
+        if (message == NULL)
+            break;
+
+        switch (message->id)
         {
-            Sample* sample = SampleQueue_Dequeue(&ts->complete_queue);
-            if (sample == NULL)
+            // These can be safely ignored
+            case MsgID_NotReady:
+            case MsgID_LogText:
                 break;
-            FreeSampleTree(sample, ts->sample_trees[sample->type]->allocator);
+
+            // Release all samples back to their allocators
+            case MsgID_SampleTree:
+            {
+                Msg_SampleTree* sample_tree = (Msg_SampleTree*)message->payload;
+                FreeSampleTree(sample_tree->root_sample, sample_tree->allocator);
+                break;
+            }
         }
+
+        MessageQueue_ConsumeNextMessage(rmt->msg_queue, message);
     }
 }
 
@@ -3954,12 +3877,8 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
             Server_Update(rmt->server);
             rmt_EndCPUSample();
 
-            rmt_BeginCPUSample(SendLogText);
-            Remotery_SendLogText(rmt);
-            rmt_EndCPUSample();
-
-            rmt_BeginCPUSample(SendSamplesToViewer);
-            Remotery_SendCompleteSamples(rmt);
+            rmt_BeginCPUSample(ConsumeMessageQueue);
+            Remotery_ConsumeMessageQueue(rmt);
             rmt_EndCPUSample();
 
         rmt_EndCPUSample();
@@ -3975,11 +3894,11 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
         // This loop will exit with unrelease samples.
         //
 
-        msSleep(10);
+        msSleep(MS_SLEEP_BETWEEN_SERVER_UPDATES);
     }
 
     // Release all samples to their allocators as a consequence of [NOTE-A]
-    Remotery_FlushSampleQueue(rmt);
+    Remotery_FlushMessageQueue(rmt);
 
     return RMT_ERROR_NONE;
 }
@@ -4000,6 +3919,7 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     (*rmt)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
     (*rmt)->first_thread_sampler = NULL;
     (*rmt)->msg_queue = NULL;
+    (*rmt)->json_buf = NULL;
     (*rmt)->thread = NULL;
 
     // Allocate a TLS handle for the thread sampler
@@ -4021,8 +3941,16 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     }
 
     // Create the main message thread with only one page
-    // TODO: Allow configuration of this
-    error = MessageQueue_Create(&(*rmt)->msg_queue, 100);
+    error = MessageQueue_Create(&(*rmt)->msg_queue, MESSAGE_QUEUE_SIZE_BYTES);
+    if (error != RMT_ERROR_NONE)
+    {
+        Remotery_Destroy(*rmt);
+        *rmt = NULL;
+        return error;
+    }
+
+    // Create the JSON serialisation buffer
+    error = Buffer_Create(&(*rmt)->json_buf, 4096);
     if (error != RMT_ERROR_NONE)
     {
         Remotery_Destroy(*rmt);
@@ -4062,6 +3990,12 @@ static void Remotery_Destroy(Remotery* rmt)
     {
         Thread_Destroy(rmt->thread);
         rmt->thread = NULL;
+    }
+
+    if (rmt->json_buf != NULL)
+    {
+        Buffer_Destroy(rmt->json_buf);
+        rmt->json_buf = NULL;
     }
 
     if (rmt->msg_queue != NULL)
@@ -4246,13 +4180,13 @@ static rmtBool QueueLine(MessageQueue* queue, char* text, rmtU32 size)
     text[size] = 0;
 
     // Allocate some space for the line
-    message = MessageQueue_AllocMessage(queue, sizeof(Message) + size);
+    message = MessageQueue_AllocMessage(queue, size);
     if (message == NULL)
         return RMT_FALSE;
 
     // Copy the text and commit the message
-    memcpy((rmtU8*)message + sizeof(Message), text, size);
-    MessageQueue_CommitMessage(queue, message, sizeof(Message) + size);
+    memcpy(message->payload, text, size);
+    MessageQueue_CommitMessage(queue, message, MsgID_LogText);
 
     return RMT_TRUE;
 }
@@ -4373,7 +4307,7 @@ void _rmt_EndCPUSample(void)
     {
         Sample* sample = ts->sample_trees[SampleType_CPU]->current_parent;
         sample->us_end = usTimer_Get(&ts->timer);
-        ThreadSampler_Pop(ts, ts->sample_trees[SampleType_CPU], sample);
+        ThreadSampler_Pop(ts, g_Remotery->msg_queue, sample);
     }
 }
 
@@ -4648,7 +4582,7 @@ void _rmt_EndCUDASample(void* stream)
     {
         CUDASample* sample = (CUDASample*)ts->sample_trees[SampleType_CUDA]->current_parent;
         CUDAEventRecord(sample->event_end, stream);
-        ThreadSampler_Pop(ts, ts->sample_trees[SampleType_CUDA], (Sample*)sample);
+        ThreadSampler_Pop(ts, g_Remotery->msg_queue, (Sample*)sample);
     }
 }
 
