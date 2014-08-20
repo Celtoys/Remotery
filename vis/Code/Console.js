@@ -15,6 +15,13 @@ Console = (function()
 		DOM.Node.AddClass(this.AppContainer.Node, "ConsoleText");
 		this.Window.ShowNoAnim();
 
+		// This accumulates log text as fast as is required
+		this.PageTextBuffer = "";
+		this.AppTextBuffer = "";
+
+		// At a much lower frequency this will update the console window
+		window.setInterval(Bind(UpdateHTML, this), 500);
+
 		// Setup log requests from the server
 		server.SetConsole(this);
 		server.AddMessageHandler("LOG", Bind(OnLog, this));
@@ -23,7 +30,7 @@ Console = (function()
 
 	Console.prototype.Log = function(text)
 	{
-		LogText(this.PageContainer, text);
+		this.PageTextBuffer = LogText(this.PageTextBuffer, text);
 	}
 
 
@@ -45,27 +52,46 @@ Console = (function()
 
 	function OnLog(self, socket, message)
 	{
-		LogText(self.AppContainer, message.text);
+		self.AppTextBuffer = LogText(self.AppTextBuffer, message.text);
 	}
 
 
-	function LogText(container, text)
+	function LogText(existing_text, new_text)
 	{
 		// Filter the text a little to make it safer
-		if (text == null)
-			text = "NULL";
+		if (new_text == null)
+			new_text = "NULL";
 
 		// Find and convert any HTML entities, ensuring the browser doesn't parse any embedded HTML code
 		// This also allows the log to contain arbitrary C++ code (e.g. assert comparison operators)
-		text = Convert.string_to_html_entities(text);
+		new_text = Convert.string_to_html_entities(new_text);
 
+		// Prefix date and end with new line
 		var d = new Date();
-		text = "[" + d.toLocaleTimeString() + "] " + text;
+		new_text = "[" + d.toLocaleTimeString() + "] " + new_text + "<br>";
 
-		// Append the text as html
-		var dest = container.Node;
-		dest.innerHTML += text + "<br>";
-		dest.scrollTop = dest.scrollHeight;
+		// Append to local text buffer and ensure clip the oldest text to ensure a max size
+		existing_text = existing_text + new_text;
+		var max_len = 10 * 1024;
+		var len = existing_text.length;
+		if (len > max_len)
+			existing_text = existing_text.substr(len - max_len, max_len);
+
+		return existing_text;
+	}
+
+
+	function UpdateHTML(self)
+	{
+		// Reset the current text buffer as html
+
+		var page_node = self.PageContainer.Node;
+		page_node.innerHTML = self.PageTextBuffer;
+		page_node.scrollTop = page_node.scrollHeight;
+
+		var app_node = self.AppContainer.Node;
+		app_node.innerHTML = self.AppTextBuffer;
+		app_node.scrollTop = app_node.scrollHeight;
 	}
 
 
