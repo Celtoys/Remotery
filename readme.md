@@ -56,7 +56,7 @@ See the sample directory for further examples. A quick example:
 
         // Scoped begin/end for C++
         {
-            rmt_BeginCPUSample(LogText);
+            rmt_ScopedCPUSample(LogText);
             rmt_LogText("Time me, too!");
         }
 
