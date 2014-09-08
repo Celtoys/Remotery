@@ -355,10 +355,10 @@ static void* tlsGet(rmtTLS handle)
 */
 
 
-static rmtBool AtomicCompareAndSwap(long volatile* val, long old_val, long new_val)
+static rmtBool AtomicCompareAndSwap(rmtU32 volatile* val, long old_val, long new_val)
 {
     #if defined(RMT_PLATFORM_WINDOWS)
-        return _InterlockedCompareExchange(val, new_val, old_val) == old_val ? RMT_TRUE : RMT_FALSE;
+        return _InterlockedCompareExchange((long volatile*)val, new_val, old_val) == old_val ? RMT_TRUE : RMT_FALSE;
     #elif defined(RMT_PLATFORM_POSIX)
         return __sync_bool_compare_and_swap(val, old_val, new_val) ? RMT_TRUE : RMT_FALSE;
     #endif
@@ -768,6 +768,18 @@ typedef enum rmtError (*ThreadProc)(Thread* thread);
 static void Thread_Destroy(Thread* thread);
 
 
+static int Thread_Valid(Thread* thread)
+{
+    assert(thread != NULL);
+
+    #if defined(RMT_PLATFORM_WINDOWS)
+        return thread->handle != NULL;
+    #else
+        return pthread_equal(thread->handle, pthread_self());
+    #endif
+}
+
+
 static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* param)
 {
     assert(thread != NULL);
@@ -806,6 +818,10 @@ static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* p
         int32_t error = pthread_create( &(*thread)->handle, NULL, StartFunc, *thread );
         if (error)
         {
+            // Contents of 'thread' parameter to pthread_create() are undefined after
+            // failure call so can't pre-set to invalid value before hand.
+            (*thread)->handle = pthread_self();
+
             Thread_Destroy(*thread);
             *thread = NULL;
             return RMT_ERROR_CREATE_THREAD_FAIL;
@@ -827,8 +843,7 @@ static void Thread_RequestExit(Thread* thread)
 
 static void Thread_Join(Thread* thread)
 {
-    assert(thread != NULL);
-    assert(thread->handle != NULL);
+    assert(Thread_Valid(thread));
 
     #if defined(RMT_PLATFORM_WINDOWS)
     WaitForSingleObject(thread->handle, INFINITE);
@@ -842,7 +857,7 @@ static void Thread_Destroy(Thread* thread)
 {
     assert(thread != NULL);
 
-    if (thread->handle != NULL)
+    if (Thread_Valid(thread))
     {
         // Shutdown the thread
         Thread_RequestExit(thread);
@@ -2777,7 +2792,7 @@ static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_si
         msg = (Message*)(queue->data->ptr + (w & (s - 1)));
 
         // Increment the write position, leaving the loop if this is the thread that succeeded
-        if (AtomicCompareAndSwap((long volatile*)&queue->write_pos, w, w + write_size) == RMT_TRUE)
+        if (AtomicCompareAndSwap(&queue->write_pos, w, w + write_size) == RMT_TRUE)
         {
             // Safe to set payload size after thread claims ownership of this allocated range
             msg->payload_size = payload_size;
