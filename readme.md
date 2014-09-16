@@ -3,6 +3,8 @@ Remotery
 
 A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in a web browser.
 
+[![screenshot](screenshot.png)]
+
 Supported features:
 
 * Lightweight instrumentation of multiple threads running on the CPU.
