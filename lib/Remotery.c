@@ -2698,6 +2698,9 @@ typedef struct Message
 
     rmtU32 payload_size;
 
+    // For telling which thread the message came from in the debugger
+    struct ThreadSampler* thread_sampler;
+
     rmtU8 payload[0];
 } Message;
 
@@ -2771,7 +2774,7 @@ static enum rmtError MessageQueue_Create(MessageQueue** queue, rmtU32 size)
 }
 
 
-static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_size)
+static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_size, struct ThreadSampler* thread_sampler)
 {
     Message* msg;
 
@@ -2796,6 +2799,7 @@ static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_si
         {
             // Safe to set payload size after thread claims ownership of this allocated range
             msg->payload_size = payload_size;
+            msg->thread_sampler = thread_sampler;
             break;
         }
     }
@@ -3487,12 +3491,12 @@ typedef struct Msg_SampleTree
 } Msg_SampleTree;
 
 
-static void AddSampleTreeMessage(MessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name)
+static void AddSampleTreeMessage(MessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name, struct ThreadSampler* thread_sampler)
 {
     Msg_SampleTree* payload;
 
     // Attempt to allocate a message for sending the tree to the viewer
-    Message* message = MessageQueue_AllocMessage(queue, sizeof(Msg_SampleTree));
+    Message* message = MessageQueue_AllocMessage(queue, sizeof(Msg_SampleTree), thread_sampler);
     if (message == NULL)
     {
         // Discard the tree on failure
@@ -3614,7 +3618,7 @@ static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sa
         root->first_child = NULL;
         root->last_child = NULL;
         root->nb_children = 0;
-        AddSampleTreeMessage(queue, sample, tree->allocator, ts->name);
+        AddSampleTreeMessage(queue, sample, tree->allocator, ts->name, ts);
     }
 }
 
@@ -3717,7 +3721,7 @@ static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* mess
         rmt_EndCPUSample();
         if (!are_samples_ready)
         {
-            AddSampleTreeMessage(rmt->msg_queue, sample, sample_tree->allocator, sample_tree->thread_name);
+            AddSampleTreeMessage(rmt->msg_queue, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
             return RMT_ERROR_NONE;
         }
 
@@ -3844,44 +3848,11 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
 }
 
 
-#ifdef RMT_PLATFORM_WINDOWS
-    #pragma pack(push,8)
-    typedef struct tagTHREADNAME_INFO
-    {
-       DWORD dwType; // Must be 0x1000.
-       LPCSTR szName; // Pointer to name (in user addr space).
-       DWORD dwThreadID; // Thread ID (-1=caller thread).
-       DWORD dwFlags; // Reserved for future use, must be zero.
-    } THREADNAME_INFO;
-    #pragma pack(pop)
-#endif
-
-static void SetDebuggerThreadName(const char* name)
-{
-    #ifdef RMT_PLATFORM_WINDOWS
-        THREADNAME_INFO info;
-        info.dwType = 0x1000;
-        info.szName = name;
-        info.dwThreadID = -1;
-        info.dwFlags = 0;
-
-        __try
-        {
-            RaiseException(0x406D1388, 0, sizeof(info)/sizeof(ULONG_PTR), (ULONG_PTR*)&info);
-        }
-        __except(1 /* EXCEPTION_EXECUTE_HANDLER */)
-        {
-        }
-    #endif
-}
-
-
 static enum rmtError Remotery_ThreadMain(Thread* thread)
 {
     Remotery* rmt = (Remotery*)thread->param;
     assert(rmt != NULL);
 
-    SetDebuggerThreadName("Remotery");
     rmt_SetCurrentThreadName("Remotery");
 
     while (thread->request_exit == RMT_FALSE)
@@ -4164,6 +4135,38 @@ Remotery* _rmt_GetGlobalInstance()
 }
 
 
+#ifdef RMT_PLATFORM_WINDOWS
+    #pragma pack(push,8)
+    typedef struct tagTHREADNAME_INFO
+    {
+       DWORD dwType; // Must be 0x1000.
+       LPCSTR szName; // Pointer to name (in user addr space).
+       DWORD dwThreadID; // Thread ID (-1=caller thread).
+       DWORD dwFlags; // Reserved for future use, must be zero.
+    } THREADNAME_INFO;
+    #pragma pack(pop)
+#endif
+
+static void SetDebuggerThreadName(const char* name)
+{
+    #ifdef RMT_PLATFORM_WINDOWS
+        THREADNAME_INFO info;
+        info.dwType = 0x1000;
+        info.szName = name;
+        info.dwThreadID = -1;
+        info.dwFlags = 0;
+
+        __try
+        {
+            RaiseException(0x406D1388, 0, sizeof(info)/sizeof(ULONG_PTR), (ULONG_PTR*)&info);
+        }
+        __except(1 /* EXCEPTION_EXECUTE_HANDLER */)
+        {
+        }
+    #endif
+}
+
+
 void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 {
     ThreadSampler* ts;
@@ -4180,10 +4183,13 @@ void _rmt_SetCurrentThreadName(rmtPStr thread_name)
     slen = strnlen_s(thread_name, sizeof(ts->name));
     ts->name[0] = 0;
     strncat_s(ts->name, sizeof(ts->name), thread_name, slen);
+
+    // Apply to the debugger
+    SetDebuggerThreadName(thread_name);
 }
 
 
-static rmtBool QueueLine(MessageQueue* queue, char* text, rmtU32 size)
+static rmtBool QueueLine(MessageQueue* queue, char* text, rmtU32 size, struct ThreadSampler* thread_sampler)
 {
     Message* message;
 
@@ -4195,7 +4201,7 @@ static rmtBool QueueLine(MessageQueue* queue, char* text, rmtU32 size)
     text[size] = 0;
 
     // Allocate some space for the line
-    message = MessageQueue_AllocMessage(queue, size);
+    message = MessageQueue_AllocMessage(queue, size, thread_sampler);
     if (message == NULL)
         return RMT_FALSE;
 
@@ -4214,9 +4220,12 @@ void _rmt_LogText(rmtPStr text)
 {
     int start_offset, prev_offset, i;
     char line_buffer[1024] = { 0 };
+    ThreadSampler* ts;
 
     if (g_Remotery == NULL)
         return;
+
+    Remotery_GetThreadSampler(g_Remotery, &ts);
 
     // Start the line buffer off with the JSON message markup
     strncat_s(line_buffer, sizeof(line_buffer), log_message, sizeof(log_message));
@@ -4231,7 +4240,7 @@ void _rmt_LogText(rmtPStr text)
         // Line wrap when too long or newline encountered
         if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
         {
-            if (QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset) == RMT_FALSE)
+            if (QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset, ts) == RMT_FALSE)
                 return;
 
             // Restart line
@@ -4267,7 +4276,7 @@ void _rmt_LogText(rmtPStr text)
     if (prev_offset > start_offset)
     {
         assert(prev_offset < sizeof(line_buffer) - 3);
-        QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset);
+        QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset, ts);
     }
 }
 
