@@ -3081,7 +3081,6 @@ static enum rmtError json_String(Buffer* buffer, rmtPStr string)
 static enum rmtError json_FieldStr(Buffer* buffer, rmtPStr name, rmtPStr value)
 {
     enum rmtError error;
-
     JSON_ERROR_CHECK(json_String(buffer, name));
     JSON_ERROR_CHECK(json_Colon(buffer));
     return json_String(buffer, value);
@@ -3121,7 +3120,6 @@ static enum rmtError json_FieldU64(Buffer* buffer, rmtPStr name, rmtU64 value)
 static enum rmtError json_OpenArray(Buffer* buffer, rmtPStr name)
 {
     enum rmtError error;
-
     JSON_ERROR_CHECK(json_String(buffer, name));
     JSON_ERROR_CHECK(json_Colon(buffer));
     return Buffer_Write(buffer, (void*)"[", 1);
@@ -3694,14 +3692,56 @@ static enum rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message
 }
 
 
+static enum rmtError json_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
+{
+    Sample* root_sample;
+    char thread_name[64];
+    rmtU32 digest_hash = 0, nb_samples = 0;
+    enum rmtError error;
+
+    assert(buffer != NULL);
+    assert(msg != NULL);
+
+    // Get the message root sample
+    root_sample = msg->root_sample;
+    assert(root_sample != NULL);
+
+    // Reset the buffer position to the start
+    buffer->bytes_used = 0;
+
+    // Add any sample types as a thread name post-fix to ensure they get their own viewer
+    thread_name[0] = 0;
+    strncat_s(thread_name, sizeof(thread_name), msg->thread_name, strnlen_s(msg->thread_name, 64));
+    if (root_sample->type == SampleType_CUDA)
+        strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
+
+    // Get digest hash of samples so that viewer can efficiently rebuild its tables
+    GetSampleDigest(root_sample, &digest_hash, &nb_samples);
+
+    // Build the sample data
+    JSON_ERROR_CHECK(json_OpenObject(buffer));
+
+        JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", thread_name));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
+        JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_SampleArray(buffer, root_sample, "samples"));
+
+    JSON_ERROR_CHECK(json_CloseObject(buffer));
+
+    return RMT_ERROR_NONE;
+}
+
+
 static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 {
     Msg_SampleTree* sample_tree;
-    enum rmtError error;
+    enum rmtError error = RMT_ERROR_NONE;
     Sample* sample;
-    rmtU32 digest_hash = 0, nb_samples = 0;
-    char thread_name[64];
-    Buffer* buffer;
 
     assert(rmt != NULL);
     assert(message != NULL);
@@ -3732,43 +3772,15 @@ static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* mess
     }
     #endif
 
-    // Reset the buffer position to the start
-    buffer = rmt->json_buf;
-    buffer->bytes_used = 0;
-
-    // Add any sample types as a thread name post-fix to ensure they get their own viewer
-    thread_name[0] = 0;
-    strncat_s(thread_name, sizeof(thread_name), sample_tree->thread_name, strnlen_s(sample_tree->thread_name, 64));
-    if (sample->type == SampleType_CUDA)
-        strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
-
-    // Get digest hash of samples so that viewer can efficiently rebuild its tables
-    GetSampleDigest(sample, &digest_hash, &nb_samples);
-
-    // Build the sample data
-    JSON_ERROR_CHECK(json_OpenObject(buffer));
-
-        JSON_ERROR_CHECK(json_FieldStr(buffer, "id", "SAMPLES"));
-        JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_FieldStr(buffer, "thread_name", thread_name));
-        JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_FieldU64(buffer, "nb_samples", nb_samples));
-        JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_FieldU64(buffer, "sample_digest", digest_hash));
-        JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_SampleArray(buffer, sample, "samples"));
-
-    JSON_ERROR_CHECK(json_CloseObject(buffer));
-
-    // Send to the client
-    error = Server_Send(rmt->server, buffer->data, buffer->bytes_used, 20);
-    if (error != RMT_ERROR_NONE)
-        return error;
+    // Serialise the sample tree and send to the viewer
+    error = json_SampleTree(rmt->json_buf, sample_tree);
+    if (error == RMT_ERROR_NONE)
+        error = Server_Send(rmt->server, rmt->json_buf->data, rmt->json_buf->bytes_used, 20);
 
     // Release the sample tree back to its allocator
     FreeSampleTree(sample, sample_tree->allocator);
 
-    return RMT_ERROR_NONE;
+    return error;
 }
 
 
