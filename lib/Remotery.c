@@ -1506,9 +1506,11 @@ static enum rmtError InitialiseNetwork()
 
         return RMT_ERROR_NONE;
 
-    #endif
+    #else
 
-    return RMT_ERROR_NONE;
+        return RMT_ERROR_NONE;
+
+    #endif
 }
 
 
