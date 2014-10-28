@@ -39,6 +39,7 @@
     @TSAMPLER:      Per-Thread Sampler
     @REMOTERY:      Remotery
     @CUDA:          CUDA event sampling
+    @D3D11:         Direct3D 11 event sampling
 */
 
 #include "Remotery.h"
@@ -107,9 +108,22 @@
 
 #endif
 
-
 #ifdef RMT_USE_CUDA
     #include <cuda.h>
+#endif
+
+#ifdef RMT_USE_D3D11
+
+    // As clReflect has no way of disabling C++ compile mode, this forces C interfaces everywhere...
+    #define CINTERFACE
+
+    // ...unfortunately these C++ helpers aren't wrapped by the same macro but they can be disabled individually
+    #define D3D11_NO_HELPERS
+
+    // Allow use of the D3D11 helper macros for accessing the C-style vtable
+    #define COBJMACROS
+
+    #include <d3d11.h>
 #endif
 
 
@@ -3153,6 +3167,7 @@ enum SampleType
 {
     SampleType_CPU,
     SampleType_CUDA,
+    SampleType_D3D11,
     SampleType_Count,
 };
 
@@ -3617,7 +3632,7 @@ static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sa
     // Are we back at the root?
     if (tree->current_parent == tree->root)
     {
-        // Disconnect all samples from the root and send to the server thread
+        // Disconnect all samples from the root and pack in the chosen message queue
         Sample* root = tree->root;
         root->first_child = NULL;
         root->last_child = NULL;
@@ -3648,7 +3663,7 @@ struct Remotery
     ThreadSampler* volatile first_thread_sampler;
 
     // Queue between clients and main remotery thread
-    MessageQueue* msg_queue;
+    MessageQueue* mq_to_rmt_thread;
 
     // A dynamically-sized buffer used for encoding the sample tree as JSON and sending to the client
     Buffer* json_buf;
@@ -3658,6 +3673,26 @@ struct Remotery
 
 #ifdef RMT_USE_CUDA
     rmtCUDABind cuda;
+#endif
+
+#ifdef RMT_USE_D3D11
+    // Context set by user
+    ID3D11Device* d3d11_device;
+    ID3D11DeviceContext* d3d11_context;
+
+    HRESULT d3d11_last_error;
+
+    // An allocator separate to the samples themselves so that D3D resource lifetime can be controlled
+    // outside of the Remotery thread.
+    ObjectAllocator* d3d11_timestamp_allocator;
+
+    // Queue to the D3D 11 main update thread
+    // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
+    // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
+    MessageQueue* mq_to_d3d11_main;
+
+    // Mark the first time so that remaining timestamps are offset from this
+    rmtU64 d3d11_first_timestamp;
 #endif
 };
 
@@ -3682,12 +3717,6 @@ static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samp
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
         GetSampleDigest(child, digest_hash, nb_samples);
 }
-
-
-#ifdef RMT_USE_CUDA
-static rmtBool AreCUDASamplesReady(Sample* sample);
-static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
-#endif
 
 
 static enum rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
@@ -3720,6 +3749,8 @@ static enum rmtError json_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
     strncat_s(thread_name, sizeof(thread_name), msg->thread_name, strnlen_s(msg->thread_name, 64));
     if (root_sample->type == SampleType_CUDA)
         strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
+    if (root_sample->type == SampleType_D3D11)
+        strncat_s(thread_name, sizeof(thread_name), " (D3D11)", 8);
 
     // Get digest hash of samples so that viewer can efficiently rebuild its tables
     GetSampleDigest(root_sample, &digest_hash, &nb_samples);
@@ -3741,6 +3772,12 @@ static enum rmtError json_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
 
     return RMT_ERROR_NONE;
 }
+
+
+#ifdef RMT_USE_CUDA
+static rmtBool AreCUDASamplesReady(Sample* sample);
+static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
+#endif
 
 
 static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
@@ -3767,7 +3804,7 @@ static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* mess
         rmt_EndCPUSample();
         if (!are_samples_ready)
         {
-            AddSampleTreeMessage(rmt->msg_queue, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+            AddSampleTreeMessage(rmt->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
             return RMT_ERROR_NONE;
         }
 
@@ -3804,7 +3841,7 @@ static enum rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
     while (nb_messages_sent++ < MAX_NB_MESSAGES_PER_UPDATE)
     {
         enum rmtError error = RMT_ERROR_NONE;
-        Message* message = MessageQueue_PeekNextMessage(rmt->msg_queue);
+        Message* message = MessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
         if (message == NULL)
             break;
 
@@ -3825,7 +3862,7 @@ static enum rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
         }
 
         // Consume the message before reacting to any errors
-        MessageQueue_ConsumeNextMessage(rmt->msg_queue, message);
+        MessageQueue_ConsumeNextMessage(rmt->mq_to_rmt_thread, message);
         if (error != RMT_ERROR_NONE)
             return error;
     }
@@ -3841,7 +3878,7 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
     // Loop reading all remaining messages
     while (1)
     {
-        Message* message = MessageQueue_PeekNextMessage(rmt->msg_queue);
+        Message* message = MessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
         if (message == NULL)
             break;
 
@@ -3861,7 +3898,7 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
             }
         }
 
-        MessageQueue_ConsumeNextMessage(rmt->msg_queue, message);
+        MessageQueue_ConsumeNextMessage(rmt->mq_to_rmt_thread, message);
     }
 }
 
@@ -3922,7 +3959,7 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     (*rmt)->server = NULL;
     (*rmt)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
     (*rmt)->first_thread_sampler = NULL;
-    (*rmt)->msg_queue = NULL;
+    (*rmt)->mq_to_rmt_thread = NULL;
     (*rmt)->json_buf = NULL;
     (*rmt)->thread = NULL;
 
@@ -3945,7 +3982,7 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     }
 
     // Create the main message thread with only one page
-    error = MessageQueue_Create(&(*rmt)->msg_queue, MESSAGE_QUEUE_SIZE_BYTES);
+    error = MessageQueue_Create(&(*rmt)->mq_to_rmt_thread, MESSAGE_QUEUE_SIZE_BYTES);
     if (error != RMT_ERROR_NONE)
     {
         Remotery_Destroy(*rmt);
@@ -3982,6 +4019,23 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 
     #endif
 
+    #ifdef RMT_USE_D3D11
+        (*rmt)->d3d11_device = NULL;
+        (*rmt)->d3d11_context = NULL;
+        (*rmt)->d3d11_last_error = S_OK;
+        (*rmt)->d3d11_timestamp_allocator = NULL;
+        (*rmt)->mq_to_d3d11_main = NULL;
+        (*rmt)->d3d11_first_timestamp = 0;
+
+        error = MessageQueue_Create(&(*rmt)->mq_to_d3d11_main, MESSAGE_QUEUE_SIZE_BYTES);
+        if (error != RMT_ERROR_NONE)
+        {
+            Remotery_Destroy(*rmt);
+            *rmt = NULL;
+            return error;
+        }
+    #endif
+
     return RMT_ERROR_NONE;
 }
 
@@ -3989,6 +4043,19 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 static void Remotery_Destroy(Remotery* rmt)
 {
     assert(rmt != NULL);
+
+    #ifdef RMT_USE_D3D11
+        if (rmt->d3d11_timestamp_allocator != NULL)
+        {
+            ObjectAllocator_Destroy(rmt->d3d11_timestamp_allocator);
+            rmt->d3d11_timestamp_allocator = NULL;
+        }
+        if (rmt->mq_to_d3d11_main != NULL)
+        {
+            MessageQueue_Destroy(rmt->mq_to_d3d11_main);
+            rmt->mq_to_d3d11_main = NULL;
+        }
+    #endif
 
     if (rmt->thread != NULL)
     {
@@ -4002,10 +4069,10 @@ static void Remotery_Destroy(Remotery* rmt)
         rmt->json_buf = NULL;
     }
 
-    if (rmt->msg_queue != NULL)
+    if (rmt->mq_to_rmt_thread != NULL)
     {
-        MessageQueue_Destroy(rmt->msg_queue);
-        rmt->msg_queue = NULL;
+        MessageQueue_Destroy(rmt->mq_to_rmt_thread);
+        rmt->mq_to_rmt_thread = NULL;
     }
 
     Remotery_DestroyThreadSamplers(rmt);
@@ -4147,7 +4214,7 @@ void _rmt_SetGlobalInstance(Remotery* remotery)
 }
 
 
-Remotery* _rmt_GetGlobalInstance()
+Remotery* _rmt_GetGlobalInstance(void)
 {
     return g_Remotery;
 }
@@ -4258,7 +4325,7 @@ void _rmt_LogText(rmtPStr text)
         // Line wrap when too long or newline encountered
         if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
         {
-            if (QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset, ts) == RMT_FALSE)
+            if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts) == RMT_FALSE)
                 return;
 
             // Restart line
@@ -4294,7 +4361,7 @@ void _rmt_LogText(rmtPStr text)
     if (prev_offset > start_offset)
     {
         assert(prev_offset < sizeof(line_buffer) - 3);
-        QueueLine(g_Remotery->msg_queue, line_buffer, prev_offset, ts);
+        QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts);
     }
 }
 
@@ -4349,7 +4416,7 @@ void _rmt_EndCPUSample(void)
     {
         Sample* sample = ts->sample_trees[SampleType_CPU]->current_parent;
         sample->us_end = usTimer_Get(&ts->timer);
-        ThreadSampler_Pop(ts, g_Remotery->msg_queue, sample);
+        ThreadSampler_Pop(ts, g_Remotery->mq_to_rmt_thread, sample);
     }
 }
 
@@ -4370,6 +4437,7 @@ void _rmt_EndCPUSample(void)
 
 typedef struct CUDASample
 {
+    // IS-A inheritance relationship
     Sample Sample;
 
     // Pair of events that wrap the sample
@@ -4624,13 +4692,413 @@ void _rmt_EndCUDASample(void* stream)
     {
         CUDASample* sample = (CUDASample*)ts->sample_trees[SampleType_CUDA]->current_parent;
         CUDAEventRecord(sample->event_end, stream);
-        ThreadSampler_Pop(ts, g_Remotery->msg_queue, (Sample*)sample);
+        ThreadSampler_Pop(ts, g_Remotery->mq_to_rmt_thread, (Sample*)sample);
     }
 }
 
 
 #endif  // RMT_USE_CUDA
 
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @D3D11: Direct3D 11 event sampling
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+#ifdef RMT_USE_D3D11
+
+
+typedef struct D3D11Timestamp
+{
+    // Inherit so that timestamps can be quickly allocated
+    ObjectLink ObjectLink;
+
+    // Pair of timestamp queries that wrap the sample
+    ID3D11Query* query_start;
+    ID3D11Query* query_end;
+
+    // A disjoint to measure frequency/stability
+    // TODO: Does *each* sample need one of these?
+    ID3D11Query* query_disjoint;
+} D3D11Timestamp;
+
+
+static enum rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
+{
+    D3D11_QUERY_DESC timestamp_desc;
+    D3D11_QUERY_DESC disjoint_desc;
+
+    assert(stamp != NULL);
+
+    ObjectLink_Constructor((ObjectLink*)stamp);
+
+    // Set defaults
+    stamp->query_start = NULL;
+    stamp->query_end = NULL;
+    stamp->query_disjoint = NULL;
+
+    // Create start/end timestamp queries
+    assert(g_Remotery != NULL);
+    timestamp_desc.Query = D3D11_QUERY_TIMESTAMP;
+    timestamp_desc.MiscFlags = 0;
+    g_Remotery->d3d11_last_error = ID3D11Device_CreateQuery(g_Remotery->d3d11_device, &timestamp_desc, &stamp->query_start);
+    if (g_Remotery->d3d11_last_error != S_OK)
+        return RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY;
+    g_Remotery->d3d11_last_error = ID3D11Device_CreateQuery(g_Remotery->d3d11_device, &timestamp_desc, &stamp->query_end);
+    if (g_Remotery->d3d11_last_error != S_OK)
+        return RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY;
+
+    // Create disjoint query
+    disjoint_desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+    disjoint_desc.MiscFlags = 0;
+    g_Remotery->d3d11_last_error = ID3D11Device_CreateQuery(g_Remotery->d3d11_device, &disjoint_desc, &stamp->query_disjoint);
+    if (g_Remotery->d3d11_last_error != S_OK)
+        return RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void D3D11Timestamp_Destructor(D3D11Timestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    // Destroy queries
+    if (stamp->query_disjoint != NULL)
+        ID3D11Query_Release(stamp->query_disjoint);
+    if (stamp->query_end != NULL)
+        ID3D11Query_Release(stamp->query_end);
+    if (stamp->query_start != NULL)
+        ID3D11Query_Release(stamp->query_start);
+}
+
+
+static void D3D11Timestamp_Begin(D3D11Timestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    // Start of disjoint and first query
+    assert(g_Remotery != NULL);
+    assert(g_Remotery->d3d11_context != NULL);
+    ID3D11DeviceContext_Begin(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_disjoint);
+    ID3D11DeviceContext_End(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_start);
+}
+
+
+static void D3D11Timestamp_End(D3D11Timestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    // End of disjoint and second query
+    assert(g_Remotery != NULL);
+    assert(g_Remotery->d3d11_context != NULL);
+    ID3D11DeviceContext_End(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_end);
+    ID3D11DeviceContext_End(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_disjoint);
+}
+
+
+static rmtBool D3D11Timestamp_GetData(D3D11Timestamp* stamp, rmtU64 first_timestamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
+{
+
+    ID3D11DeviceContext* d3d_context;
+    ID3D11Asynchronous* query_start;
+    ID3D11Asynchronous* query_end;
+    ID3D11Asynchronous* query_disjoint;
+
+    UINT64 start;
+    UINT64 end;
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint;
+
+    assert(g_Remotery != NULL);
+    d3d_context = g_Remotery->d3d11_context;
+
+    assert(stamp != NULL);
+    query_start = (ID3D11Asynchronous*)stamp->query_start;
+    query_end = (ID3D11Asynchronous*)stamp->query_end;
+    query_disjoint = (ID3D11Asynchronous*)stamp->query_disjoint;
+
+    // Check to see if all queries are ready
+    // If any fail to arrive, wait until later
+    g_Remotery->d3d11_last_error = ID3D11DeviceContext_GetData(d3d_context, query_start, &start, sizeof(start), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    if (g_Remotery->d3d11_last_error != S_OK)
+        return RMT_FALSE;
+    g_Remotery->d3d11_last_error = ID3D11DeviceContext_GetData(d3d_context, query_end, &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    if (g_Remotery->d3d11_last_error != S_OK)
+        return RMT_FALSE;
+    g_Remotery->d3d11_last_error = ID3D11DeviceContext_GetData(d3d_context, query_disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    if (g_Remotery->d3d11_last_error != S_OK)
+        return RMT_FALSE;
+
+    if (disjoint.Disjoint == FALSE)
+    {
+        double frequency = disjoint.Frequency / 1000000.0;
+
+        // Mark the first timestamp
+        assert(out_first_timestamp != NULL);
+        if (*out_first_timestamp == 0)
+            *out_first_timestamp = start;
+
+        // Calculate start and end timestamps from the disjoint info
+        *out_start = (rmtU64)((start - first_timestamp) / frequency);
+        *out_end = (rmtU64)((end - first_timestamp) / frequency);
+    }
+
+    return RMT_TRUE;
+}
+
+
+typedef struct D3D11Sample
+{
+    // IS-A inheritance relationship
+    Sample Sample;
+
+    D3D11Timestamp* timestamp;
+
+} D3D11Sample;
+
+
+static enum rmtError D3D11Sample_Constructor(D3D11Sample* sample)
+{
+    assert(sample != NULL);
+
+    // Chain to sample constructor
+    Sample_Constructor((Sample*)sample);
+    sample->Sample.type = SampleType_D3D11;
+    sample->Sample.size_bytes = sizeof(D3D11Sample);
+    sample->timestamp = NULL;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void D3D11Sample_Destructor(D3D11Sample* sample)
+{
+    Sample_Destructor((Sample*)sample);
+}
+
+
+void _rmt_BindD3D11(void* device, void* context)
+{
+    if (g_Remotery != NULL)
+    {
+        assert(device != NULL);
+        g_Remotery->d3d11_device = (ID3D11Device*)device;
+        assert(context != NULL);
+        g_Remotery->d3d11_context = (ID3D11DeviceContext*)context;
+    }
+}
+
+
+static void FreeD3D11TimeStamps(Sample* sample)
+{
+    Sample* child;
+
+    D3D11Sample* d3d_sample = (D3D11Sample*)sample;
+
+    assert(d3d_sample->timestamp != NULL);
+    ObjectAllocator_Free(g_Remotery->d3d11_timestamp_allocator, (void*)d3d_sample->timestamp);
+    d3d_sample->timestamp = NULL;
+
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+        FreeD3D11TimeStamps(child);
+}
+
+
+void _rmt_UnbindD3D11(void)
+{
+    if (g_Remotery != NULL)
+    {
+        // Inform sampler to not add any more samples
+        g_Remotery->d3d11_device = NULL;
+        g_Remotery->d3d11_context = NULL;
+
+        // Flush the main queue of allocated D3D timestamps
+        while (1)
+        {
+            Msg_SampleTree* sample_tree;
+            Sample* sample;
+
+            Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_d3d11_main);
+            if (message == NULL)
+                break;
+
+            // There's only one valid message type in this queue
+            assert(message->id == MsgID_SampleTree);
+            sample_tree = (Msg_SampleTree*)message->payload;
+            sample = sample_tree->root_sample;
+            assert(sample->type == SampleType_D3D11);
+            FreeD3D11TimeStamps(sample);
+            FreeSampleTree(sample, sample_tree->allocator);
+
+            MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_d3d11_main, message);
+        }
+
+        // Free all allocated D3D resources
+        ObjectAllocator_Destroy(g_Remotery->d3d11_timestamp_allocator);
+        g_Remotery->d3d11_timestamp_allocator = NULL;
+    }
+}
+
+
+void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    // Has D3D11 been unbound?
+    if (g_Remotery->d3d11_device == NULL || g_Remotery->d3d11_context == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        enum rmtError error;
+        Sample* sample;
+        rmtU32 name_hash = GetNameHash(name, hash_cache);
+
+        // Create the D3D11 tree on-demand as the tree needs an up-front-created root.
+        // This is not possible to create on initialisation as a D3D11 binding is not yet available.
+        SampleTree** d3d_tree = &ts->sample_trees[SampleType_D3D11];
+        if (*d3d_tree == NULL)
+        {
+            error = SampleTree_Create(d3d_tree, sizeof(D3D11Sample), (ObjConstructor)D3D11Sample_Constructor, (ObjDestructor)D3D11Sample_Destructor);
+            if (error != RMT_ERROR_NONE)
+                return;
+        }
+
+        // Also create the timestamp allocator on-demand to keep the D3D11 code localised to the same file section
+        if (g_Remotery->d3d11_timestamp_allocator == NULL)
+            error = ObjectAllocator_Create(&g_Remotery->d3d11_timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
+
+        // Push the sample
+        if (ThreadSampler_Push(ts, *d3d_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
+        {
+            D3D11Sample* d3d_sample = (D3D11Sample*)sample;
+
+            // Allocate a timestamp for the sample and activate it
+            assert(d3d_sample->timestamp == NULL);
+            error = ObjectAllocator_Alloc(g_Remotery->d3d11_timestamp_allocator, (void**)&d3d_sample->timestamp);
+            if (error == RMT_ERROR_NONE)
+                D3D11Timestamp_Begin(d3d_sample->timestamp);
+        }
+    }
+}
+
+
+void _rmt_EndD3D11Sample(void)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    // Has D3D11 been unbound?
+    if (g_Remotery->d3d11_device == NULL || g_Remotery->d3d11_context == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        // Close the timestamp
+        D3D11Sample* d3d_sample = (D3D11Sample*)ts->sample_trees[SampleType_D3D11]->current_parent;
+        if (d3d_sample->timestamp != NULL)
+            D3D11Timestamp_End(d3d_sample->timestamp);
+
+        // Send to the update loop for ready-polling
+        ThreadSampler_Pop(ts, g_Remotery->mq_to_d3d11_main, (Sample*)d3d_sample);
+    }
+}
+
+
+static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU64* out_first_timestamp)
+{
+    Sample* child;
+
+    D3D11Sample* d3d_sample = (D3D11Sample*)sample;
+
+    assert(sample != NULL);
+    if (d3d_sample->timestamp != NULL)
+    {
+        if (!D3D11Timestamp_GetData(d3d_sample->timestamp, first_timestamp, &sample->us_start, &sample->us_end, out_first_timestamp))
+            return RMT_FALSE;
+    }
+
+    // Get child sample times
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+    {
+        if (!GetD3D11SampleTimes(child, first_timestamp, out_first_timestamp))
+            return RMT_FALSE;
+    }
+
+    return RMT_TRUE;
+}
+
+
+void _rmt_UpdateD3D11Frame(void)
+{
+    Message* first_message = NULL;
+
+    if (g_Remotery == NULL)
+        return;
+
+    rmt_BeginCPUSample(rmt_UpdateD3D11Frame);
+
+    // Process all messages in the D3D queue
+    while (1)
+    {
+        Msg_SampleTree* sample_tree;
+        Sample* sample;
+        rmtU64 first_timestamp;
+        rmtBool are_samples_ready;
+
+        Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_d3d11_main);
+        if (message == NULL)
+            break;
+
+        // Keep track of the first message encountered during this loop and leave it's encountered
+        // again. This means the loop as had a good attempt at trying to get timing data for all messages
+        // in the queue.
+        if (first_message == NULL)
+            first_message = message;
+        else if (first_message == message)
+            break;
+
+        // There's only one valid message type in this queue
+        assert(message->id == MsgID_SampleTree);
+        sample_tree = (Msg_SampleTree*)message->payload;
+        sample = sample_tree->root_sample;
+        assert(sample->type == SampleType_D3D11);
+
+        // Retrieve timing of all D3D11 samples
+        first_timestamp = g_Remotery->d3d11_first_timestamp;
+        are_samples_ready = GetD3D11SampleTimes(sample, first_timestamp, &g_Remotery->d3d11_first_timestamp);
+
+        // If the samples are ready, pass them onto the remotery thread for sending to the viewer
+        if (are_samples_ready)
+        {
+            FreeD3D11TimeStamps(sample);
+            AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+        }
+        else
+        {
+            // Otherwise just put them to the back of the queue
+            AddSampleTreeMessage(g_Remotery->mq_to_d3d11_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+        }
+
+        MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_d3d11_main, message);
+    }
+
+    rmt_EndCPUSample();
+}
+
+
+#endif  // RMT_USE_CUDA
 
 
 #endif // RMT_ENABLED

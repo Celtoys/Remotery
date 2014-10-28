@@ -19,20 +19,6 @@ limitations under the License.
 
 /*
 
-Remotery
---------
-
-A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in a web browser.
-
-Supported features:
-
-* Lightweight instrumentation of multiple threads running on the CPU.
-* Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
-  transmits sample data to the browser on a latent thread.
-* Profiles itself and shows how it's performing in the viewer.
-* Can optionally sample CUDA GPU activity.
-* Console output for logging text.
-
 
 Compiling
 ---------
@@ -53,84 +39,9 @@ You can define some extra macros to modify what features are compiled into Remot
 
     RMT_ENABLED         <defined>           Disable this to not include any bits of Remotery in your build
     RMT_USE_TINYCRT     <not defined>       Used by the Celtoys TinyCRT library (not released yet)
-    RMT_USE_CUDA        <not defined>       Assuming CUDA headers/libs are setup, allow CUDA profiling
+    RMT_USE_CUDA        <not defined>       Assuming CUDA headers/libs are setup, allow CUDA GPU profiling
+    RMT_USE_D3D11       <not defined>       Assuming Direct3D 11 headers/libs are setup, allow D3D11 GPU profiling
 
-
-Basic Use
----------
-
-See the sample directory for further examples. A quick example:
-
-    int main()
-    {
-        // Create the main instance of Remotery.
-        // You need only do this once per program.
-        Remotery* rmt;
-        rmt_CreateGlobalInstance(&rmt);
-
-        // Explicit begin/end for C
-        {
-            rmt_BeginCPUSample(LogText);
-            rmt_LogText("Time me, please!");
-            rmt_EndCPUSample();
-        }
-
-        // Scoped begin/end for C++
-        {
-            rmt_ScopedCPUSample(LogText);
-            rmt_LogText("Time me, too!");
-        }
-
-        // Destroy the main instance of Remotery.
-        rmt_DestroyGlobalInstance(rmt);
-    }
-
-
-Running the Viewer
-------------------
-
-Double-click or launch `vis/index.html` from the browser.
-
-
-Sampling CUDA activity
-----------------------
-
-Remotery allows for profiling multiple threads of CUDA execution using different asynchronous streams
-that must all share the same context. After initialising both Remotery and CUDA you need to bind the
-two together using the call:
-
-    rmtCUDABind bind;
-    bind.context = m_Context;
-    bind.CtxSetCurrent = &cuCtxSetCurrent;
-    bind.CtxGetCurrent = &cuCtxGetCurrent;
-    bind.EventCreate = &cuEventCreate;
-    bind.EventDestroy = &cuEventDestroy;
-    bind.EventRecord = &cuEventRecord;
-    bind.EventQuery = &cuEventQuery;
-    bind.EventElapsedTime = &cuEventElapsedTime;
-    rmt_BindCUDA(&bind);
-
-Explicitly pointing to the CUDA interface allows Remotery to be included anywhere in your project without
-need for you to link with the required CUDA libraries. After the bind completes you can safely sample any
-CUDA activity:
-
-    CUstream stream;
-
-    // Explicit begin/end for C
-    {
-        rmt_BeginCUDASample(UnscopedSample, stream);
-        // ... CUDA code ...
-        rmt_EndCUDASample(stream);
-    }
-
-    // Scoped begin/end for C++
-    {
-        rmt_ScopedCUDASample(ScopedSample, stream);
-        // ... CUDA code ...
-    }
-
-Remotery supports only one context for all threads and will use cuCtxGetCurrent and cuCtxSetCurrent to
-ensure the current thread has the context you specify in rmtCUDABind.context.
 
 */
 
@@ -138,7 +49,17 @@ ensure the current thread has the context you specify in rmtCUDABind.context.
 #define RMT_INCLUDED_H
 
 
+// Disable this to not include any bits of Remotery in your build
 #define RMT_ENABLED
+
+// Used by the Celtoys TinyCRT library (not released yet)
+//#define RMT_USE_TINYCRT
+
+// Assuming CUDA headers/libs are setup, allow CUDA profiling
+//#define RMT_USE_CUDA
+
+// Assuming Direct3D 11 headers/libs are setup, allow D3D11 profiling
+//#define RMT_USE_D3D11
 
 
 /*
@@ -190,6 +111,11 @@ ensure the current thread has the context you specify in rmtCUDABind.context.
     #define IFDEF_RMT_USE_CUDA(t, f) t
 #else
     #define IFDEF_RMT_USE_CUDA(t, f) f
+#endif
+#ifdef RMT_USE_D3D11
+    #define IFDEF_RMT_USE_D3D11(t, f) t
+#else
+    #define IFDEF_RMT_USE_D3D11(t, f) f
 #endif
 
 
@@ -291,6 +217,9 @@ enum rmtError
     RMT_ERROR_CUDA_OUT_OF_MEMORY,               // The API call failed because it was unable to allocate enough memory to perform the requested operation
     RMT_ERROR_ERROR_NOT_READY,                  // This indicates that a resource handle passed to the API call was not valid
 
+    // Direct3D 11 error messages
+    RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY,     // Failed to create query for sample
+
     RMT_ERROR_CUDA_UNKNOWN,
 };
 
@@ -374,6 +303,25 @@ typedef struct rmtCUDABind
     RMT_OPTIONAL(RMT_USE_CUDA, _rmt_EndCUDASample(stream))
 
 
+#define rmt_BindD3D11(device, context)                                      \
+    RMT_OPTIONAL(RMT_USE_D3D11, _rmt_BindD3D11(device, context))
+
+#define rmt_UnbindD3D11()                                                   \
+    RMT_OPTIONAL(RMT_USE_D3D11, _rmt_UnbindD3D11())
+
+#define rmt_BeginD3D11Sample(name)                                          \
+    RMT_OPTIONAL(RMT_USE_D3D11, {                                           \
+        static rmtU32 rmt_sample_hash_##name = 0;                           \
+        _rmt_BeginD3D11Sample(#name, &rmt_sample_hash_##name);              \
+    })
+
+#define rmt_EndD3D11Sample()                                                \
+    RMT_OPTIONAL(RMT_USE_D3D11, _rmt_EndD3D11Sample())
+
+#define rmt_UpdateD3D11Frame()                                              \
+    RMT_OPTIONAL(RMT_USE_D3D11, _rmt_UpdateD3D11Frame())
+
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -388,14 +336,15 @@ typedef struct rmtCUDABind
 #ifdef __cplusplus
 
 
-// Types that end samples in their destructors
 #ifdef RMT_ENABLED
+
+// Types that end samples in their destructors
 extern "C" void _rmt_EndCPUSample(void);
 struct rmt_EndCPUSampleOnScopeExit
 {
     ~rmt_EndCPUSampleOnScopeExit()
     {
-        rmt_EndCPUSample();
+        _rmt_EndCPUSample();
     }
 };
 #ifdef RMT_USE_CUDA
@@ -407,22 +356,36 @@ struct rmt_EndCUDASampleOnScopeExit
     }
     ~rmt_EndCUDASampleOnScopeExit()
     {
-        rmt_EndCUDASample(stream);
+        _rmt_EndCUDASample(stream);
     }
     void* stream;
 };
 #endif
+#ifdef RMT_USE_D3D11
+extern "C" void _rmt_EndD3D11Sample(void);
+struct rmt_EndD3D11SampleOnScopeExit
+{
+    ~rmt_EndD3D11SampleOnScopeExit()
+    {
+        _rmt_EndD3D11Sample();
+    }
+};
+#endif
+
 #endif
 
 
 
 // Pairs a call to rmt_Begin<TYPE>Sample with its call to rmt_End<TYPE>Sample when leaving scope
-#define rmt_ScopedCPUSample(name)                                                           \
-        RMT_OPTIONAL(RMT_ENABLED, rmt_BeginCPUSample(name));                                \
+#define rmt_ScopedCPUSample(name)                                                                       \
+        RMT_OPTIONAL(RMT_ENABLED, rmt_BeginCPUSample(name));                                            \
         RMT_OPTIONAL(RMT_ENABLED, rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name);
-#define rmt_ScopedCUDASample(name, stream)                                                  \
-        RMT_OPTIONAL(RMT_USE_CUDA, rmt_BeginCUDASample(name, stream));                      \
+#define rmt_ScopedCUDASample(name, stream)                                                              \
+        RMT_OPTIONAL(RMT_USE_CUDA, rmt_BeginCUDASample(name, stream));                                  \
         RMT_OPTIONAL(RMT_USE_CUDA, rmt_EndCUDASampleOnScopeExit rmt_ScopedCUDASample##name(stream));
+#define rmt_ScopedD3D11Sample(name)                                                                     \
+        RMT_OPTIONAL(RMT_USE_D3D11, rmt_BeginD3D11Sample(name));                                        \
+        RMT_OPTIONAL(RMT_USE_D3D11, rmt_EndD3D11SampleOnScopeExit rmt_ScopedD3D11Sample##name);
 
 #endif
 
@@ -448,7 +411,7 @@ extern "C" {
 enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery);
 void _rmt_DestroyGlobalInstance(Remotery* remotery);
 void _rmt_SetGlobalInstance(Remotery* remotery);
-Remotery* _rmt_GetGlobalInstance();
+Remotery* _rmt_GetGlobalInstance(void);
 
 
 void _rmt_SetCurrentThreadName(rmtPStr thread_name);
@@ -471,6 +434,15 @@ void _rmt_EndCPUSample(void);
 void _rmt_BindCUDA(const rmtCUDABind* bind);
 void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream);
 void _rmt_EndCUDASample(void* stream);
+#endif
+
+
+#ifdef RMT_USE_D3D11
+void _rmt_BindD3D11(void* device, void* context);
+void _rmt_UnbindD3D11(void);
+void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache);
+void _rmt_EndD3D11Sample(void);
+void _rmt_UpdateD3D11Frame(void);
 #endif
 
 
