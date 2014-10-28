@@ -179,21 +179,24 @@ ensure the current thread has the context you specify in rmtCUDABind.context.
 #define RMT_UNIQUE(x) RMT_JOIN(x, __COUNTER__)
 
 
-// Public interface is implemented in terms of these macros to easily enable/disable itself
+// Allows macros to be written that can work around the inability to do: #define(x) #ifdef x
+// with the C preprocessor.
 #ifdef RMT_ENABLED
-    #define RMT_OPTIONAL(x) x
-    #define RMT_OPTIONAL_RET(x, y) x
+    #define IFDEF_RMT_ENABLED(t, f) t
 #else
-    #define RMT_OPTIONAL(x)
-    #define RMT_OPTIONAL_RET(x, y) (y)
+    #define IFDEF_RMT_ENABLED(t, f) f
 #endif
 #ifdef RMT_USE_CUDA
-    #define RMT_CUDA_OPTIONAL(x) x
-    #define RMT_CUDA_OPTIONAL_RET(x, y) x
+    #define IFDEF_RMT_USE_CUDA(t, f) t
 #else
-    #define RMT_CUDA_OPTIONAL(x)
-    #define RMT_CUDA_OPTIONAL_RET(x, y) (y)
+    #define IFDEF_RMT_USE_CUDA(t, f) f
 #endif
+
+
+// Public interface is written in terms of these macros to easily enable/disable itself
+#define RMT_OPTIONAL(macro, x) IFDEF_ ## macro(x, )
+#define RMT_OPTIONAL_RET(macro, x, y) IFDEF_ ## macro(x, (y))
+
 
 
 /*
@@ -305,32 +308,32 @@ enum rmtError
 
 // Can call remotery functions on a null pointer
 
-#define rmt_CreateGlobalInstance(rmt)                                       \
-    RMT_OPTIONAL_RET(_rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
+#define rmt_CreateGlobalInstance(rmt)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
 
-#define rmt_DestroyGlobalInstance(rmt)                                      \
-    RMT_OPTIONAL(_rmt_DestroyGlobalInstance(rmt))
+#define rmt_DestroyGlobalInstance(rmt)                                              \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_DestroyGlobalInstance(rmt))
 
-#define rmt_SetGlobalInstance(rmt)                                          \
-    RMT_OPTIONAL(_rmt_SetGlobalInstance(rmt))
+#define rmt_SetGlobalInstance(rmt)                                                  \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_SetGlobalInstance(rmt))
 
-#define rmt_GetGlobalInstance()                                             \
-    RMT_OPTIONAL_RET(_rmt_GetGlobalInstance(), NULL)
+#define rmt_GetGlobalInstance()                                                     \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_GetGlobalInstance(), NULL)
 
-#define rmt_SetCurrentThreadName(rmt)                                       \
-    RMT_OPTIONAL(_rmt_SetCurrentThreadName(rmt))
+#define rmt_SetCurrentThreadName(rmt)                                               \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_SetCurrentThreadName(rmt))
 
-#define rmt_LogText(text)                                                   \
-    RMT_OPTIONAL(_rmt_LogText(text))
+#define rmt_LogText(text)                                                           \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_LogText(text))
 
-#define rmt_BeginCPUSample(name)                                            \
-    RMT_OPTIONAL({                                                          \
-        static rmtU32 rmt_sample_hash_##name = 0;                           \
-        _rmt_BeginCPUSample(#name, &rmt_sample_hash_##name);                \
+#define rmt_BeginCPUSample(name)                                                    \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                     \
+        static rmtU32 rmt_sample_hash_##name = 0;                                   \
+        _rmt_BeginCPUSample(#name, &rmt_sample_hash_##name);                        \
     })
 
-#define rmt_EndCPUSample()                                                  \
-    RMT_OPTIONAL(_rmt_EndCPUSample())
+#define rmt_EndCPUSample()                                                          \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
 
 
 // Structure to fill in when binding CUDA to Remotery
@@ -357,18 +360,18 @@ typedef struct rmtCUDABind
 
 // Call once after you've initialised CUDA to bind it to Remotery
 #define rmt_BindCUDA(bind)                                                  \
-    RMT_CUDA_OPTIONAL(_rmt_BindCUDA(bind))
+    RMT_OPTIONAL(RMT_USE_CUDA, _rmt_BindCUDA(bind))
 
 // Mark the beginning of a CUDA sample on the specified asynchronous stream
 #define rmt_BeginCUDASample(name, stream)                                   \
-    RMT_CUDA_OPTIONAL({                                                          \
+    RMT_OPTIONAL(RMT_USE_CUDA, {                                            \
         static rmtU32 rmt_sample_hash_##name = 0;                           \
         _rmt_BeginCUDASample(#name, &rmt_sample_hash_##name, stream);       \
     })
 
 // Mark the end of a CUDA sample on the specified asynchronous stream
 #define rmt_EndCUDASample(stream)                                           \
-    RMT_CUDA_OPTIONAL(_rmt_EndCUDASample(stream))
+    RMT_OPTIONAL(RMT_USE_CUDA, _rmt_EndCUDASample(stream))
 
 
 
@@ -414,12 +417,12 @@ struct rmt_EndCUDASampleOnScopeExit
 
 
 // Pairs a call to rmt_Begin<TYPE>Sample with its call to rmt_End<TYPE>Sample when leaving scope
-#define rmt_ScopedCPUSample(name)                                               \
-        RMT_OPTIONAL(rmt_BeginCPUSample(name));                                 \
-        RMT_OPTIONAL(rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name);
+#define rmt_ScopedCPUSample(name)                                                           \
+        RMT_OPTIONAL(RMT_ENABLED, rmt_BeginCPUSample(name));                                \
+        RMT_OPTIONAL(RMT_ENABLED, rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name);
 #define rmt_ScopedCUDASample(name, stream)                                                  \
-        RMT_CUDA_OPTIONAL(rmt_BeginCUDASample(name, stream));                               \
-        RMT_CUDA_OPTIONAL(rmt_EndCUDASampleOnScopeExit rmt_ScopedCUDASample##name(stream));
+        RMT_OPTIONAL(RMT_USE_CUDA, rmt_BeginCUDASample(name, stream));                      \
+        RMT_OPTIONAL(RMT_USE_CUDA, rmt_EndCUDASampleOnScopeExit rmt_ScopedCUDASample##name(stream));
 
 #endif
 
