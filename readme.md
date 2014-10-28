@@ -11,7 +11,7 @@ Supported features:
 * Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
   transmits sample data to the browser on a latent thread.
 * Profiles itself and shows how it's performing in the viewer.
-* Can optionally sample CUDA GPU activity.
+* Can optionally sample CUDA/D3D11 GPU activity.
 * Console output for logging text.
 
 
@@ -144,4 +144,7 @@ Sampling is then a simple case of:
         // ... D3D code ...
     }
 
-Support for multiple contexts can be added pretty easily if there is demand for the feature.
+Support for multiple contexts can be added pretty easily if there is demand for the feature. When you shutdown
+your D3D11 device and context, ensure you notify Remotery before shutting down Remotery itself:
+
+    rmt_UnbindD3D11();
