@@ -1305,9 +1305,13 @@ static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** ob
         void* free_object = malloc(allocator->object_size);
         if (free_object == NULL)
             return RMT_ERROR_MALLOC_FAIL;
+        assert(allocator->constructor != NULL);
         error = allocator->constructor(free_object);
         if (error != RMT_ERROR_NONE)
         {
+            // Auto-teardown on failure
+            assert(allocator->destructor != NULL);
+            allocator->destructor(free_object);
             free(free_object);
             return error;
         }
