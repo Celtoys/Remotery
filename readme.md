@@ -35,6 +35,7 @@ You can define some extra macros to modify what features are compiled into Remot
     RMT_ENABLED         <defined>           Disable this to not include any bits of Remotery in your build
     RMT_USE_TINYCRT     <not defined>       Used by the Celtoys TinyCRT library (not released yet)
     RMT_USE_CUDA        <not defined>       Assuming CUDA headers/libs are setup, allow CUDA profiling
+    RMT_USE_D3D11       <not defined>       Assuming Direct3D 11 headers/libs are setup, allow D3D11 GPU profiling
 
 
 Basic Use
@@ -73,8 +74,8 @@ Running the Viewer
 Double-click or launch `vis/index.html` from the browser.
 
 
-Sampling CUDA activity
-----------------------
+Sampling CUDA GPU activity
+--------------------------
 
 Remotery allows for profiling multiple threads of CUDA execution using different asynchronous streams
 that must all share the same context. After initialising both Remotery and CUDA you need to bind the
@@ -112,3 +113,35 @@ CUDA activity:
 
 Remotery supports only one context for all threads and will use cuCtxGetCurrent and cuCtxSetCurrent to
 ensure the current thread has the context you specify in rmtCUDABind.context.
+
+
+Sampling Direct3D 11 GPU activity
+---------------------------------
+
+Remotery allows sampling of GPU activity on your main D3D11 context. After initialising Remotery, you need
+to bind it to D3D11 with the single call:
+
+    // Parameters are ID3D11Device* and ID3D11DeviceContext*
+    rmt_BindD3D11(d3d11_device, d3d11_context);
+
+As D3D11 is very sensitive to what threads you call a function from, you need to call the following once
+every frame from whatever thread owns the context you bound to Remotery:
+
+    rmt_UpdateD3D11Frame();
+
+Sampling is then a simple case of:
+
+    // Explicit begin/end for C
+    {
+        rmt_BeginD3D11Sample(UnscopedSample);
+        // ... D3D code ...
+        rmt_EndD3D11Sample();
+    }
+
+    // Scoped begin/end for C++
+    {
+        rmt_ScopedD3D11Sample(ScopedSample);
+        // ... D3D code ...
+    }
+
+Support for multiple contexts can be added pretty easily if there is demand for the feature.
