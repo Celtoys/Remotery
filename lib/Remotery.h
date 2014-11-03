@@ -19,7 +19,6 @@ limitations under the License.
 
 /*
 
-
 Compiling
 ---------
 
@@ -33,17 +32,11 @@ Compiling
   library linkage. For example to compile the same run: cc lib/Remotery.c sample/sample.c
   -I lib -pthread -lm
 
-You can define some extra macros to modify what features are compiled into Remotery:
-
-    Macro               Default             Description
-
-    RMT_ENABLED         <defined>           Disable this to not include any bits of Remotery in your build
-    RMT_USE_TINYCRT     <not defined>       Used by the Celtoys TinyCRT library (not released yet)
-    RMT_USE_CUDA        <not defined>       Assuming CUDA headers/libs are setup, allow CUDA GPU profiling
-    RMT_USE_D3D11       <not defined>       Assuming Direct3D 11 headers/libs are setup, allow D3D11 GPU profiling
-
+You can define some extra macros to modify what features are compiled into Remotery. These are
+documented just below this comment.
 
 */
+
 
 #ifndef RMT_INCLUDED_H
 #define RMT_INCLUDED_H
@@ -236,6 +229,7 @@ enum rmtError
 
 
 // Can call remotery functions on a null pointer
+// TODO: Can embed extern "C" in these macros?
 
 #define rmt_CreateGlobalInstance(rmt)                                               \
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
@@ -407,35 +401,20 @@ struct rmt_EndD3D11SampleOnScopeExit
 extern "C" {
 #endif
 
-
 enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery);
 void _rmt_DestroyGlobalInstance(Remotery* remotery);
 void _rmt_SetGlobalInstance(Remotery* remotery);
 Remotery* _rmt_GetGlobalInstance(void);
-
-
 void _rmt_SetCurrentThreadName(rmtPStr thread_name);
-
-
 void _rmt_LogText(rmtPStr text);
-
-//
-// 'hash_cache' stores a pointer to a sample name's hash value. Internally this is used to identify unique callstacks and it
-// would be ideal that it's not recalculated each time the sample is used. This can be statically cached at the point
-// of call or stored elsewhere when dynamic names are required.
-//
-// If 'hash_cache' is NULL then this call becomes more expensive, as it has to recalculate the hash of the name.
-//
 void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache);
 void _rmt_EndCPUSample(void);
-
 
 #ifdef RMT_USE_CUDA
 void _rmt_BindCUDA(const rmtCUDABind* bind);
 void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream);
 void _rmt_EndCUDASample(void* stream);
 #endif
-
 
 #ifdef RMT_USE_D3D11
 void _rmt_BindD3D11(void* device, void* context);
@@ -444,7 +423,6 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache);
 void _rmt_EndD3D11Sample(void);
 void _rmt_UpdateD3D11Frame(void);
 #endif
-
 
 #ifdef __cplusplus
 }

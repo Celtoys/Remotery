@@ -4388,6 +4388,12 @@ static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 
 void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 {
+    // 'hash_cache' stores a pointer to a sample name's hash value. Internally this is used to identify unique callstacks and it
+    // would be ideal that it's not recalculated each time the sample is used. This can be statically cached at the point
+    // of call or stored elsewhere when dynamic names are required.
+    //
+    // If 'hash_cache' is NULL then this call becomes more expensive, as it has to recalculate the hash of the name.
+    
     ThreadSampler* ts;
 
     if (g_Remotery == NULL)
