@@ -3697,6 +3697,19 @@ struct Remotery
 };
 
 
+//
+// Global remotery context
+//
+static Remotery* g_Remotery = NULL;
+
+
+//
+// This flag marks the EXE/DLL that created the global remotery instance. We want to allow
+// only the creating EXE/DLL to destroy the remotery instance.
+//
+static rmtBool g_RemoteryCreated = RMT_FALSE;
+
+
 static void Remotery_Destroy(Remotery* rmt);
 static void Remotery_DestroyThreadSamplers(Remotery* rmt);
 
@@ -3963,6 +3976,14 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     (*rmt)->json_buf = NULL;
     (*rmt)->thread = NULL;
 
+    // Set as the global instance before creating any threads that uses it for sampling itself
+    assert(g_Remotery == NULL);
+    g_Remotery = *rmt;
+    g_RemoteryCreated = RMT_TRUE;
+
+    // Ensure global instance writes complete before other threads get a chance to use it
+    WriteFence();
+
     // Allocate a TLS handle for the thread sampler
     error = tlsAlloc(&(*rmt)->thread_sampler_tls_handle);
     if (error != RMT_ERROR_NONE)
@@ -4043,6 +4064,12 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 static void Remotery_Destroy(Remotery* rmt)
 {
     assert(rmt != NULL);
+
+    // Ensure this is the module that created it
+    assert(g_RemoteryCreated == RMT_TRUE);
+    assert(g_Remotery == rmt);
+    g_Remotery = NULL;
+    g_RemoteryCreated = RMT_FALSE;
 
     #ifdef RMT_USE_D3D11
         if (rmt->d3d11_timestamp_allocator != NULL)
@@ -4164,47 +4191,18 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 }
 
 
-//
-// Global remotery context
-//
-static Remotery* g_Remotery = NULL;
-
-
-//
-// This flag marks the EXE/DLL that created the global remotery instance. We want to allow
-// only the creating EXE/DLL to destroy the remotery instance.
-//
-static rmtBool g_RemoteryCreated = RMT_FALSE;
-
-
 enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
-    enum rmtError error;
-
+    // Creating the Remotery instance also records it as the global instance
     assert(remotery != NULL);
-    assert(g_Remotery == NULL);
-
-    // Create and set as the global instance
-    error = Remotery_Create(remotery);
-    if (error != RMT_ERROR_NONE)
-        return error;
-    g_Remotery = *remotery;
-    g_RemoteryCreated = (remotery == NULL) ? RMT_FALSE : RMT_TRUE;
-    return RMT_ERROR_NONE;
+    return Remotery_Create(remotery);
 }
 
 
 void _rmt_DestroyGlobalInstance(Remotery* remotery)
 {
-    if (remotery == NULL)
-        return;
-
-    // Ensure this is the module that created it
-    assert(g_RemoteryCreated == RMT_TRUE);
-    assert(g_Remotery == remotery);
-    Remotery_Destroy(remotery);
-    g_Remotery = NULL;
-    g_RemoteryCreated = RMT_FALSE;
+    if (remotery != NULL)
+        Remotery_Destroy(remotery);
 }
 
 
