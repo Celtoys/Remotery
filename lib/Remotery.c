@@ -3976,14 +3976,6 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     (*rmt)->json_buf = NULL;
     (*rmt)->thread = NULL;
 
-    // Set as the global instance before creating any threads that uses it for sampling itself
-    assert(g_Remotery == NULL);
-    g_Remotery = *rmt;
-    g_RemoteryCreated = RMT_TRUE;
-
-    // Ensure global instance writes complete before other threads get a chance to use it
-    WriteFence();
-
     // Allocate a TLS handle for the thread sampler
     error = tlsAlloc(&(*rmt)->thread_sampler_tls_handle);
     if (error != RMT_ERROR_NONE)
@@ -4020,15 +4012,6 @@ static enum rmtError Remotery_Create(Remotery** rmt)
         return error;
     }
 
-    // Create the main update thread
-    error = Thread_Create(&(*rmt)->thread, Remotery_ThreadMain, *rmt);
-    if (error != RMT_ERROR_NONE)
-    {
-        Remotery_Destroy(*rmt);
-        *rmt = NULL;
-        return error;
-    }
-
     #ifdef RMT_USE_CUDA
 
         (*rmt)->cuda.CtxSetCurrent = NULL;
@@ -4057,6 +4040,23 @@ static enum rmtError Remotery_Create(Remotery** rmt)
         }
     #endif
 
+    // Set as the global instance before creating any threads that uses it for sampling itself
+    assert(g_Remotery == NULL);
+    g_Remotery = *rmt;
+    g_RemoteryCreated = RMT_TRUE;
+
+    // Ensure global instance writes complete before other threads get a chance to use it
+    WriteFence();
+
+    // Create the main update thread once everything has been defined for the global remotery object
+    error = Thread_Create(&(*rmt)->thread, Remotery_ThreadMain, *rmt);
+    if (error != RMT_ERROR_NONE)
+    {
+        Remotery_Destroy(*rmt);
+        *rmt = NULL;
+        return error;
+    }
+
     return RMT_ERROR_NONE;
 }
 
@@ -4064,6 +4064,13 @@ static enum rmtError Remotery_Create(Remotery** rmt)
 static void Remotery_Destroy(Remotery* rmt)
 {
     assert(rmt != NULL);
+
+    // Join the remotery thread before clearing the global object as the thread is profiling itself
+    if (rmt->thread != NULL)
+    {
+        Thread_Destroy(rmt->thread);
+        rmt->thread = NULL;
+    }
 
     // Ensure this is the module that created it
     assert(g_RemoteryCreated == RMT_TRUE);
@@ -4083,12 +4090,6 @@ static void Remotery_Destroy(Remotery* rmt)
             rmt->mq_to_d3d11_main = NULL;
         }
     #endif
-
-    if (rmt->thread != NULL)
-    {
-        Thread_Destroy(rmt->thread);
-        rmt->thread = NULL;
-    }
 
     if (rmt->json_buf != NULL)
     {
