@@ -100,12 +100,12 @@ documented just below this comment.
 #else
     #define IFDEF_RMT_ENABLED(t, f) f
 #endif
-#ifdef RMT_USE_CUDA
+#if defined(RMT_ENABLED) && defined(RMT_USE_CUDA)
     #define IFDEF_RMT_USE_CUDA(t, f) t
 #else
     #define IFDEF_RMT_USE_CUDA(t, f) f
 #endif
-#ifdef RMT_USE_D3D11
+#if defined(RMT_ENABLED) && defined(RMT_USE_D3D11)
     #define IFDEF_RMT_USE_D3D11(t, f) t
 #else
     #define IFDEF_RMT_USE_D3D11(t, f) f
