@@ -610,7 +610,7 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
 
     while (nb_attempts-- > 0)
     {
-        vmprot_t cur_prot, max_prot;
+        vm_prot_t cur_prot, max_prot;
         kern_return_t mach_error;
         rmtU8* ptr = NULL;
         rmtU8* target = NULL;
@@ -648,7 +648,7 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
                 break;
         }
 
-        else if (mach_error == KERN_SUCCCESS)
+        else if (mach_error == KERN_SUCCESS)
         {
             // Leave the loop on success
             (*buffer)->ptr = ptr;
@@ -955,7 +955,7 @@ static void Thread_Destroy(Thread* thread)
 typedef int errno_t;
 #endif
 
-#ifndef _WIN64
+#if !defined(_WIN64) && !defined(__APPLE__)
 typedef unsigned int rsize_t;
 #endif
 
