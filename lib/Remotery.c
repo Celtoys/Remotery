@@ -4927,20 +4927,16 @@ static void D3D11Timestamp_End(D3D11Timestamp* stamp, ID3D11DeviceContext* conte
 }
 
 
-static rmtBool D3D11Timestamp_GetData(D3D11Timestamp* stamp, rmtU64 first_timestamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
+static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext* context, rmtU64 first_timestamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
 {
-
-    ID3D11DeviceContext* d3d_context;
     ID3D11Asynchronous* query_start;
     ID3D11Asynchronous* query_end;
     ID3D11Asynchronous* query_disjoint;
+    HRESULT result;
 
     UINT64 start;
     UINT64 end;
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint;
-
-    assert(g_Remotery != NULL);
-    d3d_context = g_Remotery->d3d11_context;
 
     assert(stamp != NULL);
     query_start = (ID3D11Asynchronous*)stamp->query_start;
@@ -4949,15 +4945,15 @@ static rmtBool D3D11Timestamp_GetData(D3D11Timestamp* stamp, rmtU64 first_timest
 
     // Check to see if all queries are ready
     // If any fail to arrive, wait until later
-    g_Remotery->d3d11_last_error = ID3D11DeviceContext_GetData(d3d_context, query_start, &start, sizeof(start), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-    if (g_Remotery->d3d11_last_error != S_OK)
-        return RMT_FALSE;
-    g_Remotery->d3d11_last_error = ID3D11DeviceContext_GetData(d3d_context, query_end, &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-    if (g_Remotery->d3d11_last_error != S_OK)
-        return RMT_FALSE;
-    g_Remotery->d3d11_last_error = ID3D11DeviceContext_GetData(d3d_context, query_disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-    if (g_Remotery->d3d11_last_error != S_OK)
-        return RMT_FALSE;
+    result = ID3D11DeviceContext_GetData(context, query_start, &start, sizeof(start), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    if (result != S_OK)
+        return result;
+    result = ID3D11DeviceContext_GetData(context, query_end, &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    if (result != S_OK)
+        return result;
+    result = ID3D11DeviceContext_GetData(context, query_disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    if (result != S_OK)
+        return result;
 
     if (disjoint.Disjoint == FALSE)
     {
@@ -4973,7 +4969,7 @@ static rmtBool D3D11Timestamp_GetData(D3D11Timestamp* stamp, rmtU64 first_timest
         *out_end = (rmtU64)((end - first_timestamp) / frequency);
     }
 
-    return RMT_TRUE;
+    return S_OK;
 }
 
 
@@ -5149,8 +5145,19 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU6
     assert(sample != NULL);
     if (d3d_sample->timestamp != NULL)
     {
-        if (!D3D11Timestamp_GetData(d3d_sample->timestamp, first_timestamp, &sample->us_start, &sample->us_end, out_first_timestamp))
+        HRESULT result = D3D11Timestamp_GetData(
+            d3d_sample->timestamp,
+            g_Remotery->d3d11_context,
+            first_timestamp,
+            &sample->us_start,
+            &sample->us_end,
+            out_first_timestamp);
+
+        if (result != S_OK)
+        {
+            g_Remotery->d3d11_last_error = result;
             return RMT_FALSE;
+        }
     }
 
     // Get child sample times
