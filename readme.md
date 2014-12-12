@@ -36,6 +36,7 @@ You can define some extra macros to modify what features are compiled into Remot
     RMT_USE_TINYCRT     <not defined>       Used by the Celtoys TinyCRT library (not released yet)
     RMT_USE_CUDA        <not defined>       Assuming CUDA headers/libs are setup, allow CUDA profiling
     RMT_USE_D3D11       <not defined>       Assuming Direct3D 11 headers/libs are setup, allow D3D11 GPU profiling
+    RMT_USE_OPENGL      <not defined>       Allow OpenGL GPU profiling (standalone except you must link to OpenGL which you already do if you use it)
 
 
 Basic Use
@@ -148,3 +149,37 @@ Support for multiple contexts can be added pretty easily if there is demand for 
 your D3D11 device and context, ensure you notify Remotery before shutting down Remotery itself:
 
     rmt_UnbindD3D11();
+
+Sampling OpenGL GPU activity
+---------------------------------
+
+Remotery allows sampling of GPU activity on your main OpenGL context. After initialising Remotery, you need
+to bind it to OpenGL with the single call:
+
+    // Parameters are ID3D11Device* and ID3D11DeviceContext*
+    rmt_BindOpenGL();
+
+As OpenGL is very sensitive to what threads you call a function from, you need to call the following once
+every frame from whatever thread owns the context you bound to Remotery:
+
+    rmt_UpdateOpenGLFrame();
+
+Sampling is then a simple case of:
+
+    // Explicit begin/end for C
+    {
+        rmt_BeginOpenGLSample(UnscopedSample);
+        // ... OpenGL code ...
+        rmt_EndOpenGLSample();
+    }
+
+    // Scoped begin/end for C++
+    {
+        rmt_ScopedOpenGLSample(ScopedSample);
+        // ... OpenGL code ...
+    }
+
+Support for multiple contexts can be added pretty easily if there is demand for the feature. When you shutdown
+your OpenGL device and context, ensure you notify Remotery before shutting down Remotery itself:
+
+    rmt_UnbindOpenGL();

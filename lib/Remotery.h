@@ -54,6 +54,8 @@ documented just below this comment.
 // Assuming Direct3D 11 headers/libs are setup, allow D3D11 profiling
 //#define RMT_USE_D3D11
 
+// Allow OpenGL profiling
+//#define RMT_USE_OPENGL
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -109,6 +111,11 @@ documented just below this comment.
     #define IFDEF_RMT_USE_D3D11(t, f) t
 #else
     #define IFDEF_RMT_USE_D3D11(t, f) f
+#endif
+#if defined(RMT_ENABLED) && defined(RMT_USE_OPENGL)
+#define IFDEF_RMT_USE_OPENGL(t, f) t
+#else
+#define IFDEF_RMT_USE_OPENGL(t, f) f
 #endif
 
 
@@ -213,6 +220,9 @@ enum rmtError
     // Direct3D 11 error messages
     RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY,     // Failed to create query for sample
 
+    // OpenGL error messages
+    RMT_ERROR_OPENGL_ERROR,                     // Generic OpenGL error, no real need to expose more detail since app will probably have an OpenGL error callback registered
+
     RMT_ERROR_CUDA_UNKNOWN,
 };
 
@@ -316,6 +326,25 @@ typedef struct rmtCUDABind
     RMT_OPTIONAL(RMT_USE_D3D11, _rmt_UpdateD3D11Frame())
 
 
+#define rmt_BindOpenGL()                                                    \
+    RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_BindOpenGL())
+
+#define rmt_UnbindOpenGL()                                                  \
+    RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_UnbindOpenGL())
+
+#define rmt_BeginOpenGLSample(name)                                         \
+    RMT_OPTIONAL(RMT_USE_OPENGL, {                                          \
+        static rmtU32 rmt_sample_hash_##name = 0;                           \
+        _rmt_BeginOpenGLSample(#name, &rmt_sample_hash_##name);             \
+    })
+
+#define rmt_EndOpenGLSample()                                               \
+    RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_EndOpenGLSample())
+
+#define rmt_UpdateOpenGLFrame()                                             \
+    RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_UpdateOpenGLFrame())
+
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -366,6 +395,17 @@ struct rmt_EndD3D11SampleOnScopeExit
 };
 #endif
 
+#ifdef RMT_USE_OPENGL
+extern "C" void _rmt_EndOpenGLSample(void);
+struct rmt_EndOpenGLSampleOnScopeExit
+{
+    ~rmt_EndOpenGLSampleOnScopeExit()
+    {
+        _rmt_EndOpenGLSample();
+    }
+};
+#endif
+
 #endif
 
 
@@ -380,6 +420,9 @@ struct rmt_EndD3D11SampleOnScopeExit
 #define rmt_ScopedD3D11Sample(name)                                                                     \
         RMT_OPTIONAL(RMT_USE_D3D11, rmt_BeginD3D11Sample(name));                                        \
         RMT_OPTIONAL(RMT_USE_D3D11, rmt_EndD3D11SampleOnScopeExit rmt_ScopedD3D11Sample##name);
+#define rmt_ScopedOpenGLSample(name)                                                                    \
+        RMT_OPTIONAL(RMT_USE_OPENGL, rmt_BeginOpenGLSample(name));                                      \
+        RMT_OPTIONAL(RMT_USE_OPENGL, rmt_EndOpenGLSampleOnScopeExit rmt_ScopedOpenGLSample##name);
 
 #endif
 
@@ -422,6 +465,14 @@ void _rmt_UnbindD3D11(void);
 void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache);
 void _rmt_EndD3D11Sample(void);
 void _rmt_UpdateD3D11Frame(void);
+#endif
+
+#ifdef RMT_USE_OPENGL
+void _rmt_BindOpenGL();
+void _rmt_UnbindOpenGL(void);
+void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache);
+void _rmt_EndOpenGLSample(void);
+void _rmt_UpdateOpenGLFrame(void);
 #endif
 
 #ifdef __cplusplus

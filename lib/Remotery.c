@@ -40,6 +40,7 @@
     @REMOTERY:      Remotery
     @CUDA:          CUDA event sampling
     @D3D11:         Direct3D 11 event sampling
+    @OPENGL:        OpenGL event sampling
 */
 
 #include "Remotery.h"
@@ -106,6 +107,12 @@
         #include <errno.h>
     #endif
 
+#endif
+
+#ifdef __cplusplus
+#define RMT_UNREFERENCED_PARAMETER( x ) ( (&reinterpret_cast< const int& >)( x ) )
+#else
+#define RMT_UNREFERENCED_PARAMETER( x ) ( (void)x )
 #endif
 
 #ifdef RMT_USE_CUDA
@@ -731,6 +738,9 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
 */
 
 
+// comp.lang.c FAQ 4.13 : http://c-faq.com/ptrs/generic.html
+// Should not store a funcptr in a void*, but any funcptr type will do
+typedef int(*FuncPtr)();
 
 typedef struct
 {
@@ -742,7 +752,7 @@ typedef struct
     #endif
 
     // Callback executed when the thread is created
-    void* callback;
+    FuncPtr callback;
 
     // Caller-specified parameter passed to Thread_Create
     void* param;
@@ -803,7 +813,7 @@ static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* p
     if (*thread == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
-    (*thread)->callback = callback;
+    (*thread)->callback = (FuncPtr)callback;
     (*thread)->param = param;
     (*thread)->error = RMT_ERROR_NONE;
     (*thread)->request_exit = RMT_FALSE;
@@ -1471,7 +1481,7 @@ static enum rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
 static enum rmtError Buffer_WriteString(Buffer* buffer, rmtPStr string)
 {
     assert(string != NULL);
-    return Buffer_Write(buffer, (void*)string, strnlen_s(string, 2048));
+    return Buffer_Write(buffer, (void*)string, (rmtU32)strnlen_s(string, 2048));
 }
 
 
@@ -1674,7 +1684,7 @@ static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
     // Poll socket status without blocking
     tv.tv_sec = 0;
     tv.tv_usec = 0;
-    if (select(tcp_socket->socket+1, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
+    if (select(((int)tcp_socket->socket)+1, &fd_read, &fd_write, &fd_errors, &tv) == SOCKET_ERROR)
     {
         status.error_state = RMT_ERROR_SOCKET_SELECT_FAIL;
         return status;
@@ -1750,7 +1760,7 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
     while (cur_data < end_data)
     {
         // Attempt to send the remaining chunk of data
-        int bytes_sent = (int)send(tcp_socket->socket, cur_data, end_data - cur_data, 0);
+        int bytes_sent = (int)send(tcp_socket->socket, cur_data, (int)(end_data - cur_data), 0);
 
         if (bytes_sent == SOCKET_ERROR || bytes_sent == 0)
         {
@@ -1817,7 +1827,7 @@ static enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32
     start_ms = msTimer_Get();
     while (cur_data < end_data)
     {
-        int bytes_received = (int)recv(tcp_socket->socket, cur_data, end_data - cur_data, 0);
+        int bytes_received = (int)recv(tcp_socket->socket, cur_data, (int)(end_data - cur_data), 0);
 
         if (bytes_received == SOCKET_ERROR || bytes_received == 0)
         {
@@ -2184,13 +2194,13 @@ static rmtU32 MurmurHash3_x86_32(const void* key, int len, rmtU32 seed)
 
     for (i = -nblocks; i; i++)
     {
-        rmtU32 k1 = getblock32(blocks,i);
+        rmtU32 k2 = getblock32(blocks,i);
 
-        k1 *= c1;
-        k1 = rotl32(k1,15);
-        k1 *= c2;
+        k2 *= c1;
+        k2 = rotl32(k2,15);
+        k2 *= c2;
 
-        h1 ^= k1;
+        h1 ^= k2;
         h1 = rotl32(h1,13); 
         h1 = h1*5+0xe6546b64;
     }
@@ -2386,7 +2396,7 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_hos
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL;
     if (strncat_s(buffer, buffer_len, websocket_guid, sizeof(websocket_guid)) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL;
-    hash = SHA1_Calculate(buffer, strnlen_s(buffer, buffer_len));
+    hash = SHA1_Calculate(buffer, (rmtU32)strnlen_s(buffer, buffer_len));
     Base64_Encode(hash.data, sizeof(hash.data), (rmtU8*)buffer);
 
     // Send the response back to the server with a longer timeout than usual
@@ -2398,7 +2408,7 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_hos
     if (strncat_s(response_buffer, response_buffer_len, "\r\n\r\n", 4) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL;
 
-    return TCPSocket_Send(tcp_socket, response_buffer, strnlen_s(response_buffer, response_buffer_len), 1000);
+    return TCPSocket_Send(tcp_socket, response_buffer, (rmtU32)strnlen_s(response_buffer, response_buffer_len), 1000);
 }
 
 
@@ -2435,7 +2445,7 @@ static enum rmtError WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode
     (*web_socket)->mode = mode;
 
     // Create the server's listening socket
-    error = TCPSocket_CreateServer(port, &(*web_socket)->tcp_socket);
+    error = TCPSocket_CreateServer((rmtU16)port, &(*web_socket)->tcp_socket);
     if (error != RMT_ERROR_NONE)
     {
         WebSocket_Destroy(*web_socket);
@@ -2541,7 +2551,7 @@ static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmt
     if (length <= 125)
     {
         frame_header_size = 2;
-        frame_header[1] = length;
+        frame_header[1] = (rmtU8)length;
     }
     else if (length <= 65535)
     {
@@ -2721,7 +2731,7 @@ typedef struct Message
     // For telling which thread the message came from in the debugger
     struct ThreadSampler* thread_sampler;
 
-    rmtU8 payload[0];
+    rmtU8 payload[1];
 } Message;
 
 
@@ -3041,7 +3051,7 @@ static void Server_Update(Server* server)
     if (cur_time - server->last_ping_time > 1000)
     {
         rmtPStr ping_message = "{ \"id\": \"PING\" }";
-        Server_Send(server, ping_message, strlen(ping_message), 20);
+        Server_Send(server, ping_message, (rmtU32)strlen(ping_message), 20);
         server->last_ping_time = cur_time;
     }
 }
@@ -3133,7 +3143,7 @@ static enum rmtError json_FieldU64(Buffer* buffer, rmtPStr name, rmtU64 value)
         value = next_value;
     } while (value);
 
-    return Buffer_Write(buffer, tptr, end - tptr);
+    return Buffer_Write(buffer, tptr, (rmtU32)(end - tptr));
 }
 
 
@@ -3168,6 +3178,7 @@ enum SampleType
     SampleType_CPU,
     SampleType_CUDA,
     SampleType_D3D11,
+    SampleType_OpenGL,
     SampleType_Count,
 };
 
@@ -3231,6 +3242,7 @@ static enum rmtError Sample_Constructor(Sample* sample)
 
 static void Sample_Destructor(Sample* sample)
 {
+    RMT_UNREFERENCED_PARAMETER(sample);
 }
 
 
@@ -3620,6 +3632,7 @@ static void ThreadSampler_Destroy(ThreadSampler* ts)
 
 static enum rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
+    RMT_UNREFERENCED_PARAMETER(ts);
     return SampleTree_Push(tree, name, name_hash, sample);
 }
 
@@ -3651,7 +3664,72 @@ static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sa
 ------------------------------------------------------------------------------------------------------------------------
 */
 
+#ifdef RMT_USE_OPENGL
 
+#ifndef APIENTRY
+#  if defined(__MINGW32__) || defined(__CYGWIN__)
+#    define APIENTRY __stdcall
+#  elif (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED) || defined(__BORLANDC__)
+#    define APIENTRY __stdcall
+#  else
+#    define APIENTRY
+#  endif
+#endif
+
+#ifndef GLAPI
+#  if defined(__MINGW32__) || defined(__CYGWIN__)
+#    define GLAPI extern
+#  else
+#    define GLAPI WINGDIAPI
+#  endif
+#endif
+
+#ifndef GLAPIENTRY
+#define GLAPIENTRY APIENTRY
+#endif
+
+// Not sure which platforms we need
+#if defined(_WIN32)
+#  define rmtGetProcAddress(name) wglGetProcAddress((LPCSTR)name)
+#elif defined(__APPLE__) && !defined(GLEW_APPLE_GLX)
+#  define rmtGetProcAddress(name) NSGLGetProcAddress(name)
+#elif defined(__sgi) || defined(__sun)
+#  define rmtGetProcAddress(name) dlGetProcAddress(name)
+#elif defined(__ANDROID__)
+#  define rmtGetProcAddress(name) NULL /* TODO */
+#elif defined(__native_client__)
+#  define rmtGetProcAddress(name) NULL /* TODO */
+#else /* __linux */
+#  define rmtGetProcAddress(name) (*glXGetProcAddressARB)(name)
+#endif
+
+#define GL_NO_ERROR 0
+#define GL_QUERY_RESULT 0x8866
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
+#define GL_TIME_ELAPSED 0x88BF
+#define GL_TIMESTAMP 0x8E28
+
+typedef rmtU32 GLenum;
+typedef rmtU32 GLuint;
+typedef rmtS32 GLint;
+typedef rmtS32 GLsizei;
+typedef rmtU64 GLuint64;
+typedef rmtS64 GLint64;
+typedef unsigned char GLubyte;
+
+typedef void (GLAPIENTRY * PFNGLGENQUERIESPROC) (GLsizei n, GLuint* ids);
+typedef void (GLAPIENTRY * PFNGLDELETEQUERIESPROC) (GLsizei n, const GLuint* ids);
+typedef void (GLAPIENTRY * PFNGLBEGINQUERYPROC) (GLenum target, GLuint id);
+typedef void (GLAPIENTRY * PFNGLENDQUERYPROC) (GLenum target);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTIVPROC) (GLuint id, GLenum pname, GLint* params);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUIVPROC) (GLuint id, GLenum pname, GLuint* params);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTI64VPROC) (GLuint id, GLenum pname, GLint64* params);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUI64VPROC) (GLuint id, GLenum pname, GLuint64* params);
+typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
+
+GLAPI GLenum GLAPIENTRY glGetError(void);
+
+#endif
 
 struct Remotery
 {
@@ -3694,8 +3772,46 @@ struct Remotery
     // Mark the first time so that remaining timestamps are offset from this
     rmtU64 d3d11_first_timestamp;
 #endif
+
+#ifdef RMT_USE_OPENGL
+    PFNGLGENQUERIESPROC __glGenQueries;
+    PFNGLDELETEQUERIESPROC __glDeleteQueries;
+    PFNGLBEGINQUERYPROC __glBeginQuery;
+    PFNGLENDQUERYPROC __glEndQuery;
+    PFNGLGETQUERYOBJECTIVPROC __glGetQueryObjectiv;
+    PFNGLGETQUERYOBJECTUIVPROC __glGetQueryObjectuiv;
+    PFNGLGETQUERYOBJECTI64VPROC __glGetQueryObjecti64v;
+    PFNGLGETQUERYOBJECTUI64VPROC __glGetQueryObjectui64v;
+    PFNGLQUERYCOUNTERPROC __glQueryCounter;
+
+    // An allocator separate to the samples themselves so that OpenGL resource lifetime can be controlled
+    // outside of the Remotery thread.
+    ObjectAllocator* opengl_timestamp_allocator;
+
+    // Queue to the OpenGL main update thread
+    // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
+    // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
+    MessageQueue* mq_to_opengl_main;
+
+    // Mark the first time so that remaining timestamps are offset from this
+    rmtU64 opengl_first_timestamp;
+#endif
 };
 
+#ifdef RMT_USE_OPENGL
+
+#define RMT_GL_GET_FUN(x) g_Remotery->x
+
+#define glGenQueries RMT_GL_GET_FUN(__glGenQueries)
+#define glDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
+#define glBeginQuery RMT_GL_GET_FUN(__glBeginQuery)
+#define glEndQuery RMT_GL_GET_FUN(__glEndQuery)
+#define glGetQueryObjectiv RMT_GL_GET_FUN(__glGetQueryObjectiv)
+#define glGetQueryObjectuiv RMT_GL_GET_FUN(__glGetQueryObjectuiv)
+#define glGetQueryObjecti64v RMT_GL_GET_FUN(__glGetQueryObjecti64v)
+#define glGetQueryObjectui64v RMT_GL_GET_FUN(__glGetQueryObjectui64v)
+#define glQueryCounter RMT_GL_GET_FUN(__glQueryCounter)
+#endif
 
 //
 // Global remotery context
@@ -3764,6 +3880,8 @@ static enum rmtError json_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
         strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
     if (root_sample->type == SampleType_D3D11)
         strncat_s(thread_name, sizeof(thread_name), " (D3D11)", 8);
+    if (root_sample->type == SampleType_OpenGL)
+        strncat_s(thread_name, sizeof(thread_name), " (OpenGL)", 9);
 
     // Get digest hash of samples so that viewer can efficiently rebuild its tables
     GetSampleDigest(root_sample, &digest_hash, &nb_samples);
@@ -4040,6 +4158,30 @@ static enum rmtError Remotery_Create(Remotery** rmt)
         }
     #endif
 
+    #ifdef RMT_USE_OPENGL
+        (*rmt)->__glGenQueries = NULL;
+        (*rmt)->__glDeleteQueries = NULL;
+        (*rmt)->__glBeginQuery = NULL;
+        (*rmt)->__glEndQuery = NULL;
+        (*rmt)->__glGetQueryObjectiv = NULL;
+        (*rmt)->__glGetQueryObjectuiv = NULL;
+        (*rmt)->__glGetQueryObjecti64v = NULL;
+        (*rmt)->__glGetQueryObjectui64v = NULL;
+        (*rmt)->__glQueryCounter = NULL;
+
+        (*rmt)->opengl_timestamp_allocator = NULL;
+        (*rmt)->mq_to_opengl_main = NULL;
+        (*rmt)->opengl_first_timestamp = 0;
+
+        error = MessageQueue_Create(&(*rmt)->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
+        if (error != RMT_ERROR_NONE)
+        {
+            Remotery_Destroy(*rmt);
+            *rmt = NULL;
+            return error;
+        }
+    #endif
+
     // Set as the global instance before creating any threads that uses it for sampling itself
     assert(g_Remotery == NULL);
     g_Remotery = *rmt;
@@ -4088,6 +4230,19 @@ static void Remotery_Destroy(Remotery* rmt)
         {
             MessageQueue_Destroy(rmt->mq_to_d3d11_main);
             rmt->mq_to_d3d11_main = NULL;
+        }
+    #endif
+
+    #ifdef RMT_USE_OPENGL
+        if (rmt->opengl_timestamp_allocator != NULL)
+        {
+            ObjectAllocator_Destroy(rmt->opengl_timestamp_allocator);
+            rmt->opengl_timestamp_allocator = NULL;
+        }
+        if (rmt->mq_to_opengl_main != NULL)
+        {
+            MessageQueue_Destroy(rmt->mq_to_opengl_main);
+            rmt->mq_to_opengl_main = NULL;
         }
     #endif
 
@@ -4237,7 +4392,7 @@ static void SetDebuggerThreadName(const char* name)
         THREADNAME_INFO info;
         info.dwType = 0x1000;
         info.szName = name;
-        info.dwThreadID = -1;
+        info.dwThreadID = (DWORD)-1;
         info.dwFlags = 0;
 
         __try
@@ -4313,7 +4468,7 @@ void _rmt_LogText(rmtPStr text)
 
     // Start the line buffer off with the JSON message markup
     strncat_s(line_buffer, sizeof(line_buffer), log_message, sizeof(log_message));
-    start_offset = strnlen_s(line_buffer, sizeof(line_buffer) - 1);
+    start_offset = (int)strnlen_s(line_buffer, sizeof(line_buffer) - 1);
 
     // There might be newlines in the buffer, so split them into multiple network calls
     prev_offset = start_offset;
@@ -4374,14 +4529,14 @@ static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
         if (*hash_cache == 0)
         {
             assert(name != NULL);
-            *hash_cache = MurmurHash3_x86_32(name, strnlen_s(name, 256), 0);
+            *hash_cache = MurmurHash3_x86_32(name, (int)strnlen_s(name, 256), 0);
         }
 
         return *hash_cache;
     }
 
     // Have to recalculate every time when no cache storage exists
-    return MurmurHash3_x86_32(name, strnlen_s(name, 256), 0);
+    return MurmurHash3_x86_32(name, (int)strnlen_s(name, 256), 0);
 }
 
 
@@ -5103,7 +5258,380 @@ void _rmt_UpdateD3D11Frame(void)
 }
 
 
-#endif  // RMT_USE_CUDA
+#endif  // RMT_USE_D3D11
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+@OpenGL: OpenGL event sampling
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+#ifdef RMT_USE_OPENGL
+
+
+typedef struct OpenGLTimestamp
+{
+    // Inherit so that timestamps can be quickly allocated
+    ObjectLink ObjectLink;
+
+    // Pair of timestamp queries that wrap the sample
+    GLuint queries[2];
+} OpenGLTimestamp;
+
+
+static enum rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    ObjectLink_Constructor((ObjectLink*)stamp);
+
+    // Set defaults
+    stamp->queries[0] = stamp->queries[1] = 0;
+
+    // Create start/end timestamp queries
+    assert(g_Remotery != NULL);
+    assert(g_Remotery->__glGenQueries != NULL);
+    glGenQueries(2, stamp->queries);
+    int error = glGetError();
+    if (error != GL_NO_ERROR)
+        return RMT_ERROR_OPENGL_ERROR;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    // Destroy queries
+    if (stamp->queries[0] != 0)
+    {
+        assert(g_Remotery->__glDeleteQueries != NULL);
+        glDeleteQueries(2, stamp->queries);
+        int error = glGetError();
+        assert(error == GL_NO_ERROR);
+    }
+}
+
+
+static void OpenGLTimestamp_Begin(OpenGLTimestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    // Start of disjoint and first query
+    assert(g_Remotery != NULL);
+    assert(g_Remotery->__glQueryCounter != NULL);
+    glQueryCounter(stamp->queries[0], GL_TIMESTAMP);
+    int error = glGetError();
+    assert(error == GL_NO_ERROR);
+}
+
+
+static void OpenGLTimestamp_End(OpenGLTimestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    // End of disjoint and second query
+    assert(g_Remotery != NULL);
+    assert(g_Remotery->__glQueryCounter != NULL);
+    glQueryCounter(stamp->queries[1], GL_TIMESTAMP);
+    int error = glGetError();
+    assert(error == GL_NO_ERROR);
+}
+
+
+static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64 first_timestamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
+{
+    GLuint64 start = 0, end = 0;
+    GLint startAvailable = 0, endAvailable = 0;
+    int error;
+
+    assert(g_Remotery != NULL);
+
+    assert(stamp != NULL);
+    assert(stamp->queries[0] != 0 && stamp->queries[1] != 0);
+    assert(g_Remotery->__glGetQueryObjectiv != NULL);
+    assert(g_Remotery->__glGetQueryObjectui64v != NULL);
+
+    // Check to see if all queries are ready
+    // If any fail to arrive, wait until later
+    glGetQueryObjectiv(stamp->queries[0], GL_QUERY_RESULT_AVAILABLE, &startAvailable);
+    error = glGetError();
+    assert(error == GL_NO_ERROR);
+    if (!startAvailable)
+        return RMT_FALSE;
+    glGetQueryObjectiv(stamp->queries[1], GL_QUERY_RESULT_AVAILABLE, &endAvailable);
+    error = glGetError();
+    assert(error == GL_NO_ERROR);
+    if (!endAvailable)
+        return RMT_FALSE;
+
+    glGetQueryObjectui64v(stamp->queries[0], GL_QUERY_RESULT, &start);
+    error = glGetError();
+    assert(error == GL_NO_ERROR);
+    glGetQueryObjectui64v(stamp->queries[1], GL_QUERY_RESULT, &end);
+    error = glGetError();
+    assert(error == GL_NO_ERROR);
+
+    // Mark the first timestamp
+    assert(out_first_timestamp != NULL);
+    if (*out_first_timestamp == 0)
+        *out_first_timestamp = start;
+
+    // Calculate start and end timestamps (we want us, the queries give us ns)
+    *out_start = (rmtU64)(start - first_timestamp) / 1000ULL;
+    *out_end = (rmtU64)(end - first_timestamp) / 1000ULL;
+
+    return RMT_TRUE;
+}
+
+
+typedef struct OpenGLSample
+{
+    // IS-A inheritance relationship
+    Sample Sample;
+
+    OpenGLTimestamp* timestamp;
+
+} OpenGLSample;
+
+
+static enum rmtError OpenGLSample_Constructor(OpenGLSample* sample)
+{
+    assert(sample != NULL);
+
+    // Chain to sample constructor
+    Sample_Constructor((Sample*)sample);
+    sample->Sample.type = SampleType_OpenGL;
+    sample->Sample.size_bytes = sizeof(OpenGLSample);
+    sample->timestamp = NULL;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void OpenGLSample_Destructor(OpenGLSample* sample)
+{
+    Sample_Destructor((Sample*)sample);
+}
+
+
+void _rmt_BindOpenGL()
+{
+    if (g_Remotery != NULL)
+    {
+        g_Remotery->__glGenQueries = (PFNGLGENQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glGenQueries");
+        g_Remotery->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glDeleteQueries");
+        g_Remotery->__glBeginQuery = (PFNGLBEGINQUERYPROC)rmtGetProcAddress((const GLubyte*)"glBeginQuery");
+        g_Remotery->__glEndQuery = (PFNGLENDQUERYPROC)rmtGetProcAddress((const GLubyte*)"glEndQuery");
+        g_Remotery->__glGetQueryObjectiv = (PFNGLGETQUERYOBJECTIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectiv");
+        g_Remotery->__glGetQueryObjectuiv = (PFNGLGETQUERYOBJECTUIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectuiv");
+        g_Remotery->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjecti64v");
+        g_Remotery->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectui64v");
+        g_Remotery->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtGetProcAddress((const GLubyte*)"glQueryCounter");
+    }
+}
+
+
+static void FreeOpenGLTimeStamps(Sample* sample)
+{
+    Sample* child;
+
+    OpenGLSample* ogl_sample = (OpenGLSample*)sample;
+
+    assert(ogl_sample->timestamp != NULL);
+    ObjectAllocator_Free(g_Remotery->opengl_timestamp_allocator, (void*)ogl_sample->timestamp);
+    ogl_sample->timestamp = NULL;
+
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+        FreeOpenGLTimeStamps(child);
+}
+
+
+void _rmt_UnbindOpenGL(void)
+{
+    if (g_Remotery != NULL)
+    {
+        // Flush the main queue of allocated OpenGL timestamps
+        while (1)
+        {
+            Msg_SampleTree* sample_tree;
+            Sample* sample;
+
+            Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_opengl_main);
+            if (message == NULL)
+                break;
+
+            // There's only one valid message type in this queue
+            assert(message->id == MsgID_SampleTree);
+            sample_tree = (Msg_SampleTree*)message->payload;
+            sample = sample_tree->root_sample;
+            assert(sample->type == SampleType_OpenGL);
+            FreeOpenGLTimeStamps(sample);
+            FreeSampleTree(sample, sample_tree->allocator);
+
+            MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_opengl_main, message);
+        }
+
+        // Free all allocated D3D resources
+        ObjectAllocator_Destroy(g_Remotery->opengl_timestamp_allocator);
+        g_Remotery->opengl_timestamp_allocator = NULL;
+    }
+}
+
+
+void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        enum rmtError error;
+        Sample* sample;
+        rmtU32 name_hash = GetNameHash(name, hash_cache);
+
+        // Create the OpenGL tree on-demand as the tree needs an up-front-created root.
+        // This is not possible to create on initialisation as a OpenGL binding is not yet available.
+        SampleTree** ogl_tree = &ts->sample_trees[SampleType_OpenGL];
+        if (*ogl_tree == NULL)
+        {
+            error = SampleTree_Create(ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor, (ObjDestructor)OpenGLSample_Destructor);
+            if (error != RMT_ERROR_NONE)
+                return;
+        }
+
+        // Also create the timestamp allocator on-demand to keep the OpenGL code localised to the same file section
+        if (g_Remotery->opengl_timestamp_allocator == NULL)
+            error = ObjectAllocator_Create(&g_Remotery->opengl_timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
+
+        // Push the sample
+        if (ThreadSampler_Push(ts, *ogl_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
+        {
+            OpenGLSample* ogl_sample = (OpenGLSample*)sample;
+
+            // Allocate a timestamp for the sample and activate it
+            assert(ogl_sample->timestamp == NULL);
+            error = ObjectAllocator_Alloc(g_Remotery->opengl_timestamp_allocator, (void**)&ogl_sample->timestamp);
+            if (error == RMT_ERROR_NONE)
+                OpenGLTimestamp_Begin(ogl_sample->timestamp);
+        }
+    }
+}
+
+
+void _rmt_EndOpenGLSample(void)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        // Close the timestamp
+        OpenGLSample* ogl_sample = (OpenGLSample*)ts->sample_trees[SampleType_OpenGL]->current_parent;
+        if (ogl_sample->timestamp != NULL)
+            OpenGLTimestamp_End(ogl_sample->timestamp);
+
+        // Send to the update loop for ready-polling
+        ThreadSampler_Pop(ts, g_Remotery->mq_to_opengl_main, (Sample*)ogl_sample);
+    }
+}
+
+
+static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU64* out_first_timestamp)
+{
+    Sample* child;
+
+    OpenGLSample* ogl_sample = (OpenGLSample*)sample;
+
+    assert(sample != NULL);
+    if (ogl_sample->timestamp != NULL)
+    {
+        if (!OpenGLTimestamp_GetData(ogl_sample->timestamp, first_timestamp, &sample->us_start, &sample->us_end, out_first_timestamp))
+            return RMT_FALSE;
+    }
+
+    // Get child sample times
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+    {
+        if (!GetOpenGLSampleTimes(child, first_timestamp, out_first_timestamp))
+            return RMT_FALSE;
+    }
+
+    return RMT_TRUE;
+}
+
+
+void _rmt_UpdateOpenGLFrame(void)
+{
+    Message* first_message = NULL;
+
+    if (g_Remotery == NULL)
+        return;
+
+    rmt_BeginCPUSample(rmt_UpdateOpenGLFrame);
+
+    // Process all messages in the OpenGL queue
+    while (1)
+    {
+        Msg_SampleTree* sample_tree;
+        Sample* sample;
+        rmtU64 first_timestamp;
+        rmtBool are_samples_ready;
+
+        Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_opengl_main);
+        if (message == NULL)
+            break;
+
+        // Keep track of the first message encountered during this loop and leave it's encountered
+        // again. This means the loop as had a good attempt at trying to get timing data for all messages
+        // in the queue.
+        if (first_message == NULL)
+            first_message = message;
+        else if (first_message == message)
+            break;
+
+        // There's only one valid message type in this queue
+        assert(message->id == MsgID_SampleTree);
+        sample_tree = (Msg_SampleTree*)message->payload;
+        sample = sample_tree->root_sample;
+        assert(sample->type == SampleType_OpenGL);
+
+        // Retrieve timing of all OpenGL samples
+        first_timestamp = g_Remotery->opengl_first_timestamp;
+        are_samples_ready = GetOpenGLSampleTimes(sample, first_timestamp, &g_Remotery->opengl_first_timestamp);
+
+        // If the samples are ready, pass them onto the remotery thread for sending to the viewer
+        if (are_samples_ready)
+        {
+            FreeOpenGLTimeStamps(sample);
+            AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+        }
+        else
+        {
+            // Otherwise just put them to the back of the queue
+            AddSampleTreeMessage(g_Remotery->mq_to_opengl_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+        }
+
+        MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_opengl_main, message);
+    }
+
+    rmt_EndCPUSample();
+}
+
+
+#endif  // RMT_USE_OPENGL
 
 
 #endif // RMT_ENABLED
