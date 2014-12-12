@@ -110,7 +110,7 @@
 #endif
 
 #ifdef __cplusplus
-#define RMT_UNREFERENCED_PARAMETER( x ) ( (&reinterpret_cast< const int& >)( x ) )
+#define RMT_UNREFERENCED_PARAMETER( x ) ( &reinterpret_cast< const int& >( x ) )
 #else
 #define RMT_UNREFERENCED_PARAMETER( x ) ( (void)x )
 #endif
@@ -1385,6 +1385,7 @@ static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
     while (allocator->first_free != NULL)
     {
         ObjectLink* next = allocator->first_free->next;
+        assert(allocator->destructor != NULL);
         allocator->destructor(allocator->first_free);
         free(allocator->first_free);
         allocator->first_free = next;
@@ -1724,7 +1725,8 @@ static enum rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket
     return RMT_ERROR_NONE;
 }
 
-int TCPSocketWouldBlock()
+
+static int TCPSocketWouldBlock()
 {
 #ifdef RMT_PLATFORM_WINDOWS
     DWORD error = WSAGetLastError();
@@ -1735,6 +1737,7 @@ int TCPSocketWouldBlock()
 #endif
 
 }
+
 
 static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
