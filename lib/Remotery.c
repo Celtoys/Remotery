@@ -3691,27 +3691,6 @@ static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sa
 #define GLAPIENTRY APIENTRY
 #endif
 
-// Not sure which platforms we need
-#if defined(_WIN32)
-#  define rmtGetProcAddress(name) wglGetProcAddress((LPCSTR)name)
-#elif defined(__APPLE__) && !defined(GLEW_APPLE_GLX)
-#  define rmtGetProcAddress(name) NSGLGetProcAddress(name)
-#elif defined(__sgi) || defined(__sun)
-#  define rmtGetProcAddress(name) dlGetProcAddress(name)
-#elif defined(__ANDROID__)
-#  define rmtGetProcAddress(name) NULL /* TODO */
-#elif defined(__native_client__)
-#  define rmtGetProcAddress(name) NULL /* TODO */
-#else /* __linux */
-#  define rmtGetProcAddress(name) (*glXGetProcAddressARB)(name)
-#endif
-
-#define GL_NO_ERROR 0
-#define GL_QUERY_RESULT 0x8866
-#define GL_QUERY_RESULT_AVAILABLE 0x8867
-#define GL_TIME_ELAPSED 0x88BF
-#define GL_TIMESTAMP 0x8E28
-
 typedef rmtU32 GLenum;
 typedef rmtU32 GLuint;
 typedef rmtS32 GLint;
@@ -3801,20 +3780,6 @@ struct Remotery
 #endif
 };
 
-#ifdef RMT_USE_OPENGL
-
-#define RMT_GL_GET_FUN(x) g_Remotery->x
-
-#define glGenQueries RMT_GL_GET_FUN(__glGenQueries)
-#define glDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
-#define glBeginQuery RMT_GL_GET_FUN(__glBeginQuery)
-#define glEndQuery RMT_GL_GET_FUN(__glEndQuery)
-#define glGetQueryObjectiv RMT_GL_GET_FUN(__glGetQueryObjectiv)
-#define glGetQueryObjectuiv RMT_GL_GET_FUN(__glGetQueryObjectuiv)
-#define glGetQueryObjecti64v RMT_GL_GET_FUN(__glGetQueryObjecti64v)
-#define glGetQueryObjectui64v RMT_GL_GET_FUN(__glGetQueryObjectui64v)
-#define glQueryCounter RMT_GL_GET_FUN(__glQueryCounter)
-#endif
 
 //
 // Global remotery context
@@ -5276,6 +5241,40 @@ void _rmt_UpdateD3D11Frame(void)
 
 
 #ifdef RMT_USE_OPENGL
+
+
+#define GL_NO_ERROR 0
+#define GL_QUERY_RESULT 0x8866
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
+#define GL_TIME_ELAPSED 0x88BF
+#define GL_TIMESTAMP 0x8E28
+
+// Not sure which platforms we need
+#if defined(_WIN32)
+#  define rmtGetProcAddress(name) wglGetProcAddress((LPCSTR)name)
+#elif defined(__APPLE__) && !defined(GLEW_APPLE_GLX)
+#  define rmtGetProcAddress(name) NSGLGetProcAddress(name)
+#elif defined(__sgi) || defined(__sun)
+#  define rmtGetProcAddress(name) dlGetProcAddress(name)
+#elif defined(__ANDROID__)
+#  define rmtGetProcAddress(name) NULL /* TODO */
+#elif defined(__native_client__)
+#  define rmtGetProcAddress(name) NULL /* TODO */
+#else /* __linux */
+#  define rmtGetProcAddress(name) (*glXGetProcAddressARB)(name)
+#endif
+
+#define RMT_GL_GET_FUN(x) g_Remotery->x
+
+#define glGenQueries RMT_GL_GET_FUN(__glGenQueries)
+#define glDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
+#define glBeginQuery RMT_GL_GET_FUN(__glBeginQuery)
+#define glEndQuery RMT_GL_GET_FUN(__glEndQuery)
+#define glGetQueryObjectiv RMT_GL_GET_FUN(__glGetQueryObjectiv)
+#define glGetQueryObjectuiv RMT_GL_GET_FUN(__glGetQueryObjectuiv)
+#define glGetQueryObjecti64v RMT_GL_GET_FUN(__glGetQueryObjecti64v)
+#define glGetQueryObjectui64v RMT_GL_GET_FUN(__glGetQueryObjectui64v)
+#define glQueryCounter RMT_GL_GET_FUN(__glQueryCounter)
 
 
 typedef struct OpenGLTimestamp
