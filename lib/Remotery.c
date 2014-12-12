@@ -4907,27 +4907,23 @@ static void D3D11Timestamp_Destructor(D3D11Timestamp* stamp)
 }
 
 
-static void D3D11Timestamp_Begin(D3D11Timestamp* stamp)
+static void D3D11Timestamp_Begin(D3D11Timestamp* stamp, ID3D11DeviceContext* context)
 {
     assert(stamp != NULL);
 
     // Start of disjoint and first query
-    assert(g_Remotery != NULL);
-    assert(g_Remotery->d3d11_context != NULL);
-    ID3D11DeviceContext_Begin(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_disjoint);
-    ID3D11DeviceContext_End(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_start);
+    ID3D11DeviceContext_Begin(context, (ID3D11Asynchronous*)stamp->query_disjoint);
+    ID3D11DeviceContext_End(context, (ID3D11Asynchronous*)stamp->query_start);
 }
 
 
-static void D3D11Timestamp_End(D3D11Timestamp* stamp)
+static void D3D11Timestamp_End(D3D11Timestamp* stamp, ID3D11DeviceContext* context)
 {
     assert(stamp != NULL);
 
     // End of disjoint and second query
-    assert(g_Remotery != NULL);
-    assert(g_Remotery->d3d11_context != NULL);
-    ID3D11DeviceContext_End(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_end);
-    ID3D11DeviceContext_End(g_Remotery->d3d11_context, (ID3D11Asynchronous*)stamp->query_disjoint);
+    ID3D11DeviceContext_End(context, (ID3D11Asynchronous*)stamp->query_end);
+    ID3D11DeviceContext_End(context, (ID3D11Asynchronous*)stamp->query_disjoint);
 }
 
 
@@ -5114,7 +5110,7 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
             assert(d3d_sample->timestamp == NULL);
             error = ObjectAllocator_Alloc(g_Remotery->d3d11_timestamp_allocator, (void**)&d3d_sample->timestamp);
             if (error == RMT_ERROR_NONE)
-                D3D11Timestamp_Begin(d3d_sample->timestamp);
+                D3D11Timestamp_Begin(d3d_sample->timestamp, g_Remotery->d3d11_context);
         }
     }
 }
@@ -5136,7 +5132,7 @@ void _rmt_EndD3D11Sample(void)
         // Close the timestamp
         D3D11Sample* d3d_sample = (D3D11Sample*)ts->sample_trees[SampleType_D3D11]->current_parent;
         if (d3d_sample->timestamp != NULL)
-            D3D11Timestamp_End(d3d_sample->timestamp);
+            D3D11Timestamp_End(d3d_sample->timestamp, g_Remotery->d3d11_context);
 
         // Send to the update loop for ready-polling
         ThreadSampler_Pop(ts, g_Remotery->mq_to_d3d11_main, (Sample*)d3d_sample);
