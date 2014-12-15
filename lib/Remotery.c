@@ -119,20 +119,6 @@
     #include <cuda.h>
 #endif
 
-#ifdef RMT_USE_D3D11
-
-    // As clReflect has no way of disabling C++ compile mode, this forces C interfaces everywhere...
-    #define CINTERFACE
-
-    // ...unfortunately these C++ helpers aren't wrapped by the same macro but they can be disabled individually
-    #define D3D11_NO_HELPERS
-
-    // Allow use of the D3D11 helper macros for accessing the C-style vtable
-    #define COBJMACROS
-
-    #include <d3d11.h>
-#endif
-
 
 rmtU64 min(rmtS64 a, rmtS64 b)
 {
@@ -3713,6 +3699,14 @@ GLAPI GLenum GLAPIENTRY glGetError(void);
 
 #endif
 
+
+#ifdef RMT_USE_D3D11
+typedef struct D3D11 D3D11;
+static enum rmtError D3D11_Create(D3D11** d3d11);
+static void D3D11_Destroy(D3D11* d3d11);
+#endif
+
+
 struct Remotery
 {
     Server* server;
@@ -3736,23 +3730,7 @@ struct Remotery
 #endif
 
 #ifdef RMT_USE_D3D11
-    // Context set by user
-    ID3D11Device* d3d11_device;
-    ID3D11DeviceContext* d3d11_context;
-
-    HRESULT d3d11_last_error;
-
-    // An allocator separate to the samples themselves so that D3D resource lifetime can be controlled
-    // outside of the Remotery thread.
-    ObjectAllocator* d3d11_timestamp_allocator;
-
-    // Queue to the D3D 11 main update thread
-    // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
-    // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
-    MessageQueue* mq_to_d3d11_main;
-
-    // Mark the first time so that remaining timestamps are offset from this
-    rmtU64 d3d11_first_timestamp;
+    D3D11* d3d11;
 #endif
 
 #ifdef RMT_USE_OPENGL
@@ -4110,14 +4088,8 @@ static enum rmtError Remotery_Create(Remotery** rmt)
     #endif
 
     #ifdef RMT_USE_D3D11
-        (*rmt)->d3d11_device = NULL;
-        (*rmt)->d3d11_context = NULL;
-        (*rmt)->d3d11_last_error = S_OK;
-        (*rmt)->d3d11_timestamp_allocator = NULL;
-        (*rmt)->mq_to_d3d11_main = NULL;
-        (*rmt)->d3d11_first_timestamp = 0;
-
-        error = MessageQueue_Create(&(*rmt)->mq_to_d3d11_main, MESSAGE_QUEUE_SIZE_BYTES);
+        (*rmt)->d3d11 = NULL;
+        error = D3D11_Create(&(*rmt)->d3d11);
         if (error != RMT_ERROR_NONE)
         {
             Remotery_Destroy(*rmt);
@@ -4189,15 +4161,10 @@ static void Remotery_Destroy(Remotery* rmt)
     g_RemoteryCreated = RMT_FALSE;
 
     #ifdef RMT_USE_D3D11
-        if (rmt->d3d11_timestamp_allocator != NULL)
+        if (rmt->d3d11 != NULL)
         {
-            ObjectAllocator_Destroy(rmt->d3d11_timestamp_allocator);
-            rmt->d3d11_timestamp_allocator = NULL;
-        }
-        if (rmt->mq_to_d3d11_main != NULL)
-        {
-            MessageQueue_Destroy(rmt->mq_to_d3d11_main);
-            rmt->mq_to_d3d11_main = NULL;
+            D3D11_Destroy(rmt->d3d11);
+            rmt->d3d11 = NULL;
         }
     #endif
 
@@ -4842,6 +4809,90 @@ void _rmt_EndCUDASample(void* stream)
 #ifdef RMT_USE_D3D11
 
 
+// As clReflect has no way of disabling C++ compile mode, this forces C interfaces everywhere...
+#define CINTERFACE
+
+// ...unfortunately these C++ helpers aren't wrapped by the same macro but they can be disabled individually
+#define D3D11_NO_HELPERS
+
+// Allow use of the D3D11 helper macros for accessing the C-style vtable
+#define COBJMACROS
+
+#include <d3d11.h>
+
+
+typedef struct D3D11
+{
+    // Context set by user
+    ID3D11Device* device;
+    ID3D11DeviceContext* context;
+
+    HRESULT last_error;
+
+    // An allocator separate to the samples themselves so that D3D resource lifetime can be controlled
+    // outside of the Remotery thread.
+    ObjectAllocator* timestamp_allocator;
+
+    // Queue to the D3D 11 main update thread
+    // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
+    // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
+    MessageQueue* mq_to_d3d11_main;
+
+    // Mark the first time so that remaining timestamps are offset from this
+    rmtU64 first_timestamp;
+} D3D11;
+
+
+static enum rmtError D3D11_Create(D3D11** d3d11)
+{
+    enum rmtError error;
+
+    assert(d3d11 != NULL);
+
+    // Allocate space for the D3D11 data
+    *d3d11 = (D3D11*)malloc(sizeof(D3D11));
+    if (*d3d11 == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    // Set defaults
+    (*d3d11)->device = NULL;
+    (*d3d11)->context = NULL;
+    (*d3d11)->last_error = S_OK;
+    (*d3d11)->timestamp_allocator = NULL;
+    (*d3d11)->mq_to_d3d11_main = NULL;
+    (*d3d11)->first_timestamp = 0;
+
+    error = MessageQueue_Create(&(*d3d11)->mq_to_d3d11_main, MESSAGE_QUEUE_SIZE_BYTES);
+    if (error != RMT_ERROR_NONE)
+    {
+        D3D11_Destroy(*d3d11);
+        *d3d11 = NULL;
+        return error;
+    }
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void D3D11_Destroy(D3D11* d3d11)
+{
+    assert(d3d11 != NULL);
+
+    if (d3d11->timestamp_allocator != NULL)
+    {
+        ObjectAllocator_Destroy(d3d11->timestamp_allocator);
+        d3d11->timestamp_allocator = NULL;
+    }
+    if (d3d11->mq_to_d3d11_main != NULL)
+    {
+        MessageQueue_Destroy(d3d11->mq_to_d3d11_main);
+        d3d11->mq_to_d3d11_main = NULL;
+    }
+
+    free(d3d11);
+}
+
+
 typedef struct D3D11Timestamp
 {
     // Inherit so that timestamps can be quickly allocated
@@ -4861,6 +4912,8 @@ static enum rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
 {
     D3D11_QUERY_DESC timestamp_desc;
     D3D11_QUERY_DESC disjoint_desc;
+    ID3D11Device* device;
+    HRESULT* last_error;
 
     assert(stamp != NULL);
 
@@ -4871,22 +4924,26 @@ static enum rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
     stamp->query_end = NULL;
     stamp->query_disjoint = NULL;
 
-    // Create start/end timestamp queries
     assert(g_Remotery != NULL);
+    assert(g_Remotery->d3d11 != NULL);
+    device = g_Remotery->d3d11->device;
+    last_error = &g_Remotery->d3d11->last_error;
+
+    // Create start/end timestamp queries
     timestamp_desc.Query = D3D11_QUERY_TIMESTAMP;
     timestamp_desc.MiscFlags = 0;
-    g_Remotery->d3d11_last_error = ID3D11Device_CreateQuery(g_Remotery->d3d11_device, &timestamp_desc, &stamp->query_start);
-    if (g_Remotery->d3d11_last_error != S_OK)
+    *last_error = ID3D11Device_CreateQuery(device, &timestamp_desc, &stamp->query_start);
+    if (*last_error != S_OK)
         return RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY;
-    g_Remotery->d3d11_last_error = ID3D11Device_CreateQuery(g_Remotery->d3d11_device, &timestamp_desc, &stamp->query_end);
-    if (g_Remotery->d3d11_last_error != S_OK)
+    *last_error = ID3D11Device_CreateQuery(device, &timestamp_desc, &stamp->query_end);
+    if (*last_error != S_OK)
         return RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY;
 
     // Create disjoint query
     disjoint_desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
     disjoint_desc.MiscFlags = 0;
-    g_Remotery->d3d11_last_error = ID3D11Device_CreateQuery(g_Remotery->d3d11_device, &disjoint_desc, &stamp->query_disjoint);
-    if (g_Remotery->d3d11_last_error != S_OK)
+    *last_error = ID3D11Device_CreateQuery(device, &disjoint_desc, &stamp->query_disjoint);
+    if (*last_error != S_OK)
         return RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY;
 
     return RMT_ERROR_NONE;
@@ -5007,10 +5064,12 @@ void _rmt_BindD3D11(void* device, void* context)
 {
     if (g_Remotery != NULL)
     {
+        assert(g_Remotery->d3d11 != NULL);
+
         assert(device != NULL);
-        g_Remotery->d3d11_device = (ID3D11Device*)device;
+        g_Remotery->d3d11->device = (ID3D11Device*)device;
         assert(context != NULL);
-        g_Remotery->d3d11_context = (ID3D11DeviceContext*)context;
+        g_Remotery->d3d11->context = (ID3D11DeviceContext*)context;
     }
 }
 
@@ -5021,8 +5080,10 @@ static void FreeD3D11TimeStamps(Sample* sample)
 
     D3D11Sample* d3d_sample = (D3D11Sample*)sample;
 
+    assert(g_Remotery != NULL);
+    assert(g_Remotery->d3d11 != NULL);
     assert(d3d_sample->timestamp != NULL);
-    ObjectAllocator_Free(g_Remotery->d3d11_timestamp_allocator, (void*)d3d_sample->timestamp);
+    ObjectAllocator_Free(g_Remotery->d3d11->timestamp_allocator, (void*)d3d_sample->timestamp);
     d3d_sample->timestamp = NULL;
 
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
@@ -5034,9 +5095,12 @@ void _rmt_UnbindD3D11(void)
 {
     if (g_Remotery != NULL)
     {
+        D3D11* d3d11 = g_Remotery->d3d11;
+        assert(d3d11 != NULL);
+
         // Inform sampler to not add any more samples
-        g_Remotery->d3d11_device = NULL;
-        g_Remotery->d3d11_context = NULL;
+        d3d11->device = NULL;
+        d3d11->context = NULL;
 
         // Flush the main queue of allocated D3D timestamps
         while (1)
@@ -5044,7 +5108,7 @@ void _rmt_UnbindD3D11(void)
             Msg_SampleTree* sample_tree;
             Sample* sample;
 
-            Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_d3d11_main);
+            Message* message = MessageQueue_PeekNextMessage(d3d11->mq_to_d3d11_main);
             if (message == NULL)
                 break;
 
@@ -5056,12 +5120,12 @@ void _rmt_UnbindD3D11(void)
             FreeD3D11TimeStamps(sample);
             FreeSampleTree(sample, sample_tree->allocator);
 
-            MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_d3d11_main, message);
+            MessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
         }
 
         // Free all allocated D3D resources
-        ObjectAllocator_Destroy(g_Remotery->d3d11_timestamp_allocator);
-        g_Remotery->d3d11_timestamp_allocator = NULL;
+        ObjectAllocator_Destroy(d3d11->timestamp_allocator);
+        d3d11->timestamp_allocator = NULL;
     }
 }
 
@@ -5069,12 +5133,15 @@ void _rmt_UnbindD3D11(void)
 void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 {
     ThreadSampler* ts;
+    D3D11* d3d11;
 
     if (g_Remotery == NULL)
         return;
 
     // Has D3D11 been unbound?
-    if (g_Remotery->d3d11_device == NULL || g_Remotery->d3d11_context == NULL)
+    d3d11 = g_Remotery->d3d11;
+    assert(d3d11 != NULL);
+    if (d3d11->device == NULL || d3d11->context == NULL)
         return;
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
@@ -5094,8 +5161,8 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
         }
 
         // Also create the timestamp allocator on-demand to keep the D3D11 code localised to the same file section
-        if (g_Remotery->d3d11_timestamp_allocator == NULL)
-            error = ObjectAllocator_Create(&g_Remotery->d3d11_timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
+        if (d3d11->timestamp_allocator == NULL)
+            error = ObjectAllocator_Create(&d3d11->timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
 
         // Push the sample
         if (ThreadSampler_Push(ts, *d3d_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
@@ -5104,9 +5171,9 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 
             // Allocate a timestamp for the sample and activate it
             assert(d3d_sample->timestamp == NULL);
-            error = ObjectAllocator_Alloc(g_Remotery->d3d11_timestamp_allocator, (void**)&d3d_sample->timestamp);
+            error = ObjectAllocator_Alloc(d3d11->timestamp_allocator, (void**)&d3d_sample->timestamp);
             if (error == RMT_ERROR_NONE)
-                D3D11Timestamp_Begin(d3d_sample->timestamp, g_Remotery->d3d11_context);
+                D3D11Timestamp_Begin(d3d_sample->timestamp, d3d11->context);
         }
     }
 }
@@ -5115,12 +5182,15 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 void _rmt_EndD3D11Sample(void)
 {
     ThreadSampler* ts;
+    D3D11* d3d11;
 
     if (g_Remotery == NULL)
         return;
 
     // Has D3D11 been unbound?
-    if (g_Remotery->d3d11_device == NULL || g_Remotery->d3d11_context == NULL)
+    d3d11 = g_Remotery->d3d11;
+    assert(d3d11 != NULL);
+    if (d3d11->device == NULL || d3d11->context == NULL)
         return;
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
@@ -5128,10 +5198,10 @@ void _rmt_EndD3D11Sample(void)
         // Close the timestamp
         D3D11Sample* d3d_sample = (D3D11Sample*)ts->sample_trees[SampleType_D3D11]->current_parent;
         if (d3d_sample->timestamp != NULL)
-            D3D11Timestamp_End(d3d_sample->timestamp, g_Remotery->d3d11_context);
+            D3D11Timestamp_End(d3d_sample->timestamp, d3d11->context);
 
         // Send to the update loop for ready-polling
-        ThreadSampler_Pop(ts, g_Remotery->mq_to_d3d11_main, (Sample*)d3d_sample);
+        ThreadSampler_Pop(ts, d3d11->mq_to_d3d11_main, (Sample*)d3d_sample);
     }
 }
 
@@ -5145,9 +5215,14 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU6
     assert(sample != NULL);
     if (d3d_sample->timestamp != NULL)
     {
-        HRESULT result = D3D11Timestamp_GetData(
+        HRESULT result;
+
+        D3D11* d3d11 = g_Remotery->d3d11;
+        assert(d3d11 != NULL);
+
+        result = D3D11Timestamp_GetData(
             d3d_sample->timestamp,
-            g_Remotery->d3d11_context,
+            d3d11->context,
             first_timestamp,
             &sample->us_start,
             &sample->us_end,
@@ -5155,7 +5230,7 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU6
 
         if (result != S_OK)
         {
-            g_Remotery->d3d11_last_error = result;
+            d3d11->last_error = result;
             return RMT_FALSE;
         }
     }
@@ -5174,9 +5249,12 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU6
 void _rmt_UpdateD3D11Frame(void)
 {
     Message* first_message = NULL;
+    D3D11* d3d11;
 
     if (g_Remotery == NULL)
         return;
+    d3d11 = g_Remotery->d3d11;
+    assert(d3d11 != NULL);
 
     rmt_BeginCPUSample(rmt_UpdateD3D11Frame);
 
@@ -5188,7 +5266,7 @@ void _rmt_UpdateD3D11Frame(void)
         rmtU64 first_timestamp;
         rmtBool are_samples_ready;
 
-        Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_d3d11_main);
+        Message* message = MessageQueue_PeekNextMessage(d3d11->mq_to_d3d11_main);
         if (message == NULL)
             break;
 
@@ -5207,8 +5285,8 @@ void _rmt_UpdateD3D11Frame(void)
         assert(sample->type == SampleType_D3D11);
 
         // Retrieve timing of all D3D11 samples
-        first_timestamp = g_Remotery->d3d11_first_timestamp;
-        are_samples_ready = GetD3D11SampleTimes(sample, first_timestamp, &g_Remotery->d3d11_first_timestamp);
+        first_timestamp = d3d11->first_timestamp;
+        are_samples_ready = GetD3D11SampleTimes(sample, first_timestamp, &d3d11->first_timestamp);
 
         // If the samples are ready, pass them onto the remotery thread for sending to the viewer
         if (are_samples_ready)
@@ -5219,10 +5297,10 @@ void _rmt_UpdateD3D11Frame(void)
         else
         {
             // Otherwise just put them to the back of the queue
-            AddSampleTreeMessage(g_Remotery->mq_to_d3d11_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+            AddSampleTreeMessage(d3d11->mq_to_d3d11_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
         }
 
-        MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_d3d11_main, message);
+        MessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
     }
 
     rmt_EndCPUSample();
