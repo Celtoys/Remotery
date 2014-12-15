@@ -1,4 +1,22 @@
 
 # Copy external dependencies locally
-remote_copy_objs = env.CopyFiles("../BrowserLib", "*.js; *.css", "vis/extern/BrowserLib")
-env.Build(remote_copy_objs, "remotery")
+browser_copy_src = env.CopyFiles("../BrowserLib", "*.js; *.css", "vis/extern/BrowserLib")
+env.Build(browser_copy_src, "browser")
+
+# Setup compiler
+include_paths = [
+	"lib",
+	WindowsPlatform.IncludeDir
+]
+cppopt = env.Configs["debug"].CPPOptions
+cppopt.IncludePaths = include_paths
+
+# Setup linker
+lib_paths = [
+	WindowsPlatform.LibDir,
+]
+linkopt = env.Configs["debug"].LinkOptions
+linkopt.Subsystem = MSVCPlatform.VCSubsystem.CONSOLE
+linkopt.LibPaths = lib_paths
+
+sample = CppBuild(env, [ "lib", "sample" ], "sample.exe")
