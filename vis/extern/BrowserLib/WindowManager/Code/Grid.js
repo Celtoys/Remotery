@@ -35,6 +35,11 @@ WM.GridRows = (function()
 	}
 
 
+	GridRows.prototype.ClearIndex = function(index_name)
+	{
+		this.Indexes[index_name] = { };
+	}
+
 	GridRows.prototype.AddRowToIndex = function(index_name, cell_data, row)
 	{
 		this.Indexes[index_name][cell_data] = row;
@@ -65,6 +70,10 @@ WM.GridRows = (function()
 			row.Parent.BodyNode.removeChild(row.Node);
 		}
 
+		// Clear all indexes
+		for (var i in this.Indexes)
+			this.Indexes[i] = { };
+
 		this.Rows = [ ];
 	}
 
@@ -90,6 +99,7 @@ WM.GridRow = (function()
 		this.AnimHandle = null;
 		this.Rows = new WM.GridRows(this);
 		this.CellData = cell_data;
+		this.CellNodes = { }
 
 		// Create the main row node
 		this.Node = DOM.Node.CreateHTML(template_html);
@@ -118,6 +128,7 @@ WM.GridRow = (function()
 				var node = DOM.Node.AppendHTML(this.Node, "<div class='GridRowCell'></div>");
 				if (cell_classes && attr in cell_classes)
 					DOM.Node.AddClass(node, cell_classes[attr]);
+				this.CellNodes[attr] = node;
 
 				// If this is a Window Control, add its node to the cell
 				if (data instanceof Object && "Node" in data && DOM.Node.IsNode(data.Node))
