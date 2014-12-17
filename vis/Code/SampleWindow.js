@@ -79,8 +79,7 @@ SampleWindow = (function()
 			for (var i = index; i < this.RootRow.Rows.Rows.length; i++)
 			{
 				var row = this.RootRow.Rows.Rows[i];
-				row.CellNodes["Name"].innerHTML = "";
-				row.CellData.Control.SetText("");
+				DOM.Node.Hide(row.Node);
 			}
 		}
 
@@ -125,6 +124,7 @@ SampleWindow = (function()
 			row.CellData._ID = sample.id;
 			row.CellNodes["Name"].innerHTML = indent + sample.name;
 			row.CellData.Control.SetText(sample.us_length);
+			DOM.Node.Show(row.Node);
 
 			parent_row.Rows.AddRowToIndex("_ID", sample.id, row);
 
