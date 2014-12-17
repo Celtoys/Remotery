@@ -4789,7 +4789,7 @@ static void D3D11Timestamp_End(D3D11Timestamp* stamp, ID3D11DeviceContext* conte
 }
 
 
-static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext* context, rmtU64 first_timestamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
+static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext* context, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
 {
     ID3D11Asynchronous* query_start;
     ID3D11Asynchronous* query_end;
@@ -4827,8 +4827,8 @@ static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext
             *out_first_timestamp = start;
 
         // Calculate start and end timestamps from the disjoint info
-        *out_start = (rmtU64)((start - first_timestamp) / frequency);
-        *out_end = (rmtU64)((end - first_timestamp) / frequency);
+        *out_start = (rmtU64)((start - *out_first_timestamp) / frequency);
+        *out_end = (rmtU64)((end - *out_first_timestamp) / frequency);
     }
 
     return S_OK;
@@ -5010,7 +5010,7 @@ void _rmt_EndD3D11Sample(void)
 }
 
 
-static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU64* out_first_timestamp)
+static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 {
     Sample* child;
 
@@ -5027,7 +5027,6 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU6
         result = D3D11Timestamp_GetData(
             d3d_sample->timestamp,
             d3d11->context,
-            first_timestamp,
             &sample->us_start,
             &sample->us_end,
             out_first_timestamp);
@@ -5042,7 +5041,7 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU6
     // Get child sample times
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
-        if (!GetD3D11SampleTimes(child, first_timestamp, out_first_timestamp))
+        if (!GetD3D11SampleTimes(child, out_first_timestamp))
             return RMT_FALSE;
     }
 
@@ -5067,7 +5066,6 @@ void _rmt_UpdateD3D11Frame(void)
     {
         Msg_SampleTree* sample_tree;
         Sample* sample;
-        rmtU64 first_timestamp;
         rmtBool are_samples_ready;
 
         Message* message = MessageQueue_PeekNextMessage(d3d11->mq_to_d3d11_main);
@@ -5089,8 +5087,7 @@ void _rmt_UpdateD3D11Frame(void)
         assert(sample->type == SampleType_D3D11);
 
         // Retrieve timing of all D3D11 samples
-        first_timestamp = d3d11->first_timestamp;
-        are_samples_ready = GetD3D11SampleTimes(sample, first_timestamp, &d3d11->first_timestamp);
+        are_samples_ready = GetD3D11SampleTimes(sample, &d3d11->first_timestamp);
 
         // If the samples are ready, pass them onto the remotery thread for sending to the viewer
         if (are_samples_ready)
@@ -5234,7 +5231,7 @@ static void OpenGLTimestamp_End(OpenGLTimestamp* stamp)
 }
 
 
-static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64 first_timestamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
+static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
 {
     GLuint64 start = 0, end = 0;
     GLint startAvailable = 0, endAvailable = 0;
@@ -5273,8 +5270,8 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64 first_time
         *out_first_timestamp = start;
 
     // Calculate start and end timestamps (we want us, the queries give us ns)
-    *out_start = (rmtU64)(start - first_timestamp) / 1000ULL;
-    *out_end = (rmtU64)(end - first_timestamp) / 1000ULL;
+    *out_start = (rmtU64)(start - *out_first_timestamp) / 1000ULL;
+    *out_end = (rmtU64)(end - *out_first_timestamp) / 1000ULL;
 
     return RMT_TRUE;
 }
@@ -5435,7 +5432,7 @@ void _rmt_EndOpenGLSample(void)
 }
 
 
-static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU64* out_first_timestamp)
+static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 {
     Sample* child;
 
@@ -5444,14 +5441,14 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64 first_timestamp, rmtU
     assert(sample != NULL);
     if (ogl_sample->timestamp != NULL)
     {
-        if (!OpenGLTimestamp_GetData(ogl_sample->timestamp, first_timestamp, &sample->us_start, &sample->us_end, out_first_timestamp))
+        if (!OpenGLTimestamp_GetData(ogl_sample->timestamp, &sample->us_start, &sample->us_end, out_first_timestamp))
             return RMT_FALSE;
     }
 
     // Get child sample times
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
-        if (!GetOpenGLSampleTimes(child, first_timestamp, out_first_timestamp))
+        if (!GetOpenGLSampleTimes(child, out_first_timestamp))
             return RMT_FALSE;
     }
 
@@ -5473,7 +5470,6 @@ void _rmt_UpdateOpenGLFrame(void)
     {
         Msg_SampleTree* sample_tree;
         Sample* sample;
-        rmtU64 first_timestamp;
         rmtBool are_samples_ready;
 
         Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_opengl_main);
@@ -5495,8 +5491,7 @@ void _rmt_UpdateOpenGLFrame(void)
         assert(sample->type == SampleType_OpenGL);
 
         // Retrieve timing of all OpenGL samples
-        first_timestamp = g_Remotery->opengl_first_timestamp;
-        are_samples_ready = GetOpenGLSampleTimes(sample, first_timestamp, &g_Remotery->opengl_first_timestamp);
+        are_samples_ready = GetOpenGLSampleTimes(sample, &g_Remotery->opengl_first_timestamp);
 
         // If the samples are ready, pass them onto the remotery thread for sending to the viewer
         if (are_samples_ready)
