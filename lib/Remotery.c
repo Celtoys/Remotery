@@ -22,6 +22,7 @@
     @TLS:           Thread-Local Storage
     @ATOMIC:        Atomic Operations
     @VMBUFFER:      Mirror Buffer using Virtual Memory for auto-wrap
+    @NEW:           New/Delete operators with error values for simplifying object create/destroy
     @THREADS:       Threads
     @SAFEC:         Safe C Library excerpts
     @OBJALLOC:      Reusable Object Allocator
@@ -452,6 +453,62 @@ static void StoreRelease(void* volatile*  addr, void* v)
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+   @NEW: New/Delete operators with error values for simplifying object create/destroy
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+
+
+// Ensures the pointer is non-NULL, calls the destructor, frees memory and sets the pointer to NULL
+#define Delete(type, obj)           \
+    if (obj != NULL)                \
+    {                               \
+        type##_Destructor(obj);     \
+        free(obj);                  \
+        obj = NULL;                 \
+    }
+
+
+// New is implemented in terms of two begin/end macros
+// New will allocate enough space for the object and call the constructor
+// If allocation fails the constructor won't be called
+// If the constructor fails, the destructor is called and memory is released
+// NOTE: Use of sizeof() requires that the type be defined at the point of call
+// This is a disadvantage over requiring only a custom Create function
+#define BeginNew(type, obj)                 \
+    {                                       \
+        obj = (type*)malloc(sizeof(type));  \
+        if (obj == NULL)                    \
+        {                                   \
+            error = RMT_ERROR_MALLOC_FAIL;  \
+        }                                   \
+        else                                \
+        {                                   \
+
+
+#define EndNew(type, obj)                   \
+            if (error != RMT_ERROR_NONE)    \
+                Delete(type, obj);          \
+        }                                   \
+    }
+
+
+// Specialisations for New with varying constructor parameter counts
+#define New_0(type, obj)    \
+    BeginNew(type, obj); error = type##_Constructor(obj); EndNew(type, obj)
+#define New_1(type, obj, a0)    \
+    BeginNew(type, obj); error = type##_Constructor(obj, a0); EndNew(type, obj)
+#define New_2(type, obj, a0, a1)    \
+    BeginNew(type, obj); error = type##_Constructor(obj, a0, a1); EndNew(type, obj)
+#define New_3(type, obj, a0, a1, a2)    \
+    BeginNew(type, obj); error = type##_Constructor(obj, a0, a1, a2); EndNew(type, obj)
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    @VMBUFFER: Mirror Buffer using Virtual Memory for auto-wrap
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -475,35 +532,7 @@ typedef struct VirtualMirrorBuffer
 } VirtualMirrorBuffer;
 
 
-static void VirtualMirrorBuffer_Destroy(VirtualMirrorBuffer* buffer)
-{
-    assert(buffer != 0);
-
-#ifdef RMT_PLATFORM_WINDOWS
-    if (buffer->file_map_handle != NULL)
-    {
-        CloseHandle(buffer->file_map_handle);
-        buffer->file_map_handle = NULL;
-    }
-#endif
-
-#ifdef RMT_PLATFORM_MACOS
-    if (buffer->ptr != NULL)
-        vm_deallocate(mach_task_self(), (vm_address_t)buffer->ptr, buffer->size * 2);
-#endif
-
-#ifdef RMT_PLATFORM_LINUX
-    if (buffer->ptr != NULL)
-        munmap(buffer->ptr, buffer->size * 2);
-#endif
-
-    buffer->ptr = NULL;
-
-    free(buffer);
-}
-
-
-static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rmtU32 size, int nb_attempts)
+static enum rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmtU32 size, int nb_attempts)
 {
     static const rmtU32 k_64 = 64 * 1024;
 
@@ -512,21 +541,14 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
     int file_descriptor;
 #endif
 
-    assert(buffer != 0);
-
-    // Allocate container
-    *buffer = (VirtualMirrorBuffer*)malloc(sizeof(VirtualMirrorBuffer));
-    if (*buffer == 0)
-        return RMT_ERROR_MALLOC_FAIL;
-
     // Round up to page-granulation; the nearest 64k boundary for now
     size = (size + k_64 - 1) / k_64 * k_64;
 
     // Set defaults
-    (*buffer)->size = size;
-    (*buffer)->ptr = NULL;
+    buffer->size = size;
+    buffer->ptr = NULL;
 #ifdef RMT_PLATFORM_WINDOWS
-    (*buffer)->file_map_handle = INVALID_HANDLE_VALUE;
+    buffer->file_map_handle = INVALID_HANDLE_VALUE;
 #endif
 
 #ifdef RMT_PLATFORM_WINDOWS
@@ -538,14 +560,14 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
         rmtU8* desired_addr;
 
         // Create a file mapping for pointing to its physical address with multiple virtual pages
-        (*buffer)->file_map_handle = CreateFileMapping(
+        buffer->file_map_handle = CreateFileMapping(
             INVALID_HANDLE_VALUE,
             0,
             PAGE_READWRITE,
             0,
             size,
             0);
-        if ((*buffer)->file_map_handle == NULL)
+        if (buffer->file_map_handle == NULL)
             break;
 
         // Reserve two contiguous pages of virtual memory
@@ -559,16 +581,16 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
         VirtualFree(desired_addr, 0, MEM_RELEASE);
 
         // Immediately try to point both pages at the file mapping
-        if (MapViewOfFileEx((*buffer)->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr) == desired_addr &&
-            MapViewOfFileEx((*buffer)->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr + size) == desired_addr + size)
+        if (MapViewOfFileEx(buffer->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr) == desired_addr &&
+            MapViewOfFileEx(buffer->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr + size) == desired_addr + size)
         {
-            (*buffer)->ptr = desired_addr;
+            buffer->ptr = desired_addr;
             break;
         }
 
         // Failed to map the virtual pages; cleanup and try again
-        CloseHandle((*buffer)->file_map_handle);
-        (*buffer)->file_map_handle = NULL;
+        CloseHandle(buffer->file_map_handle);
+        buffer->file_map_handle = NULL;
     }
 
 #endif
@@ -644,7 +666,7 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
         else if (mach_error == KERN_SUCCESS)
         {
             // Leave the loop on success
-            (*buffer)->ptr = ptr;
+            buffer->ptr = ptr;
             break;
         }
 
@@ -665,52 +687,63 @@ static enum rmtError VirtualMirrorBuffer_Create(VirtualMirrorBuffer** buffer, rm
     // Create a unique temporary filename in the shared memory folder
     file_descriptor = mkstemp(path);
     if (file_descriptor < 0)
-    {
-        VirtualMirrorBuffer_Destroy(*buffer);
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
-    }
 
     // Delete the name
     if (unlink(path))
-    {
-        VirtualMirrorBuffer_Destroy(*buffer);
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
-    }
 
     // Set the file size to twice the buffer size
     // TODO: this 2x behaviour can be avoided with similar solution to Win/Mac
     if (ftruncate (file_descriptor, size * 2))
-    {
-        VirtualMirrorBuffer_Destroy(*buffer);
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
-    }
 
     // Map 2 contiguous pages
-    (*buffer)->ptr = mmap(NULL, size * 2, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if ((*buffer)->ptr == MAP_FAILED)
+    buffer->ptr = mmap(NULL, size * 2, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (buffer->ptr == MAP_FAILED)
     {
-        VirtualMirrorBuffer_Destroy(*buffer);
+        buffer->ptr = NULL;
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
     }
 
     // Point both pages to the same memory file
-    if (mmap((*buffer)->ptr, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr ||
-        mmap((*buffer)->ptr + size, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr + size)
-    {
-        VirtualMirrorBuffer_Destroy(*buffer);
+    if (mmap(buffer->ptr, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr ||
+        mmap(buffer->ptr + size, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr + size)
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
-    }
 
 #endif
 
     // Cleanup if exceeded number of attempts or failed
-    if ((*buffer)->ptr == NULL)
-    {
-        VirtualMirrorBuffer_Destroy(*buffer);
+    if (buffer->ptr == NULL)
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
-    }
 
     return RMT_ERROR_NONE;
+}
+
+
+static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
+{
+    assert(buffer != 0);
+
+#ifdef RMT_PLATFORM_WINDOWS
+    if (buffer->file_map_handle != NULL)
+    {
+        CloseHandle(buffer->file_map_handle);
+        buffer->file_map_handle = NULL;
+    }
+#endif
+
+#ifdef RMT_PLATFORM_MACOS
+    if (buffer->ptr != NULL)
+        vm_deallocate(mach_task_self(), (vm_address_t)buffer->ptr, buffer->size * 2);
+#endif
+
+#ifdef RMT_PLATFORM_LINUX
+    if (buffer->ptr != NULL)
+        munmap(buffer->ptr, buffer->size * 2);
+#endif
+
+    buffer->ptr = NULL;
 }
 
 
@@ -775,8 +808,6 @@ typedef enum rmtError (*ThreadProc)(Thread* thread);
     }
 #endif
 
-static void Thread_Destroy(Thread* thread);
-
 
 static int Thread_Valid(Thread* thread)
 {
@@ -790,50 +821,38 @@ static int Thread_Valid(Thread* thread)
 }
 
 
-static enum rmtError Thread_Create(Thread** thread, ThreadProc callback, void* param)
+static enum rmtError Thread_Constructor(Thread* thread, ThreadProc callback, void* param)
 {
     assert(thread != NULL);
 
-    // Allocate space for the thread data
-    *thread = (Thread*)malloc(sizeof(Thread));
-    if (*thread == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
-    (*thread)->callback = (FuncPtr)callback;
-    (*thread)->param = param;
-    (*thread)->error = RMT_ERROR_NONE;
-    (*thread)->request_exit = RMT_FALSE;
+    thread->callback = (FuncPtr)callback;
+    thread->param = param;
+    thread->error = RMT_ERROR_NONE;
+    thread->request_exit = RMT_FALSE;
 
     // OS-specific thread creation
 
     #if defined (RMT_PLATFORM_WINDOWS)
 
-        (*thread)->handle = CreateThread(
+        thread->handle = CreateThread(
             NULL,                               // lpThreadAttributes
             0,                                  // dwStackSize
             ThreadProcWindows,                  // lpStartAddress
-            *thread,                            // lpParameter
+            thread,                            // lpParameter
             0,                                  // dwCreationFlags
             NULL);                              // lpThreadId
 
-        if ((*thread)->handle == NULL)
-        {
-            Thread_Destroy(*thread);
-            *thread = NULL;
+        if (thread->handle == NULL)
             return RMT_ERROR_CREATE_THREAD_FAIL;
-        }
 
     #else
 
-        int32_t error = pthread_create( &(*thread)->handle, NULL, StartFunc, *thread );
+        int32_t error = pthread_create( &thread->handle, NULL, StartFunc, *thread );
         if (error)
         {
             // Contents of 'thread' parameter to pthread_create() are undefined after
             // failure call so can't pre-set to invalid value before hand.
-            (*thread)->handle = pthread_self();
-
-            Thread_Destroy(*thread);
-            *thread = NULL;
+            thread->handle = pthread_self();
             return RMT_ERROR_CREATE_THREAD_FAIL;
         }
 
@@ -863,7 +882,7 @@ static void Thread_Join(Thread* thread)
 }
 
 
-static void Thread_Destroy(Thread* thread)
+static void Thread_Destructor(Thread* thread)
 {
     assert(thread != NULL);
 
@@ -880,8 +899,6 @@ static void Thread_Destroy(Thread* thread)
         thread->handle = NULL;
         #endif
     }
-
-    free(thread);
 }
 
 
@@ -1236,24 +1253,34 @@ typedef struct
 } ObjectAllocator;
 
 
-static enum rmtError ObjectAllocator_Create(ObjectAllocator** allocator, rmtU32 object_size, ObjConstructor constructor, ObjDestructor destructor)
+static enum rmtError ObjectAllocator_Constructor(ObjectAllocator* allocator, rmtU32 object_size, ObjConstructor constructor, ObjDestructor destructor)
 {
-    // Allocate space for the allocator
-    assert(allocator != NULL);
-    *allocator = (ObjectAllocator*)malloc(sizeof(ObjectAllocator));
-    if (*allocator == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
-    // Construct it
-    (*allocator)->object_size = object_size;
-    (*allocator)->constructor = constructor;
-    (*allocator)->destructor = destructor;
-    (*allocator)->nb_free = 0;
-    (*allocator)->nb_inuse = 0;
-    (*allocator)->nb_allocated = 0;
-    (*allocator)->first_free = NULL;
-
+    allocator->object_size = object_size;
+    allocator->constructor = constructor;
+    allocator->destructor = destructor;
+    allocator->nb_free = 0;
+    allocator->nb_inuse = 0;
+    allocator->nb_allocated = 0;
+    allocator->first_free = NULL;
     return RMT_ERROR_NONE;
+}
+
+
+static void ObjectAllocator_Destructor(ObjectAllocator* allocator)
+{
+    // Ensure everything has been released to the allocator
+    assert(allocator != NULL);
+    assert(allocator->nb_inuse == 0);
+
+    // Destroy all objects released to the allocator
+    while (allocator->first_free != NULL)
+    {
+        ObjectLink* next = allocator->first_free->next;
+        assert(allocator->destructor != NULL);
+        allocator->destructor(allocator->first_free);
+        free(allocator->first_free);
+        allocator->first_free = next;
+    }
 }
 
 
@@ -1360,27 +1387,6 @@ static void ObjectAllocator_FreeRange(ObjectAllocator* allocator, void* start, v
 }
 
 
-static void ObjectAllocator_Destroy(ObjectAllocator* allocator)
-{
-    // Ensure everything has been released to the allocator
-    assert(allocator != NULL);
-    assert(allocator->nb_inuse == 0);
-
-    // Destroy all objects released to the allocator
-    assert(allocator != NULL);
-    while (allocator->first_free != NULL)
-    {
-        ObjectLink* next = allocator->first_free->next;
-        assert(allocator->destructor != NULL);
-        allocator->destructor(allocator->first_free);
-        free(allocator->first_free);
-        allocator->first_free = next;
-    }
-
-    free(allocator);
-}
-
-
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -1403,26 +1409,18 @@ typedef struct
 } Buffer;
 
 
-static enum rmtError Buffer_Create(Buffer** buffer, rmtU32 alloc_granularity)
+static enum rmtError Buffer_Constructor(Buffer* buffer, rmtU32 alloc_granularity)
 {
     assert(buffer != NULL);
-
-    // Allocate and set defaults as nothing allocated
-
-    *buffer = (Buffer*)malloc(sizeof(Buffer));
-    if (*buffer == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
-    (*buffer)->alloc_granularity = alloc_granularity;
-    (*buffer)->bytes_allocated = 0;
-    (*buffer)->bytes_used = 0;
-    (*buffer)->data = NULL;
-
+    buffer->alloc_granularity = alloc_granularity;
+    buffer->bytes_allocated = 0;
+    buffer->bytes_used = 0;
+    buffer->data = NULL;
     return RMT_ERROR_NONE;
 }
 
 
-static void Buffer_Destroy(Buffer* buffer)
+static void Buffer_Destructor(Buffer* buffer)
 {
     assert(buffer != NULL);
 
@@ -1431,8 +1429,6 @@ static void Buffer_Destroy(Buffer* buffer)
         free(buffer->data);
         buffer->data = NULL;
     }
-
-    free(buffer);
 }
 
 
@@ -1506,7 +1502,6 @@ typedef struct
 // Function prototypes
 //
 static void TCPSocket_Close(TCPSocket* tcp_socket);
-static enum rmtError TCPSocket_Destroy(TCPSocket** tcp_socket, enum rmtError error);
 
 
 static enum rmtError InitialiseNetwork()
@@ -1537,27 +1532,23 @@ static void ShutdownNetwork()
 }
 
 
-static enum rmtError TCPSocket_Create(TCPSocket** tcp_socket)
+static enum rmtError TCPSocket_Constructor(TCPSocket* tcp_socket)
 {
-    enum rmtError error;
-    
     assert(tcp_socket != NULL);
-
-    // Allocate and initialise
-    *tcp_socket = (TCPSocket*)malloc(sizeof(TCPSocket));
-    if (*tcp_socket == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-    (*tcp_socket)->socket = INVALID_SOCKET;
-
-    error = InitialiseNetwork();
-    if (error != RMT_ERROR_NONE)
-        return TCPSocket_Destroy(tcp_socket, error);
-
-    return RMT_ERROR_NONE;
+    tcp_socket->socket = INVALID_SOCKET;
+    return InitialiseNetwork();
 }
 
 
-static enum rmtError TCPSocket_CreateServer(rmtU16 port, TCPSocket** tcp_socket)
+static void TCPSocket_Destructor(TCPSocket* tcp_socket)
+{
+    assert(tcp_socket != NULL);
+    TCPSocket_Close(tcp_socket);
+    ShutdownNetwork();
+}
+
+
+static enum rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port)
 {
     SOCKET s = INVALID_SOCKET;
     struct sockaddr_in sin = { 0 };
@@ -1565,54 +1556,37 @@ static enum rmtError TCPSocket_CreateServer(rmtU16 port, TCPSocket** tcp_socket)
         u_long nonblock = 1;
     #endif
 
-    // Create socket container
-    enum rmtError error = TCPSocket_Create(tcp_socket);
-    if (error != RMT_ERROR_NONE)
-        return error;
+    assert(tcp_socket != NULL);
 
     // Try to create the socket
     s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == SOCKET_ERROR)
-        return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_CREATE_FAIL);
+        return RMT_ERROR_SOCKET_CREATE_FAIL;
 
     // Bind the socket to the incoming port
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
     sin.sin_port = htons(port);
     if (bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
-        return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_BIND_FAIL);
+        return RMT_ERROR_SOCKET_BIND_FAIL;
 
     // Connection is valid, remaining code is socket state modification
-    (*tcp_socket)->socket = s;
+    tcp_socket->socket = s;
 
     // Enter a listening state with a backlog of 1 connection
     if (listen(s, 1) == SOCKET_ERROR)
-        return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_LISTEN_FAIL);
+        return RMT_ERROR_SOCKET_LISTEN_FAIL;
 
     // Set as non-blocking
     #ifdef RMT_PLATFORM_WINDOWS
-        if (ioctlsocket((*tcp_socket)->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
-            return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL);
+        if (ioctlsocket(tcp_socket->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
+            return RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL;
     #else
         if (fcntl((*tcp_socket)->socket, F_SETFL, O_NONBLOCK) == SOCKET_ERROR)
-            return TCPSocket_Destroy(tcp_socket, RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL);
+            return RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL;
     #endif
 
     return RMT_ERROR_NONE;
-}
-
-
-static enum rmtError TCPSocket_Destroy(TCPSocket** tcp_socket, enum rmtError error)
-{
-    assert(tcp_socket != NULL);
-
-    TCPSocket_Close(*tcp_socket);
-    ShutdownNetwork();
-
-    free(*tcp_socket);
-    *tcp_socket = NULL;
-
-    return error;
 }
 
 
@@ -1703,7 +1677,7 @@ static enum rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket
 
     // Create a client socket for the new connection
     assert(client_socket != NULL);
-    error = TCPSocket_Create(client_socket);
+    New_0(TCPSocket, *client_socket);
     if (error != RMT_ERROR_NONE)
         return error;
     (*client_socket)->socket = s;
@@ -2251,7 +2225,7 @@ typedef struct
 } WebSocket;
 
 
-static void WebSocket_Destroy(WebSocket* web_socket);
+static void WebSocket_Close(WebSocket* web_socket);
 
 
 static char* GetField(char* buffer, rsize_t buffer_length, rmtPStr field_name)
@@ -2401,68 +2375,44 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_hos
 }
 
 
-static enum rmtError WebSocket_Create(WebSocket** web_socket)
-{
-    *web_socket = (WebSocket*)malloc(sizeof(WebSocket));
-    if (*web_socket == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
-    // Set default state
-    (*web_socket)->tcp_socket = NULL;
-    (*web_socket)->mode = WEBSOCKET_NONE;
-    (*web_socket)->frame_bytes_remaining = 0;
-    (*web_socket)->mask_offset = 0;
-    (*web_socket)->data_mask[0] = 0;
-    (*web_socket)->data_mask[1] = 0;
-    (*web_socket)->data_mask[2] = 0;
-    (*web_socket)->data_mask[3] = 0;
-
-    return RMT_ERROR_NONE;
-}
-
-
-static enum rmtError WebSocket_CreateServer(rmtU32 port, enum WebSocketMode mode, WebSocket** web_socket)
+static enum rmtError WebSocket_Constructor(WebSocket* web_socket)
 {
     enum rmtError error;
 
     assert(web_socket != NULL);
+    web_socket->tcp_socket = NULL;
+    web_socket->mode = WEBSOCKET_NONE;
+    web_socket->frame_bytes_remaining = 0;
+    web_socket->mask_offset = 0;
+    web_socket->data_mask[0] = 0;
+    web_socket->data_mask[1] = 0;
+    web_socket->data_mask[2] = 0;
+    web_socket->data_mask[3] = 0;
 
-    error = WebSocket_Create(web_socket);
-    if (error != RMT_ERROR_NONE)
-        return error;
+    New_0(TCPSocket, web_socket->tcp_socket);
+    return error;
+}
 
-    (*web_socket)->mode = mode;
 
+static void WebSocket_Destructor(WebSocket* web_socket)
+{
+    WebSocket_Close(web_socket);
+}
+
+
+static enum rmtError WebSocket_RunServer(WebSocket* web_socket, rmtU32 port, enum WebSocketMode mode)
+{
     // Create the server's listening socket
-    error = TCPSocket_CreateServer((rmtU16)port, &(*web_socket)->tcp_socket);
-    if (error != RMT_ERROR_NONE)
-    {
-        WebSocket_Destroy(*web_socket);
-        *web_socket = NULL;
-        return error;
-    }
-
-    return RMT_ERROR_NONE;
+    assert(web_socket != NULL);
+    web_socket->mode = mode;
+    return TCPSocket_RunServer(web_socket->tcp_socket, (rmtU16)port);
 }
 
 
 static void WebSocket_Close(WebSocket* web_socket)
 {
     assert(web_socket != NULL);
-
-    if (web_socket->tcp_socket != NULL)
-    {
-        TCPSocket_Destroy(&web_socket->tcp_socket, RMT_ERROR_NONE);
-        web_socket->tcp_socket = NULL;
-    }
-}
-
-
-static void WebSocket_Destroy(WebSocket* web_socket)
-{
-    assert(web_socket != NULL);
-    WebSocket_Close(web_socket);
-    free(web_socket);
+    Delete(TCPSocket, web_socket->tcp_socket);
 }
 
 
@@ -2492,7 +2442,7 @@ static enum rmtError WebSocket_AcceptConnection(WebSocket* web_socket, WebSocket
 
     // Allocate and return a new client socket
     assert(client_socket != NULL);
-    error = WebSocket_Create(client_socket);
+    New_0(WebSocket, *client_socket);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -2743,53 +2693,37 @@ typedef struct MessageQueue
 } MessageQueue;
 
 
-static void MessageQueue_Destroy(MessageQueue* queue)
-{
-    assert(queue != NULL);
-
-    if (queue->data != NULL)
-    {
-        VirtualMirrorBuffer_Destroy(queue->data);
-        queue->data = NULL;
-    }
-
-    free(queue);
-}
-
-
-static enum rmtError MessageQueue_Create(MessageQueue** queue, rmtU32 size)
+static enum rmtError MessageQueue_Constructor(MessageQueue* queue, rmtU32 size)
 {
     enum rmtError error;
 
     assert(queue != NULL);
 
-    // Allocate the container
-    *queue = (MessageQueue*)malloc(sizeof(MessageQueue));
-    if (*queue == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
     // Set defaults
-    (*queue)->size = 0;
-    (*queue)->data = NULL;
-    (*queue)->read_pos = 0;
-    (*queue)->write_pos = 0;
+    queue->size = 0;
+    queue->data = NULL;
+    queue->read_pos = 0;
+    queue->write_pos = 0;
 
-    error = VirtualMirrorBuffer_Create(&(*queue)->data, size, 10);
+    New_2(VirtualMirrorBuffer, queue->data, size, 10);
     if (error != RMT_ERROR_NONE)
-    {
-        MessageQueue_Destroy(*queue);
-        *queue = NULL;
         return error;
-    }
 
     // The mirror buffer needs to be page-aligned and will change the requested
     // size to match that.
-    (*queue)->size = (*queue)->data->size;
+    queue->size = queue->data->size;
 
     // Set the entire buffer to not ready message
-    memset((*queue)->data->ptr, MsgID_NotReady, (*queue)->size);
+    memset(queue->data->ptr, MsgID_NotReady, queue->size);
 
     return RMT_ERROR_NONE;
+}
+
+
+static void MessageQueue_Destructor(MessageQueue* queue)
+{
+    assert(queue != NULL);
+    Delete(VirtualMirrorBuffer, queue->data);
 }
 
 
@@ -2911,47 +2845,36 @@ typedef struct
 } Server;
 
 
-static void Server_Destroy(Server* server);
-
-
-static enum rmtError Server_Create(rmtU16 port, Server** server)
+static enum rmtError Server_CreateListenSocket(Server* server, rmtU16 port)
 {
-    enum rmtError error;
+    enum rmtError error = RMT_ERROR_NONE;
 
-    assert(server != NULL);
-    *server = (Server*)malloc(sizeof(Server));
-    if (*server == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
+    New_0(WebSocket, server->listen_socket);
+    if (error == RMT_ERROR_NONE)
+        error = WebSocket_RunServer(server->listen_socket, port, WEBSOCKET_TEXT);
 
-    // Initialise defaults
-    (*server)->listen_socket = NULL;
-    (*server)->client_socket = NULL;
-    (*server)->last_ping_time = 0;
-    (*server)->port = port;
-
-    // Create the listening WebSocket
-    error = WebSocket_CreateServer(port, WEBSOCKET_TEXT, &(*server)->listen_socket);
-    if (error != RMT_ERROR_NONE)
-    {
-        Server_Destroy(*server);
-        *server = NULL;
-        return error;
-    }
-
-    return RMT_ERROR_NONE;
+    return error;
 }
 
 
-static void Server_Destroy(Server* server)
+static enum rmtError Server_Constructor(Server* server, rmtU16 port)
 {
     assert(server != NULL);
+    server->listen_socket = NULL;
+    server->client_socket = NULL;
+    server->last_ping_time = 0;
+    server->port = port;
 
-    if (server->client_socket != NULL)
-        WebSocket_Destroy(server->client_socket);
-    if (server->listen_socket != NULL)
-        WebSocket_Destroy(server->listen_socket);
+    // Create the listening WebSocket
+    return Server_CreateListenSocket(server, port);
+}
 
-    free(server);
+
+static void Server_Destructor(Server* server)
+{
+    assert(server != NULL);
+    Delete(WebSocket, server->client_socket);
+    Delete(WebSocket, server->listen_socket);
 }
 
 
@@ -2969,10 +2892,7 @@ static enum rmtError Server_Send(Server* server, const void* data, rmtU32 length
     {
         enum rmtError error = WebSocket_Send(server->client_socket, data, length, timeout);
         if (error == RMT_ERROR_SOCKET_SEND_FAIL)
-        {
-            WebSocket_Destroy(server->client_socket);
-            server->client_socket = NULL;
-        }
+            Delete(WebSocket, server->client_socket);
         return error;
     }
 
@@ -2988,7 +2908,7 @@ static void Server_Update(Server* server)
 
     // Recreate the listening socket if it's been destroyed earlier
     if (server->listen_socket == NULL)
-        WebSocket_CreateServer(server->port, WEBSOCKET_TEXT, &server->listen_socket);
+        Server_CreateListenSocket(server, server->port);
 
     if (server->listen_socket != NULL && server->client_socket == NULL)
     {
@@ -3003,8 +2923,7 @@ static void Server_Update(Server* server)
         {
             // Destroy the listen socket on failure to accept
             // It will get recreated in another update
-            WebSocket_Destroy(server->listen_socket);
-            server->listen_socket = NULL;
+            Delete(WebSocket, server->listen_socket);
         }
     }
 
@@ -3031,7 +2950,8 @@ static void Server_Update(Server* server)
             // NULL the variable before destroying the socket
             WebSocket* client_socket = server->client_socket;
             server->client_socket = NULL;
-            WebSocket_Destroy(client_socket);
+            WriteFence();
+            Delete(WebSocket, client_socket);
         }
     }
 
@@ -3323,48 +3243,33 @@ typedef struct SampleTree
 } SampleTree;
 
 
-static void SampleTree_Destroy(SampleTree* tree);
-
-
-static enum rmtError SampleTree_Create(SampleTree** tree, rmtU32 sample_size, ObjConstructor constructor, ObjDestructor destructor)
+static enum rmtError SampleTree_Constructor(SampleTree* tree, rmtU32 sample_size, ObjConstructor constructor, ObjDestructor destructor)
 {
     enum rmtError error;
 
     assert(tree != NULL);
 
-    *tree = (SampleTree*)malloc(sizeof(SampleTree));
-    if (*tree == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
-    (*tree)->allocator = NULL;
-    (*tree)->root = NULL;
-    (*tree)->current_parent = NULL;
+    tree->allocator = NULL;
+    tree->root = NULL;
+    tree->current_parent = NULL;
 
     // Create the sample allocator
-    error = ObjectAllocator_Create(&(*tree)->allocator, sample_size, constructor, destructor);
+    New_3(ObjectAllocator, tree->allocator, sample_size, constructor, destructor);
     if (error != RMT_ERROR_NONE)
-    {
-        SampleTree_Destroy(*tree);
-        *tree = NULL;
         return error;
-    }
 
     // Create a root sample that's around for the lifetime of the thread
-    error = ObjectAllocator_Alloc((*tree)->allocator, (void**)&(*tree)->root);
+    error = ObjectAllocator_Alloc(tree->allocator, (void**)&tree->root);
     if (error != RMT_ERROR_NONE)
-    {
-        SampleTree_Destroy(*tree);
-        *tree = NULL;
         return error;
-    }
-    Sample_Prepare((*tree)->root, "<Root Sample>", 0, NULL);
-    (*tree)->current_parent = (*tree)->root;
+    Sample_Prepare(tree->root, "<Root Sample>", 0, NULL);
+    tree->current_parent = tree->root;
 
     return RMT_ERROR_NONE;
 }
 
 
-static void SampleTree_Destroy(SampleTree* tree)
+static void SampleTree_Destructor(SampleTree* tree)
 {
     assert(tree != NULL);
 
@@ -3374,13 +3279,7 @@ static void SampleTree_Destroy(SampleTree* tree)
         tree->root = NULL;
     }
 
-    if (tree->allocator != NULL)
-    {
-        ObjectAllocator_Destroy(tree->allocator);
-        tree->allocator = NULL;
-    }
-
-    free(tree);
+    Delete(ObjectAllocator, tree->allocator);
 }
 
 
@@ -3562,60 +3461,41 @@ typedef struct ThreadSampler
 } ThreadSampler;
 
 
-static void ThreadSampler_Destroy(ThreadSampler* ts);
-
-
-static enum rmtError ThreadSampler_Create(ThreadSampler** thread_sampler)
+static enum rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
 {
     enum rmtError error;
     int i;
 
-    // Allocate space for the thread sampler
-    *thread_sampler = (ThreadSampler*)malloc(sizeof(ThreadSampler));
-    if (*thread_sampler == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
+    assert(thread_sampler != NULL);
 
     // Set defaults
     for (i = 0; i < SampleType_Count; i++)
-        (*thread_sampler)->sample_trees[i] = NULL; 
-    (*thread_sampler)->next = NULL;
+        thread_sampler->sample_trees[i] = NULL; 
+    thread_sampler->next = NULL;
 
     // Set the initial name based on the unique thread sampler address
-    Base64_Encode((rmtU8*)thread_sampler, sizeof(thread_sampler), (rmtU8*)(*thread_sampler)->name);
+    Base64_Encode((rmtU8*)thread_sampler, sizeof(rmtU8*), (rmtU8*)thread_sampler->name);
 
     // Create the CPU sample tree only - the rest are created on-demand as they need
     // extra context information to function correctly.
-    error = SampleTree_Create(&(*thread_sampler)->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
+    New_3(SampleTree, thread_sampler->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
     if (error != RMT_ERROR_NONE)
-    {
-        ThreadSampler_Destroy(*thread_sampler);
-        *thread_sampler = NULL;
         return error;
-    }
 
     // Kick-off the timer
-    usTimer_Init(&(*thread_sampler)->timer);
+    usTimer_Init(&thread_sampler->timer);
 
     return RMT_ERROR_NONE;
 }
 
 
-static void ThreadSampler_Destroy(ThreadSampler* ts)
+static void ThreadSampler_Destructor(ThreadSampler* ts)
 {
     int i;
 
     assert(ts != NULL);
-
     for (i = 0; i < SampleType_Count; i++)
-    {
-        if (ts->sample_trees[i] != NULL)
-        {
-            SampleTree_Destroy(ts->sample_trees[i]);
-            ts->sample_trees[i] = NULL;
-        }
-    }
-
-    free(ts);
+        Delete(SampleTree, ts->sample_trees[i]);
 }
 
 
@@ -3703,7 +3583,7 @@ GLAPI GLenum GLAPIENTRY glGetError(void);
 #ifdef RMT_USE_D3D11
 typedef struct D3D11 D3D11;
 static enum rmtError D3D11_Create(D3D11** d3d11);
-static void D3D11_Destroy(D3D11* d3d11);
+static void D3D11_Destructor(D3D11* d3d11);
 #endif
 
 
@@ -3772,7 +3652,6 @@ static Remotery* g_Remotery = NULL;
 static rmtBool g_RemoteryCreated = RMT_FALSE;
 
 
-static void Remotery_Destroy(Remotery* rmt);
 static void Remotery_DestroyThreadSamplers(Remotery* rmt);
 
 
@@ -4022,80 +3901,56 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
 }
 
 
-static enum rmtError Remotery_Create(Remotery** rmt)
+static enum rmtError Remotery_Constructor(Remotery* rmt)
 {
     enum rmtError error;
 
     assert(rmt != NULL);
 
-    *rmt = (Remotery*)malloc(sizeof(Remotery));
-    if (*rmt == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
-
     // Set default state
-    (*rmt)->server = NULL;
-    (*rmt)->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
-    (*rmt)->first_thread_sampler = NULL;
-    (*rmt)->mq_to_rmt_thread = NULL;
-    (*rmt)->json_buf = NULL;
-    (*rmt)->thread = NULL;
+    rmt->server = NULL;
+    rmt->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
+    rmt->first_thread_sampler = NULL;
+    rmt->mq_to_rmt_thread = NULL;
+    rmt->json_buf = NULL;
+    rmt->thread = NULL;
 
     // Allocate a TLS handle for the thread sampler
-    error = tlsAlloc(&(*rmt)->thread_sampler_tls_handle);
+    error = tlsAlloc(&rmt->thread_sampler_tls_handle);
     if (error != RMT_ERROR_NONE)
-    {
-        Remotery_Destroy(*rmt);
-        *rmt = NULL;
         return error;
-    }
 
     // Create the server
-    error = Server_Create(0x4597, &(*rmt)->server);
+    New_1(Server, rmt->server, 0x4597);
     if (error != RMT_ERROR_NONE)
-    {
-        Remotery_Destroy(*rmt);
-        *rmt = NULL;
         return error;
-    }
 
     // Create the main message thread with only one page
-    error = MessageQueue_Create(&(*rmt)->mq_to_rmt_thread, MESSAGE_QUEUE_SIZE_BYTES);
+    New_1(MessageQueue, rmt->mq_to_rmt_thread, MESSAGE_QUEUE_SIZE_BYTES);
     if (error != RMT_ERROR_NONE)
-    {
-        Remotery_Destroy(*rmt);
-        *rmt = NULL;
         return error;
-    }
 
     // Create the JSON serialisation buffer
-    error = Buffer_Create(&(*rmt)->json_buf, 4096);
+    New_1(Buffer, rmt->json_buf, 4096);
     if (error != RMT_ERROR_NONE)
-    {
-        Remotery_Destroy(*rmt);
-        *rmt = NULL;
         return error;
-    }
 
     #ifdef RMT_USE_CUDA
 
-        (*rmt)->cuda.CtxSetCurrent = NULL;
-        (*rmt)->cuda.EventCreate = NULL;
-        (*rmt)->cuda.EventDestroy = NULL;
-        (*rmt)->cuda.EventElapsedTime = NULL;
-        (*rmt)->cuda.EventQuery = NULL;
-        (*rmt)->cuda.EventRecord = NULL;
+        rmt->cuda.CtxSetCurrent = NULL;
+        rmt->cuda.EventCreate = NULL;
+        rmt->cuda.EventDestroy = NULL;
+        rmt->cuda.EventElapsedTime = NULL;
+        rmt->cuda.EventQuery = NULL;
+        rmt->cuda.EventRecord = NULL;
 
     #endif
 
     #ifdef RMT_USE_D3D11
-        (*rmt)->d3d11 = NULL;
-        error = D3D11_Create(&(*rmt)->d3d11);
+        rmt->d3d11 = NULL;
+        error = D3D11_Create(&rmt->d3d11);
         if (error != RMT_ERROR_NONE)
-        {
-            Remotery_Destroy(*rmt);
-            *rmt = NULL;
             return error;
-        }
     #endif
 
     #ifdef RMT_USE_OPENGL
@@ -4113,46 +3968,31 @@ static enum rmtError Remotery_Create(Remotery** rmt)
         (*rmt)->mq_to_opengl_main = NULL;
         (*rmt)->opengl_first_timestamp = 0;
 
-        error = MessageQueue_Create(&(*rmt)->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
+        New_1(MessageQueue, (*rmt)->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
         if (error != RMT_ERROR_NONE)
-        {
-            Remotery_Destroy(*rmt);
-            *rmt = NULL;
             return error;
-        }
     #endif
 
     // Set as the global instance before creating any threads that uses it for sampling itself
     assert(g_Remotery == NULL);
-    g_Remotery = *rmt;
+    g_Remotery = rmt;
     g_RemoteryCreated = RMT_TRUE;
 
     // Ensure global instance writes complete before other threads get a chance to use it
     WriteFence();
 
     // Create the main update thread once everything has been defined for the global remotery object
-    error = Thread_Create(&(*rmt)->thread, Remotery_ThreadMain, *rmt);
-    if (error != RMT_ERROR_NONE)
-    {
-        Remotery_Destroy(*rmt);
-        *rmt = NULL;
-        return error;
-    }
-
-    return RMT_ERROR_NONE;
+    New_2(Thread, rmt->thread, Remotery_ThreadMain, rmt);
+    return error;
 }
 
 
-static void Remotery_Destroy(Remotery* rmt)
+static void Remotery_Destructor(Remotery* rmt)
 {
     assert(rmt != NULL);
 
     // Join the remotery thread before clearing the global object as the thread is profiling itself
-    if (rmt->thread != NULL)
-    {
-        Thread_Destroy(rmt->thread);
-        rmt->thread = NULL;
-    }
+    Delete(Thread, rmt->thread);
 
     // Ensure this is the module that created it
     assert(g_RemoteryCreated == RMT_TRUE);
@@ -4161,53 +4001,26 @@ static void Remotery_Destroy(Remotery* rmt)
     g_RemoteryCreated = RMT_FALSE;
 
     #ifdef RMT_USE_D3D11
-        if (rmt->d3d11 != NULL)
-        {
-            D3D11_Destroy(rmt->d3d11);
-            rmt->d3d11 = NULL;
-        }
+        Delete(D3D11, rmt->d3d11);
     #endif
 
     #ifdef RMT_USE_OPENGL
-        if (rmt->opengl_timestamp_allocator != NULL)
-        {
-            ObjectAllocator_Destroy(rmt->opengl_timestamp_allocator);
-            rmt->opengl_timestamp_allocator = NULL;
-        }
-        if (rmt->mq_to_opengl_main != NULL)
-        {
-            MessageQueue_Destroy(rmt->mq_to_opengl_main);
-            rmt->mq_to_opengl_main = NULL;
-        }
+        Delete(ObjectAllocator, rmt->opengl_timestamp_allocator);
+        Delete(MessageQueue, rmt->mq_to_opengl_main);
     #endif
 
-    if (rmt->json_buf != NULL)
-    {
-        Buffer_Destroy(rmt->json_buf);
-        rmt->json_buf = NULL;
-    }
-
-    if (rmt->mq_to_rmt_thread != NULL)
-    {
-        MessageQueue_Destroy(rmt->mq_to_rmt_thread);
-        rmt->mq_to_rmt_thread = NULL;
-    }
+    Delete(Buffer, rmt->json_buf);
+    Delete(MessageQueue, rmt->mq_to_rmt_thread);
 
     Remotery_DestroyThreadSamplers(rmt);
 
-    if (rmt->server != NULL)
-    {
-        Server_Destroy(rmt->server);
-        rmt->server = NULL;
-    }
+    Delete(Server, rmt->server);
 
     if (rmt->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
     {
         tlsFree(rmt->thread_sampler_tls_handle);
         rmt->thread_sampler_tls_handle = 0;
     }
-
-    free(rmt);
 }
 
 
@@ -4221,7 +4034,8 @@ static enum rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** th
     if (ts == NULL)
     {
         // Allocate on-demand
-        enum rmtError error = ThreadSampler_Create(thread_sampler);
+        enum rmtError error;
+        New_0(ThreadSampler, *thread_sampler);
         if (error != RMT_ERROR_NONE)
             return error;
         ts = *thread_sampler;
@@ -4276,24 +4090,25 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
             }
         }
 
-        // Release the thread sampler
-        ThreadSampler_Destroy(ts);
+        Delete(ThreadSampler, ts);
     }
 }
 
 
 enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
+    enum rmtError error;
+
     // Creating the Remotery instance also records it as the global instance
     assert(remotery != NULL);
-    return Remotery_Create(remotery);
+    New_0(Remotery, *remotery);
+    return error;
 }
 
 
 void _rmt_DestroyGlobalInstance(Remotery* remotery)
 {
-    if (remotery != NULL)
-        Remotery_Destroy(remotery);
+    Delete(Remotery, remotery);
 }
 
 
@@ -4744,6 +4559,7 @@ void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
+        enum rmtError error;
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
 
@@ -4754,7 +4570,7 @@ void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
         {
             CUDASample* root_sample;
             
-            enum rmtError error = SampleTree_Create(cuda_tree, sizeof(CUDASample), (ObjConstructor)CUDASample_Constructor, (ObjDestructor)CUDASample_Destructor);
+            New_3(SampleTree, *cuda_tree, sizeof(CUDASample), (ObjConstructor)CUDASample_Constructor, (ObjDestructor)CUDASample_Destructor);
             if (error != RMT_ERROR_NONE)
                 return;
 
@@ -4862,11 +4678,10 @@ static enum rmtError D3D11_Create(D3D11** d3d11)
     (*d3d11)->mq_to_d3d11_main = NULL;
     (*d3d11)->first_timestamp = 0;
 
-    error = MessageQueue_Create(&(*d3d11)->mq_to_d3d11_main, MESSAGE_QUEUE_SIZE_BYTES);
+    New_1(MessageQueue, (*d3d11)->mq_to_d3d11_main, MESSAGE_QUEUE_SIZE_BYTES);
     if (error != RMT_ERROR_NONE)
     {
-        D3D11_Destroy(*d3d11);
-        *d3d11 = NULL;
+        Delete(D3D11, *d3d11);
         return error;
     }
 
@@ -4874,22 +4689,12 @@ static enum rmtError D3D11_Create(D3D11** d3d11)
 }
 
 
-static void D3D11_Destroy(D3D11* d3d11)
+static void D3D11_Destructor(D3D11* d3d11)
 {
     assert(d3d11 != NULL);
 
-    if (d3d11->timestamp_allocator != NULL)
-    {
-        ObjectAllocator_Destroy(d3d11->timestamp_allocator);
-        d3d11->timestamp_allocator = NULL;
-    }
-    if (d3d11->mq_to_d3d11_main != NULL)
-    {
-        MessageQueue_Destroy(d3d11->mq_to_d3d11_main);
-        d3d11->mq_to_d3d11_main = NULL;
-    }
-
-    free(d3d11);
+    Delete(ObjectAllocator, d3d11->timestamp_allocator);
+    Delete(MessageQueue, d3d11->mq_to_d3d11_main);
 }
 
 
@@ -5124,8 +4929,7 @@ void _rmt_UnbindD3D11(void)
         }
 
         // Free all allocated D3D resources
-        ObjectAllocator_Destroy(d3d11->timestamp_allocator);
-        d3d11->timestamp_allocator = NULL;
+        Delete(ObjectAllocator, d3d11->timestamp_allocator);
     }
 }
 
@@ -5155,14 +4959,14 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** d3d_tree = &ts->sample_trees[SampleType_D3D11];
         if (*d3d_tree == NULL)
         {
-            error = SampleTree_Create(d3d_tree, sizeof(D3D11Sample), (ObjConstructor)D3D11Sample_Constructor, (ObjDestructor)D3D11Sample_Destructor);
+            New_3(SampleTree, *d3d_tree, sizeof(D3D11Sample), (ObjConstructor)D3D11Sample_Constructor, (ObjDestructor)D3D11Sample_Destructor);
             if (error != RMT_ERROR_NONE)
                 return;
         }
 
         // Also create the timestamp allocator on-demand to keep the D3D11 code localised to the same file section
         if (d3d11->timestamp_allocator == NULL)
-            error = ObjectAllocator_Create(&d3d11->timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
+            New_3(ObjectAllocator, d3d11->timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
 
         // Push the sample
         if (ThreadSampler_Push(ts, *d3d_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
@@ -5563,9 +5367,8 @@ void _rmt_UnbindOpenGL(void)
             MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_opengl_main, message);
         }
 
-        // Free all allocated D3D resources
-        ObjectAllocator_Destroy(g_Remotery->opengl_timestamp_allocator);
-        g_Remotery->opengl_timestamp_allocator = NULL;
+        // Free all allocated OpenGL resources
+        Delete(ObjectAllocator, g_Remotery->opengl_timestamp_allocator);
     }
 }
 
@@ -5588,14 +5391,14 @@ void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** ogl_tree = &ts->sample_trees[SampleType_OpenGL];
         if (*ogl_tree == NULL)
         {
-            error = SampleTree_Create(ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor, (ObjDestructor)OpenGLSample_Destructor);
+            New_3(SampleTree, *ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor, (ObjDestructor)OpenGLSample_Destructor);
             if (error != RMT_ERROR_NONE)
                 return;
         }
 
         // Also create the timestamp allocator on-demand to keep the OpenGL code localised to the same file section
         if (g_Remotery->opengl_timestamp_allocator == NULL)
-            error = ObjectAllocator_Create(&g_Remotery->opengl_timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
+            New_3(ObjectAllocator, g_Remotery->opengl_timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
 
         // Push the sample
         if (ThreadSampler_Push(ts, *ogl_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
