@@ -89,12 +89,6 @@ documented just below this comment.
 #endif
 
 
-// Generate a unique symbol with the given prefix
-#define RMT_JOIN2(x, y) x ## y
-#define RMT_JOIN(x, y) RMT_JOIN2(x, y)
-#define RMT_UNIQUE(x) RMT_JOIN(x, __COUNTER__)
-
-
 // Allows macros to be written that can work around the inability to do: #define(x) #ifdef x
 // with the C preprocessor.
 #ifdef RMT_ENABLED
