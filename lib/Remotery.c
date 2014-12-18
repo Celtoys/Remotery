@@ -5171,6 +5171,8 @@ typedef struct OpenGLTimestamp
 
 static enum rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
 {
+    int error;
+
     assert(stamp != NULL);
 
     ObjectLink_Constructor((ObjectLink*)stamp);
@@ -5182,7 +5184,7 @@ static enum rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
     assert(g_Remotery != NULL);
     assert(g_Remotery->__glGenQueries != NULL);
     glGenQueries(2, stamp->queries);
-    int error = glGetError();
+    error = glGetError();
     if (error != GL_NO_ERROR)
         return RMT_ERROR_OPENGL_ERROR;
 
@@ -5197,9 +5199,10 @@ static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
     // Destroy queries
     if (stamp->queries[0] != 0)
     {
+        int error;
         assert(g_Remotery->__glDeleteQueries != NULL);
         glDeleteQueries(2, stamp->queries);
-        int error = glGetError();
+        error = glGetError();
         assert(error == GL_NO_ERROR);
     }
 }
@@ -5207,26 +5210,30 @@ static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
 
 static void OpenGLTimestamp_Begin(OpenGLTimestamp* stamp)
 {
+    int error;
+
     assert(stamp != NULL);
 
     // Start of disjoint and first query
     assert(g_Remotery != NULL);
     assert(g_Remotery->__glQueryCounter != NULL);
     glQueryCounter(stamp->queries[0], GL_TIMESTAMP);
-    int error = glGetError();
+    error = glGetError();
     assert(error == GL_NO_ERROR);
 }
 
 
 static void OpenGLTimestamp_End(OpenGLTimestamp* stamp)
 {
+    int error;
+
     assert(stamp != NULL);
 
     // End of disjoint and second query
     assert(g_Remotery != NULL);
     assert(g_Remotery->__glQueryCounter != NULL);
     glQueryCounter(stamp->queries[1], GL_TIMESTAMP);
-    int error = glGetError();
+    error = glGetError();
     assert(error == GL_NO_ERROR);
 }
 
