@@ -3954,21 +3954,21 @@ static enum rmtError Remotery_Constructor(Remotery* rmt)
     #endif
 
     #ifdef RMT_USE_OPENGL
-        (*rmt)->__glGenQueries = NULL;
-        (*rmt)->__glDeleteQueries = NULL;
-        (*rmt)->__glBeginQuery = NULL;
-        (*rmt)->__glEndQuery = NULL;
-        (*rmt)->__glGetQueryObjectiv = NULL;
-        (*rmt)->__glGetQueryObjectuiv = NULL;
-        (*rmt)->__glGetQueryObjecti64v = NULL;
-        (*rmt)->__glGetQueryObjectui64v = NULL;
-        (*rmt)->__glQueryCounter = NULL;
+        rmt->__glGenQueries = NULL;
+        rmt->__glDeleteQueries = NULL;
+        rmt->__glBeginQuery = NULL;
+        rmt->__glEndQuery = NULL;
+        rmt->__glGetQueryObjectiv = NULL;
+        rmt->__glGetQueryObjectuiv = NULL;
+        rmt->__glGetQueryObjecti64v = NULL;
+        rmt->__glGetQueryObjectui64v = NULL;
+        rmt->__glQueryCounter = NULL;
 
-        (*rmt)->opengl_timestamp_allocator = NULL;
-        (*rmt)->mq_to_opengl_main = NULL;
-        (*rmt)->opengl_first_timestamp = 0;
+        rmt->opengl_timestamp_allocator = NULL;
+        rmt->mq_to_opengl_main = NULL;
+        rmt->opengl_first_timestamp = 0;
 
-        New_1(MessageQueue, (*rmt)->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
+        New_1(MessageQueue, rmt->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
         if (error != RMT_ERROR_NONE)
             return error;
     #endif
