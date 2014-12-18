@@ -120,13 +120,23 @@ SampleWindow = (function()
 		{
 			var sample = samples[i];
 
+			// Match row allocation in GrowGrid
 			var row = parent_row.Rows.Rows[index++];
-			row.CellData._ID = sample.id;
-			row.CellNodes["Name"].innerHTML = indent + sample.name;
-			row.CellData.Control.SetText(sample.us_length);
-			DOM.Node.Show(row.Node);
 
+			// Sample row may have been hidden previously
+			DOM.Node.Show(row.Node);
+			
+			// Assign unique ID so that the common fast path of updating sample times only
+			// can lookup target samples in the grid
+			row.CellData._ID = sample.id;
 			parent_row.Rows.AddRowToIndex("_ID", sample.id, row);
+
+			// Set sample name and colour
+			var name_node = row.CellNodes["Name"];
+			name_node.innerHTML = indent + sample.name;
+			DOM.Node.SetColour(name_node, sample.colour);
+
+			row.CellData.Control.SetText(sample.us_length);
 
 			index = UpdateSamples(parent_row, sample.children, index, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
 		}

@@ -111,6 +111,12 @@ DOM.Node.SetOpacity = function(node, value)
 }
 
 
+DOM.Node.SetColour = function(node, colour)
+{
+	node.style.color = colour;
+}
+
+
 //
 // Hide a node by completely disabling its rendering (it no longer contributes to document layout)
 //

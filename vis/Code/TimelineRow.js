@@ -220,7 +220,7 @@ TimelineRow = (function()
 
 		// Normal rendering
 		var ctx = self.Ctx;
-		ctx.fillStyle = "#BBB";
+		ctx.fillStyle = sample.colour;
 		ctx.fillRect(offset_x, offset_y, size_x, size_y);
 
 		var b = (sample == self.HoverSample) ? 255 : 0;

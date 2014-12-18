@@ -121,13 +121,21 @@
 #endif
 
 
-rmtU64 min(rmtS64 a, rmtS64 b)
+rmtU8 minU8(rmtU8 a, rmtU8 b)
+{
+    return a < b ? a : b;
+}
+rmtS64 minS64(rmtS64 a, rmtS64 b)
 {
     return a < b ? a : b;
 }
 
 
-rmtU64 max(rmtS64 a, rmtS64 b)
+rmtU8 maxU8(rmtU8 a, rmtU8 b)
+{
+    return a > b ? a : b;
+}
+rmtS64 maxS64(rmtS64 a, rmtS64 b)
 {
     return a > b ? a : b;
 }
@@ -3109,6 +3117,9 @@ typedef struct Sample
     // Unique, persistent ID among all samples
     rmtU32 unique_id;
 
+    // Null-terminated string storing the hash-prefixed 6-digit colour
+    rmtU8 unique_id_html_colour[8];
+
     // Links to related samples in the tree
     struct Sample* parent;
     struct Sample* first_child;
@@ -3137,6 +3148,9 @@ static rmtError Sample_Constructor(Sample* sample)
     sample->name = NULL;
     sample->name_hash = 0;
     sample->unique_id = 0;
+    sample->unique_id_html_colour[0] = '#';
+    sample->unique_id_html_colour[1] = 0;
+    sample->unique_id_html_colour[7] = 0;
     sample->parent = NULL;
     sample->first_child = NULL;
     sample->last_child = NULL;
@@ -3185,9 +3199,11 @@ static rmtError json_Sample(Buffer* buffer, Sample* sample)
         JSON_ERROR_CHECK(json_Comma(buffer));
         JSON_ERROR_CHECK(json_FieldU64(buffer, "id", sample->unique_id));
         JSON_ERROR_CHECK(json_Comma(buffer));
+        JSON_ERROR_CHECK(json_FieldStr(buffer, "colour", (rmtPStr)sample->unique_id_html_colour));
+        JSON_ERROR_CHECK(json_Comma(buffer));
         JSON_ERROR_CHECK(json_FieldU64(buffer, "us_start", sample->us_start));
         JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_FieldU64(buffer, "us_length", max(sample->us_end - sample->us_start, 0)));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "us_length", maxS64(sample->us_end - sample->us_start, 0)));
 
         if (sample->first_child != NULL)
         {
@@ -3655,6 +3671,9 @@ static rmtBool g_RemoteryCreated = RMT_FALSE;
 static void Remotery_DestroyThreadSamplers(Remotery* rmt);
 
 
+static const rmtU8 g_DecimalToHex[17] = "0123456789abcdef";
+
+
 static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samples)
 {
     Sample* child;
@@ -3666,6 +3685,36 @@ static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samp
     // Concatenate this sample
     (*nb_samples)++;
     *digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
+
+    {
+        rmtU8 shift = 4;
+
+        // Get 6 nibbles for lower 3 bytes of the unique sample ID
+        rmtU8* sample_id = (rmtU8*)&sample->unique_id;
+        rmtU8 hex_sample_id[6];
+        hex_sample_id[0] = sample_id[0] & 15;
+        hex_sample_id[1] = sample_id[0] >> 4;
+        hex_sample_id[2] = sample_id[1] & 15;
+        hex_sample_id[3] = sample_id[1] >> 4;
+        hex_sample_id[4] = sample_id[2] & 15;
+        hex_sample_id[5] = sample_id[2] >> 4;
+
+        // As the nibbles will be used as hex colour digits, shift them up to make pastel colours
+        hex_sample_id[0] = minU8(hex_sample_id[0] + shift, 15);
+        hex_sample_id[1] = minU8(hex_sample_id[1] + shift, 15);
+        hex_sample_id[2] = minU8(hex_sample_id[2] + shift, 15);
+        hex_sample_id[3] = minU8(hex_sample_id[3] + shift, 15);
+        hex_sample_id[4] = minU8(hex_sample_id[4] + shift, 15);
+        hex_sample_id[5] = minU8(hex_sample_id[5] + shift, 15);
+
+        // Convert the nibbles to hex for the final colour
+        sample->unique_id_html_colour[1] = g_DecimalToHex[hex_sample_id[0]];
+        sample->unique_id_html_colour[2] = g_DecimalToHex[hex_sample_id[1]];
+        sample->unique_id_html_colour[3] = g_DecimalToHex[hex_sample_id[2]];
+        sample->unique_id_html_colour[4] = g_DecimalToHex[hex_sample_id[3]];
+        sample->unique_id_html_colour[5] = g_DecimalToHex[hex_sample_id[4]];
+        sample->unique_id_html_colour[6] = g_DecimalToHex[hex_sample_id[5]];
+    }
 
     // Concatenate children
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
