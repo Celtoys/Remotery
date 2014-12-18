@@ -278,7 +278,7 @@ static void msSleep(rmtU32 time_ms)
     typedef pthread_key_t rmtTLS;
 #endif
 
-static enum rmtError tlsAlloc(rmtTLS* handle)
+static rmtError tlsAlloc(rmtTLS* handle)
 {
     assert(handle != NULL);
 
@@ -532,7 +532,7 @@ typedef struct VirtualMirrorBuffer
 } VirtualMirrorBuffer;
 
 
-static enum rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmtU32 size, int nb_attempts)
+static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmtU32 size, int nb_attempts)
 {
     static const rmtU32 k_64 = 64 * 1024;
 
@@ -777,7 +777,7 @@ typedef struct
     void* param;
 
     // Error state returned from callback
-    enum rmtError error;
+    rmtError error;
 
     // External threads can set this to request an exit
     volatile rmtBool request_exit;
@@ -785,7 +785,7 @@ typedef struct
 } Thread;
 
 
-typedef enum rmtError (*ThreadProc)(Thread* thread);
+typedef rmtError (*ThreadProc)(Thread* thread);
 
 
 #if defined(RMT_PLATFORM_WINDOWS)
@@ -821,7 +821,7 @@ static int Thread_Valid(Thread* thread)
 }
 
 
-static enum rmtError Thread_Constructor(Thread* thread, ThreadProc callback, void* param)
+static rmtError Thread_Constructor(Thread* thread, ThreadProc callback, void* param)
 {
     assert(thread != NULL);
 
@@ -1229,7 +1229,7 @@ static void ObjectLink_Constructor(ObjectLink* link)
 }
 
 
-typedef enum rmtError (*ObjConstructor)(void*);
+typedef rmtError (*ObjConstructor)(void*);
 typedef void (*ObjDestructor)(void*);
 
 
@@ -1253,7 +1253,7 @@ typedef struct
 } ObjectAllocator;
 
 
-static enum rmtError ObjectAllocator_Constructor(ObjectAllocator* allocator, rmtU32 object_size, ObjConstructor constructor, ObjDestructor destructor)
+static rmtError ObjectAllocator_Constructor(ObjectAllocator* allocator, rmtU32 object_size, ObjConstructor constructor, ObjDestructor destructor)
 {
     allocator->object_size = object_size;
     allocator->constructor = constructor;
@@ -1326,7 +1326,7 @@ static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
 }
 
 
-static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
+static rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
 {
     // This function only calls the object constructor on initial malloc of an object
 
@@ -1336,7 +1336,7 @@ static enum rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** ob
     // Has the free list run out?
     if (allocator->first_free == NULL)
     {
-        enum rmtError error;
+        rmtError error;
 
         // Allocate/construct a new object
         void* free_object = malloc(allocator->object_size);
@@ -1409,7 +1409,7 @@ typedef struct
 } Buffer;
 
 
-static enum rmtError Buffer_Constructor(Buffer* buffer, rmtU32 alloc_granularity)
+static rmtError Buffer_Constructor(Buffer* buffer, rmtU32 alloc_granularity)
 {
     assert(buffer != NULL);
     buffer->alloc_granularity = alloc_granularity;
@@ -1432,7 +1432,7 @@ static void Buffer_Destructor(Buffer* buffer)
 }
 
 
-static enum rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
+static rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
 {
     assert(buffer != NULL);
 
@@ -1461,7 +1461,7 @@ static enum rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
 }
 
 
-static enum rmtError Buffer_WriteString(Buffer* buffer, rmtPStr string)
+static rmtError Buffer_WriteString(Buffer* buffer, rmtPStr string)
 {
     assert(string != NULL);
     return Buffer_Write(buffer, (void*)string, (rmtU32)strnlen_s(string, 2048));
@@ -1494,7 +1494,7 @@ typedef struct
 {
     rmtBool can_read;
     rmtBool can_write;
-    enum rmtError error_state;
+    rmtError error_state;
 } SocketStatus;
 
 
@@ -1504,7 +1504,7 @@ typedef struct
 static void TCPSocket_Close(TCPSocket* tcp_socket);
 
 
-static enum rmtError InitialiseNetwork()
+static rmtError InitialiseNetwork()
 {
     #ifdef RMT_PLATFORM_WINDOWS
 
@@ -1532,7 +1532,7 @@ static void ShutdownNetwork()
 }
 
 
-static enum rmtError TCPSocket_Constructor(TCPSocket* tcp_socket)
+static rmtError TCPSocket_Constructor(TCPSocket* tcp_socket)
 {
     assert(tcp_socket != NULL);
     tcp_socket->socket = INVALID_SOCKET;
@@ -1548,7 +1548,7 @@ static void TCPSocket_Destructor(TCPSocket* tcp_socket)
 }
 
 
-static enum rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port)
+static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port)
 {
     SOCKET s = INVALID_SOCKET;
     struct sockaddr_in sin = { 0 };
@@ -1658,11 +1658,11 @@ static SocketStatus TCPSocket_PollStatus(TCPSocket* tcp_socket)
 }
 
 
-static enum rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket** client_socket)
+static rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket** client_socket)
 {
     SocketStatus status;
     SOCKET s;
-    enum rmtError error;
+    rmtError error;
 
     // Ensure there is an incoming connection
     assert(tcp_socket != NULL);
@@ -1699,7 +1699,7 @@ static int TCPSocketWouldBlock()
 }
 
 
-static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
+static rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
     SocketStatus status;
     char* cur_data = NULL;
@@ -1766,7 +1766,7 @@ static enum rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmt
 }
 
 
-static enum rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
+static rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
     SocketStatus status;
     char* cur_data = NULL;
@@ -2264,7 +2264,7 @@ static const char websocket_response[] =
     "Sec-WebSocket-Accept: ";
 
 
-static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
+static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
 {
     rmtU32 start_ms, now_ms;
 
@@ -2291,7 +2291,7 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_hos
     // Not really sure how to do this any better, as the termination requirement is \r\n\r\n
     while (buffer_ptr - buffer < buffer_len)
     {
-        enum rmtError error = TCPSocket_Receive(tcp_socket, buffer_ptr, 1, 20);
+        rmtError error = TCPSocket_Receive(tcp_socket, buffer_ptr, 1, 20);
         if (error == RMT_ERROR_SOCKET_RECV_FAILED)
             return error;
 
@@ -2375,9 +2375,9 @@ static enum rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_hos
 }
 
 
-static enum rmtError WebSocket_Constructor(WebSocket* web_socket)
+static rmtError WebSocket_Constructor(WebSocket* web_socket)
 {
-    enum rmtError error;
+    rmtError error;
 
     assert(web_socket != NULL);
     web_socket->tcp_socket = NULL;
@@ -2400,7 +2400,7 @@ static void WebSocket_Destructor(WebSocket* web_socket)
 }
 
 
-static enum rmtError WebSocket_RunServer(WebSocket* web_socket, rmtU32 port, enum WebSocketMode mode)
+static rmtError WebSocket_RunServer(WebSocket* web_socket, rmtU32 port, enum WebSocketMode mode)
 {
     // Create the server's listening socket
     assert(web_socket != NULL);
@@ -2423,10 +2423,10 @@ static SocketStatus WebSocket_PollStatus(WebSocket* web_socket)
 }
 
 
-static enum rmtError WebSocket_AcceptConnection(WebSocket* web_socket, WebSocket** client_socket)
+static rmtError WebSocket_AcceptConnection(WebSocket* web_socket, WebSocket** client_socket)
 {
     TCPSocket* tcp_socket = NULL;
-    enum rmtError error;
+    rmtError error;
 
     // Is there a waiting connection?
     assert(web_socket != NULL);
@@ -2465,9 +2465,9 @@ static void WriteSize(rmtU32 size, rmtU8* dest, rmtU32 dest_size, rmtU32 dest_of
 }
 
 
-static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
+static rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 length, rmtU32 timeout_ms)
 {
-    enum rmtError error;
+    rmtError error;
     SocketStatus status;
     rmtU8 final_fragment, frame_type, frame_header[10];
     rmtU32 frame_header_size;
@@ -2514,11 +2514,11 @@ static enum rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmt
 }
 
 
-static enum rmtError ReceiveFrameHeader(WebSocket* web_socket)
+static rmtError ReceiveFrameHeader(WebSocket* web_socket)
 {
     // TODO: Specify infinite timeout?
 
-    enum rmtError error;
+    rmtError error;
     rmtU8 msg_header[2] = { 0, 0 };
     int msg_length, size_bytes_remaining, i;
     rmtBool mask_present;
@@ -2577,14 +2577,14 @@ static enum rmtError ReceiveFrameHeader(WebSocket* web_socket)
 }
 
 
-static enum rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
+static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
 {
     SocketStatus status;
     char* cur_data;
     char* end_data;
     rmtU32 start_ms, now_ms;
     rmtU32 bytes_to_read;
-    enum rmtError error;
+    rmtError error;
 
     assert(web_socket != NULL);
 
@@ -2693,9 +2693,9 @@ typedef struct MessageQueue
 } MessageQueue;
 
 
-static enum rmtError MessageQueue_Constructor(MessageQueue* queue, rmtU32 size)
+static rmtError MessageQueue_Constructor(MessageQueue* queue, rmtU32 size)
 {
-    enum rmtError error;
+    rmtError error;
 
     assert(queue != NULL);
 
@@ -2845,9 +2845,9 @@ typedef struct
 } Server;
 
 
-static enum rmtError Server_CreateListenSocket(Server* server, rmtU16 port)
+static rmtError Server_CreateListenSocket(Server* server, rmtU16 port)
 {
-    enum rmtError error = RMT_ERROR_NONE;
+    rmtError error = RMT_ERROR_NONE;
 
     New_0(WebSocket, server->listen_socket);
     if (error == RMT_ERROR_NONE)
@@ -2857,7 +2857,7 @@ static enum rmtError Server_CreateListenSocket(Server* server, rmtU16 port)
 }
 
 
-static enum rmtError Server_Constructor(Server* server, rmtU16 port)
+static rmtError Server_Constructor(Server* server, rmtU16 port)
 {
     assert(server != NULL);
     server->listen_socket = NULL;
@@ -2885,12 +2885,12 @@ static rmtBool Server_IsClientConnected(Server* server)
 }
 
 
-static enum rmtError Server_Send(Server* server, const void* data, rmtU32 length, rmtU32 timeout)
+static rmtError Server_Send(Server* server, const void* data, rmtU32 length, rmtU32 timeout)
 {
     assert(server != NULL);
     if (Server_IsClientConnected(server))
     {
-        enum rmtError error = WebSocket_Send(server->client_socket, data, length, timeout);
+        rmtError error = WebSocket_Send(server->client_socket, data, length, timeout);
         if (error == RMT_ERROR_SOCKET_SEND_FAIL)
             Delete(WebSocket, server->client_socket);
         return error;
@@ -2914,7 +2914,7 @@ static void Server_Update(Server* server)
     {
         // Accept connections as long as there is no client connected
         WebSocket* client_socket = NULL;
-        enum rmtError error = WebSocket_AcceptConnection(server->listen_socket, &client_socket);
+        rmtError error = WebSocket_AcceptConnection(server->listen_socket, &client_socket);
         if (error == RMT_ERROR_NONE)
         {
             server->client_socket = client_socket;
@@ -2931,7 +2931,7 @@ static void Server_Update(Server* server)
     {
         // Check for any incoming messages
         char message_first_byte;
-        enum rmtError error = WebSocket_Receive(server->client_socket, &message_first_byte, 1, 0);
+        rmtError error = WebSocket_Receive(server->client_socket, &message_first_byte, 1, 0);
         if (error == RMT_ERROR_NONE)
         {
             // data available to read
@@ -2984,49 +2984,49 @@ static void Server_Update(Server* server)
 
 
 
-static enum rmtError json_OpenObject(Buffer* buffer)
+static rmtError json_OpenObject(Buffer* buffer)
 {
     return Buffer_Write(buffer, (void*)"{", 1);
 }
 
 
-static enum rmtError json_CloseObject(Buffer* buffer)
+static rmtError json_CloseObject(Buffer* buffer)
 {
     return Buffer_Write(buffer, (void*)"}", 1);
 }
 
 
-static enum rmtError json_Comma(Buffer* buffer)
+static rmtError json_Comma(Buffer* buffer)
 {
     return Buffer_Write(buffer, (void*)",", 1);
 }
 
 
-static enum rmtError json_Colon(Buffer* buffer)
+static rmtError json_Colon(Buffer* buffer)
 {
     return Buffer_Write(buffer, (void*)":", 1);
 }
 
 
-static enum rmtError json_String(Buffer* buffer, rmtPStr string)
+static rmtError json_String(Buffer* buffer, rmtPStr string)
 {
-    enum rmtError error;
+    rmtError error;
     JSON_ERROR_CHECK(Buffer_Write(buffer, (void*)"\"", 1));
     JSON_ERROR_CHECK(Buffer_WriteString(buffer, string));
     return Buffer_Write(buffer, (void*)"\"", 1);
 }
 
 
-static enum rmtError json_FieldStr(Buffer* buffer, rmtPStr name, rmtPStr value)
+static rmtError json_FieldStr(Buffer* buffer, rmtPStr name, rmtPStr value)
 {
-    enum rmtError error;
+    rmtError error;
     JSON_ERROR_CHECK(json_String(buffer, name));
     JSON_ERROR_CHECK(json_Colon(buffer));
     return json_String(buffer, value);
 }
 
 
-static enum rmtError json_FieldU64(Buffer* buffer, rmtPStr name, rmtU64 value)
+static rmtError json_FieldU64(Buffer* buffer, rmtPStr name, rmtU64 value)
 {
     static char temp_buf[32];
 
@@ -3056,16 +3056,16 @@ static enum rmtError json_FieldU64(Buffer* buffer, rmtPStr name, rmtU64 value)
 }
 
 
-static enum rmtError json_OpenArray(Buffer* buffer, rmtPStr name)
+static rmtError json_OpenArray(Buffer* buffer, rmtPStr name)
 {
-    enum rmtError error;
+    rmtError error;
     JSON_ERROR_CHECK(json_String(buffer, name));
     JSON_ERROR_CHECK(json_Colon(buffer));
     return Buffer_Write(buffer, (void*)"[", 1);
 }
 
 
-static enum rmtError json_CloseArray(Buffer* buffer)
+static rmtError json_CloseArray(Buffer* buffer)
 {
     return Buffer_Write(buffer, (void*)"]", 1);
 }
@@ -3126,7 +3126,7 @@ typedef struct Sample
 } Sample;
 
 
-static enum rmtError Sample_Constructor(Sample* sample)
+static rmtError Sample_Constructor(Sample* sample)
 {
     assert(sample != NULL);
 
@@ -3170,12 +3170,12 @@ static void Sample_Prepare(Sample* sample, rmtPStr name, rmtU32 name_hash, Sampl
 }
 
 
-static enum rmtError json_SampleArray(Buffer* buffer, Sample* first_sample, rmtPStr name);
+static rmtError json_SampleArray(Buffer* buffer, Sample* first_sample, rmtPStr name);
 
 
-static enum rmtError json_Sample(Buffer* buffer, Sample* sample)
+static rmtError json_Sample(Buffer* buffer, Sample* sample)
 {
-    enum rmtError error;
+    rmtError error;
 
     assert(sample != NULL);
 
@@ -3199,9 +3199,9 @@ static enum rmtError json_Sample(Buffer* buffer, Sample* sample)
 }
 
 
-static enum rmtError json_SampleArray(Buffer* buffer, Sample* first_sample, rmtPStr name)
+static rmtError json_SampleArray(Buffer* buffer, Sample* first_sample, rmtPStr name)
 {
-    enum rmtError error;
+    rmtError error;
 
     Sample* sample;
 
@@ -3243,9 +3243,9 @@ typedef struct SampleTree
 } SampleTree;
 
 
-static enum rmtError SampleTree_Constructor(SampleTree* tree, rmtU32 sample_size, ObjConstructor constructor, ObjDestructor destructor)
+static rmtError SampleTree_Constructor(SampleTree* tree, rmtU32 sample_size, ObjConstructor constructor, ObjDestructor destructor)
 {
-    enum rmtError error;
+    rmtError error;
 
     assert(tree != NULL);
 
@@ -3295,10 +3295,10 @@ rmtU32 HashCombine(rmtU32 hash_a, rmtU32 hash_b)
 }
 
 
-static enum rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
+static rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
     Sample* parent;
-    enum rmtError error;
+    rmtError error;
     rmtU32 unique_id;
 
     // As each tree has a root sample node allocated, a parent must always be present
@@ -3461,9 +3461,9 @@ typedef struct ThreadSampler
 } ThreadSampler;
 
 
-static enum rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
+static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
 {
-    enum rmtError error;
+    rmtError error;
     int i;
 
     assert(thread_sampler != NULL);
@@ -3499,7 +3499,7 @@ static void ThreadSampler_Destructor(ThreadSampler* ts)
 }
 
 
-static enum rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
+static rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
     RMT_UNREFERENCED_PARAMETER(ts);
     return SampleTree_Push(tree, name, name_hash, sample);
@@ -3582,7 +3582,7 @@ GLAPI GLenum GLAPIENTRY glGetError(void);
 
 #ifdef RMT_USE_D3D11
 typedef struct D3D11 D3D11;
-static enum rmtError D3D11_Create(D3D11** d3d11);
+static rmtError D3D11_Create(D3D11** d3d11);
 static void D3D11_Destructor(D3D11* d3d11);
 #endif
 
@@ -3673,7 +3673,7 @@ static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samp
 }
 
 
-static enum rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
+static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
 {
     assert(rmt != NULL);
     assert(message != NULL);
@@ -3681,12 +3681,12 @@ static enum rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message
 }
 
 
-static enum rmtError json_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
+static rmtError json_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
 {
     Sample* root_sample;
     char thread_name[64];
     rmtU32 digest_hash = 0, nb_samples = 0;
-    enum rmtError error;
+    rmtError error;
 
     assert(buffer != NULL);
     assert(msg != NULL);
@@ -3736,10 +3736,10 @@ static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
 #endif
 
 
-static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
+static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 {
     Msg_SampleTree* sample_tree;
-    enum rmtError error = RMT_ERROR_NONE;
+    rmtError error = RMT_ERROR_NONE;
     Sample* sample;
 
     assert(rmt != NULL);
@@ -3783,7 +3783,7 @@ static enum rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* mess
 }
 
 
-static enum rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
+static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
 {
     rmtU32 nb_messages_sent = 0;
 
@@ -3796,7 +3796,7 @@ static enum rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
     // Loop reading the max number of messages for this update
     while (nb_messages_sent++ < MAX_NB_MESSAGES_PER_UPDATE)
     {
-        enum rmtError error = RMT_ERROR_NONE;
+        rmtError error = RMT_ERROR_NONE;
         Message* message = MessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
         if (message == NULL)
             break;
@@ -3859,7 +3859,7 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
 }
 
 
-static enum rmtError Remotery_ThreadMain(Thread* thread)
+static rmtError Remotery_ThreadMain(Thread* thread)
 {
     Remotery* rmt = (Remotery*)thread->param;
     assert(rmt != NULL);
@@ -3901,9 +3901,9 @@ static enum rmtError Remotery_ThreadMain(Thread* thread)
 }
 
 
-static enum rmtError Remotery_Constructor(Remotery* rmt)
+static rmtError Remotery_Constructor(Remotery* rmt)
 {
-    enum rmtError error;
+    rmtError error;
 
     assert(rmt != NULL);
 
@@ -4024,7 +4024,7 @@ static void Remotery_Destructor(Remotery* rmt)
 }
 
 
-static enum rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_sampler)
+static rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_sampler)
 {
     ThreadSampler* ts;
 
@@ -4034,7 +4034,7 @@ static enum rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** th
     if (ts == NULL)
     {
         // Allocate on-demand
-        enum rmtError error;
+        rmtError error;
         New_0(ThreadSampler, *thread_sampler);
         if (error != RMT_ERROR_NONE)
             return error;
@@ -4095,9 +4095,9 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 }
 
 
-enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
+rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
-    enum rmtError error;
+    rmtError error;
 
     // Creating the Remotery instance also records it as the global instance
     assert(remotery != NULL);
@@ -4357,7 +4357,7 @@ typedef struct CUDASample
 } CUDASample;
 
 
-static enum rmtError MapCUDAResult(CUresult result)
+static rmtError MapCUDAResult(CUresult result)
 {
     switch (result)
     {
@@ -4381,26 +4381,26 @@ static enum rmtError MapCUDAResult(CUresult result)
 
 #define CUDA_GUARD(call)                \
     {                                   \
-        enum rmtError error = call;     \
+        rmtError error = call;     \
         if (error != RMT_ERROR_NONE)    \
             return error;               \
     }
 
 
 // Wrappers around CUDA driver functions that manage the active context.
-static enum rmtError CUDASetContext(void* context)
+static rmtError CUDASetContext(void* context)
 {
     CUDA_MAKE_FUNCTION(CtxSetCurrent, (CUcontext ctx));
     assert(CtxSetCurrent != NULL);
     return MapCUDAResult(CtxSetCurrent((CUcontext)context));
 }
-static enum rmtError CUDAGetContext(void** context)
+static rmtError CUDAGetContext(void** context)
 {
     CUDA_MAKE_FUNCTION(CtxGetCurrent, (CUcontext* ctx));
     assert(CtxGetCurrent != NULL);
     return MapCUDAResult(CtxGetCurrent((CUcontext*)context));
 }
-static enum rmtError CUDAEnsureContext()
+static rmtError CUDAEnsureContext()
 {
     void* current_context;
     CUDA_GUARD(CUDAGetContext(&current_context));
@@ -4414,31 +4414,31 @@ static enum rmtError CUDAEnsureContext()
 
 
 // Wrappers around CUDA driver functions that manage events
-static enum rmtError CUDAEventCreate(CUevent* phEvent, unsigned int Flags)
+static rmtError CUDAEventCreate(CUevent* phEvent, unsigned int Flags)
 {
     CUDA_MAKE_FUNCTION(EventCreate, (CUevent *phEvent, unsigned int Flags));
     CUDA_GUARD(CUDAEnsureContext());
     return MapCUDAResult(EventCreate(phEvent, Flags));
 }
-static enum rmtError CUDAEventDestroy(CUevent hEvent)
+static rmtError CUDAEventDestroy(CUevent hEvent)
 {
     CUDA_MAKE_FUNCTION(EventDestroy, (CUevent hEvent));
     CUDA_GUARD(CUDAEnsureContext());
     return MapCUDAResult(EventDestroy(hEvent));
 }
-static enum rmtError CUDAEventRecord(CUevent hEvent, void* hStream)
+static rmtError CUDAEventRecord(CUevent hEvent, void* hStream)
 {
     CUDA_MAKE_FUNCTION(EventRecord, (CUevent hEvent, CUstream hStream));
     CUDA_GUARD(CUDAEnsureContext());
     return MapCUDAResult(EventRecord(hEvent, (CUstream)hStream));
 }
-static enum rmtError CUDAEventQuery(CUevent hEvent)
+static rmtError CUDAEventQuery(CUevent hEvent)
 {
     CUDA_MAKE_FUNCTION(EventQuery,  (CUevent hEvent));
     CUDA_GUARD(CUDAEnsureContext());
     return MapCUDAResult(EventQuery(hEvent));
 }
-static enum rmtError CUDAEventElapsedTime(float* pMilliseconds, CUevent hStart, CUevent hEnd)
+static rmtError CUDAEventElapsedTime(float* pMilliseconds, CUevent hStart, CUevent hEnd)
 {
     CUDA_MAKE_FUNCTION(EventElapsedTime, (float *pMilliseconds, CUevent hStart, CUevent hEnd));
     CUDA_GUARD(CUDAEnsureContext());
@@ -4446,9 +4446,9 @@ static enum rmtError CUDAEventElapsedTime(float* pMilliseconds, CUevent hStart, 
 }
 
 
-static enum rmtError CUDASample_Constructor(CUDASample* sample)
+static rmtError CUDASample_Constructor(CUDASample* sample)
 {
-    enum rmtError error;
+    rmtError error;
 
     assert(sample != NULL);
 
@@ -4484,7 +4484,7 @@ static void CUDASample_Destructor(CUDASample* sample)
 
 static rmtBool AreCUDASamplesReady(Sample* sample)
 {
-    enum rmtError error;
+    rmtError error;
     Sample* child;
 
     CUDASample* cuda_sample = (CUDASample*)sample;
@@ -4559,7 +4559,7 @@ void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
-        enum rmtError error;
+        rmtError error;
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
 
@@ -4659,9 +4659,9 @@ typedef struct D3D11
 } D3D11;
 
 
-static enum rmtError D3D11_Create(D3D11** d3d11)
+static rmtError D3D11_Create(D3D11** d3d11)
 {
-    enum rmtError error;
+    rmtError error;
 
     assert(d3d11 != NULL);
 
@@ -4713,7 +4713,7 @@ typedef struct D3D11Timestamp
 } D3D11Timestamp;
 
 
-static enum rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
+static rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
 {
     D3D11_QUERY_DESC timestamp_desc;
     D3D11_QUERY_DESC disjoint_desc;
@@ -4845,7 +4845,7 @@ typedef struct D3D11Sample
 } D3D11Sample;
 
 
-static enum rmtError D3D11Sample_Constructor(D3D11Sample* sample)
+static rmtError D3D11Sample_Constructor(D3D11Sample* sample)
 {
     assert(sample != NULL);
 
@@ -4950,7 +4950,7 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
-        enum rmtError error;
+        rmtError error;
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
 
@@ -5169,7 +5169,7 @@ typedef struct OpenGLTimestamp
 } OpenGLTimestamp;
 
 
-static enum rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
+static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
 {
     int error;
 
@@ -5294,7 +5294,7 @@ typedef struct OpenGLSample
 } OpenGLSample;
 
 
-static enum rmtError OpenGLSample_Constructor(OpenGLSample* sample)
+static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 {
     assert(sample != NULL);
 
@@ -5386,7 +5386,7 @@ void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
-        enum rmtError error;
+        rmtError error;
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
 

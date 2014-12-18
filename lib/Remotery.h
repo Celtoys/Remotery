@@ -158,7 +158,7 @@ typedef struct Remotery Remotery;
 
 
 // All possible error codes
-enum rmtError
+typedef enum rmtError
 {
     RMT_ERROR_NONE,
 
@@ -218,7 +218,7 @@ enum rmtError
     RMT_ERROR_OPENGL_ERROR,                     // Generic OpenGL error, no real need to expose more detail since app will probably have an OpenGL error callback registered
 
     RMT_ERROR_CUDA_UNKNOWN,
-};
+} rmtError;
 
 
 
