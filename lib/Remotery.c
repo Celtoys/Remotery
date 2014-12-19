@@ -3549,57 +3549,19 @@ static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sa
 ------------------------------------------------------------------------------------------------------------------------
 */
 
-#ifdef RMT_USE_OPENGL
-
-#ifndef APIENTRY
-#  if defined(__MINGW32__) || defined(__CYGWIN__)
-#    define APIENTRY __stdcall
-#  elif (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED) || defined(__BORLANDC__)
-#    define APIENTRY __stdcall
-#  else
-#    define APIENTRY
-#  endif
-#endif
-
-#ifndef GLAPI
-#  if defined(__MINGW32__) || defined(__CYGWIN__)
-#    define GLAPI extern
-#  else
-#    define GLAPI WINGDIAPI
-#  endif
-#endif
-
-#ifndef GLAPIENTRY
-#define GLAPIENTRY APIENTRY
-#endif
-
-typedef rmtU32 GLenum;
-typedef rmtU32 GLuint;
-typedef rmtS32 GLint;
-typedef rmtS32 GLsizei;
-typedef rmtU64 GLuint64;
-typedef rmtS64 GLint64;
-typedef unsigned char GLubyte;
-
-typedef void (GLAPIENTRY * PFNGLGENQUERIESPROC) (GLsizei n, GLuint* ids);
-typedef void (GLAPIENTRY * PFNGLDELETEQUERIESPROC) (GLsizei n, const GLuint* ids);
-typedef void (GLAPIENTRY * PFNGLBEGINQUERYPROC) (GLenum target, GLuint id);
-typedef void (GLAPIENTRY * PFNGLENDQUERYPROC) (GLenum target);
-typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTIVPROC) (GLuint id, GLenum pname, GLint* params);
-typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUIVPROC) (GLuint id, GLenum pname, GLuint* params);
-typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTI64VPROC) (GLuint id, GLenum pname, GLint64* params);
-typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUI64VPROC) (GLuint id, GLenum pname, GLuint64* params);
-typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
-
-GLAPI GLenum GLAPIENTRY glGetError(void);
-
-#endif
 
 
 #ifdef RMT_USE_D3D11
 typedef struct D3D11 D3D11;
 static rmtError D3D11_Create(D3D11** d3d11);
 static void D3D11_Destructor(D3D11* d3d11);
+#endif
+
+
+#ifdef RMT_USE_OPENGL
+typedef struct OpenGL OpenGL;
+static rmtError OpenGL_Create(OpenGL** opengl);
+static void OpenGL_Destructor(OpenGL* opengl);
 #endif
 
 
@@ -3630,27 +3592,7 @@ struct Remotery
 #endif
 
 #ifdef RMT_USE_OPENGL
-    PFNGLGENQUERIESPROC __glGenQueries;
-    PFNGLDELETEQUERIESPROC __glDeleteQueries;
-    PFNGLBEGINQUERYPROC __glBeginQuery;
-    PFNGLENDQUERYPROC __glEndQuery;
-    PFNGLGETQUERYOBJECTIVPROC __glGetQueryObjectiv;
-    PFNGLGETQUERYOBJECTUIVPROC __glGetQueryObjectuiv;
-    PFNGLGETQUERYOBJECTI64VPROC __glGetQueryObjecti64v;
-    PFNGLGETQUERYOBJECTUI64VPROC __glGetQueryObjectui64v;
-    PFNGLQUERYCOUNTERPROC __glQueryCounter;
-
-    // An allocator separate to the samples themselves so that OpenGL resource lifetime can be controlled
-    // outside of the Remotery thread.
-    ObjectAllocator* opengl_timestamp_allocator;
-
-    // Queue to the OpenGL main update thread
-    // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
-    // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
-    MessageQueue* mq_to_opengl_main;
-
-    // Mark the first time so that remaining timestamps are offset from this
-    rmtU64 opengl_first_timestamp;
+    OpenGL* opengl;
 #endif
 };
 
@@ -4003,21 +3945,8 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     #endif
 
     #ifdef RMT_USE_OPENGL
-        rmt->__glGenQueries = NULL;
-        rmt->__glDeleteQueries = NULL;
-        rmt->__glBeginQuery = NULL;
-        rmt->__glEndQuery = NULL;
-        rmt->__glGetQueryObjectiv = NULL;
-        rmt->__glGetQueryObjectuiv = NULL;
-        rmt->__glGetQueryObjecti64v = NULL;
-        rmt->__glGetQueryObjectui64v = NULL;
-        rmt->__glQueryCounter = NULL;
-
-        rmt->opengl_timestamp_allocator = NULL;
-        rmt->mq_to_opengl_main = NULL;
-        rmt->opengl_first_timestamp = 0;
-
-        New_1(MessageQueue, rmt->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
+        rmt->opengl = NULL;
+        error = OpenGL_Create(&rmt->opengl);
         if (error != RMT_ERROR_NONE)
             return error;
     #endif
@@ -4054,8 +3983,7 @@ static void Remotery_Destructor(Remotery* rmt)
     #endif
 
     #ifdef RMT_USE_OPENGL
-        Delete(ObjectAllocator, rmt->opengl_timestamp_allocator);
-        Delete(MessageQueue, rmt->mq_to_opengl_main);
+        Delete(OpenGL, rmt->opengl);
     #endif
 
     Delete(Buffer, rmt->json_buf);
@@ -5174,6 +5102,48 @@ void _rmt_UpdateD3D11Frame(void)
 #ifdef RMT_USE_OPENGL
 
 
+#ifndef APIENTRY
+#  if defined(__MINGW32__) || defined(__CYGWIN__)
+#    define APIENTRY __stdcall
+#  elif (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED) || defined(__BORLANDC__)
+#    define APIENTRY __stdcall
+#  else
+#    define APIENTRY
+#  endif
+#endif
+
+#ifndef GLAPI
+#  if defined(__MINGW32__) || defined(__CYGWIN__)
+#    define GLAPI extern
+#  else
+#    define GLAPI WINGDIAPI
+#  endif
+#endif
+
+#ifndef GLAPIENTRY
+#define GLAPIENTRY APIENTRY
+#endif
+
+typedef rmtU32 GLenum;
+typedef rmtU32 GLuint;
+typedef rmtS32 GLint;
+typedef rmtS32 GLsizei;
+typedef rmtU64 GLuint64;
+typedef rmtS64 GLint64;
+typedef unsigned char GLubyte;
+
+typedef void (GLAPIENTRY * PFNGLGENQUERIESPROC) (GLsizei n, GLuint* ids);
+typedef void (GLAPIENTRY * PFNGLDELETEQUERIESPROC) (GLsizei n, const GLuint* ids);
+typedef void (GLAPIENTRY * PFNGLBEGINQUERYPROC) (GLenum target, GLuint id);
+typedef void (GLAPIENTRY * PFNGLENDQUERYPROC) (GLenum target);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTIVPROC) (GLuint id, GLenum pname, GLint* params);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUIVPROC) (GLuint id, GLenum pname, GLuint* params);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTI64VPROC) (GLuint id, GLenum pname, GLint64* params);
+typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUI64VPROC) (GLuint id, GLenum pname, GLuint64* params);
+typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
+
+GLAPI GLenum GLAPIENTRY glGetError(void);
+
 #define GL_NO_ERROR 0
 #define GL_QUERY_RESULT 0x8866
 #define GL_QUERY_RESULT_AVAILABLE 0x8867
@@ -5195,7 +5165,7 @@ void _rmt_UpdateD3D11Frame(void)
 #  define rmtGetProcAddress(name) (*glXGetProcAddressARB)(name)
 #endif
 
-#define RMT_GL_GET_FUN(x) g_Remotery->x
+#define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL), g_Remotery->opengl->x
 
 #define glGenQueries RMT_GL_GET_FUN(__glGenQueries)
 #define glDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
@@ -5206,6 +5176,69 @@ void _rmt_UpdateD3D11Frame(void)
 #define glGetQueryObjecti64v RMT_GL_GET_FUN(__glGetQueryObjecti64v)
 #define glGetQueryObjectui64v RMT_GL_GET_FUN(__glGetQueryObjectui64v)
 #define glQueryCounter RMT_GL_GET_FUN(__glQueryCounter)
+
+
+typedef struct OpenGL
+{
+    PFNGLGENQUERIESPROC __glGenQueries;
+    PFNGLDELETEQUERIESPROC __glDeleteQueries;
+    PFNGLBEGINQUERYPROC __glBeginQuery;
+    PFNGLENDQUERYPROC __glEndQuery;
+    PFNGLGETQUERYOBJECTIVPROC __glGetQueryObjectiv;
+    PFNGLGETQUERYOBJECTUIVPROC __glGetQueryObjectuiv;
+    PFNGLGETQUERYOBJECTI64VPROC __glGetQueryObjecti64v;
+    PFNGLGETQUERYOBJECTUI64VPROC __glGetQueryObjectui64v;
+    PFNGLQUERYCOUNTERPROC __glQueryCounter;
+
+    // An allocator separate to the samples themselves so that OpenGL resource lifetime can be controlled
+    // outside of the Remotery thread.
+    ObjectAllocator* timestamp_allocator;
+
+    // Queue to the OpenGL main update thread
+    // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
+    // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
+    MessageQueue* mq_to_opengl_main;
+
+    // Mark the first time so that remaining timestamps are offset from this
+    rmtU64 first_timestamp;
+} OpenGL;
+
+
+static rmtError OpenGL_Create(OpenGL** opengl)
+{
+    rmtError error;
+
+    assert(opengl != NULL);
+
+    *opengl = (OpenGL*)malloc(sizeof(OpenGL));
+    if (*opengl == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    (*opengl)->__glGenQueries = NULL;
+    (*opengl)->__glDeleteQueries = NULL;
+    (*opengl)->__glBeginQuery = NULL;
+    (*opengl)->__glEndQuery = NULL;
+    (*opengl)->__glGetQueryObjectiv = NULL;
+    (*opengl)->__glGetQueryObjectuiv = NULL;
+    (*opengl)->__glGetQueryObjecti64v = NULL;
+    (*opengl)->__glGetQueryObjectui64v = NULL;
+    (*opengl)->__glQueryCounter = NULL;
+
+    (*opengl)->timestamp_allocator = NULL;
+    (*opengl)->mq_to_opengl_main = NULL;
+    (*opengl)->first_timestamp = 0;
+
+    New_1(MessageQueue, (*opengl)->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
+    return error;
+}
+
+
+static void OpenGL_Destructor(OpenGL* opengl)
+{
+    assert(opengl != NULL);
+    Delete(ObjectAllocator, opengl->timestamp_allocator);
+    Delete(MessageQueue, opengl->mq_to_opengl_main);
+}
 
 
 typedef struct OpenGLTimestamp
@@ -5231,7 +5264,6 @@ static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
 
     // Create start/end timestamp queries
     assert(g_Remotery != NULL);
-    assert(g_Remotery->__glGenQueries != NULL);
     glGenQueries(2, stamp->queries);
     error = glGetError();
     if (error != GL_NO_ERROR)
@@ -5249,7 +5281,6 @@ static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
     if (stamp->queries[0] != 0)
     {
         int error;
-        assert(g_Remotery->__glDeleteQueries != NULL);
         glDeleteQueries(2, stamp->queries);
         error = glGetError();
         assert(error == GL_NO_ERROR);
@@ -5265,7 +5296,6 @@ static void OpenGLTimestamp_Begin(OpenGLTimestamp* stamp)
 
     // Start of disjoint and first query
     assert(g_Remotery != NULL);
-    assert(g_Remotery->__glQueryCounter != NULL);
     glQueryCounter(stamp->queries[0], GL_TIMESTAMP);
     error = glGetError();
     assert(error == GL_NO_ERROR);
@@ -5280,7 +5310,6 @@ static void OpenGLTimestamp_End(OpenGLTimestamp* stamp)
 
     // End of disjoint and second query
     assert(g_Remotery != NULL);
-    assert(g_Remotery->__glQueryCounter != NULL);
     glQueryCounter(stamp->queries[1], GL_TIMESTAMP);
     error = glGetError();
     assert(error == GL_NO_ERROR);
@@ -5297,8 +5326,6 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
 
     assert(stamp != NULL);
     assert(stamp->queries[0] != 0 && stamp->queries[1] != 0);
-    assert(g_Remotery->__glGetQueryObjectiv != NULL);
-    assert(g_Remotery->__glGetQueryObjectui64v != NULL);
 
     // Check to see if all queries are ready
     // If any fail to arrive, wait until later
@@ -5367,15 +5394,18 @@ void _rmt_BindOpenGL()
 {
     if (g_Remotery != NULL)
     {
-        g_Remotery->__glGenQueries = (PFNGLGENQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glGenQueries");
-        g_Remotery->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glDeleteQueries");
-        g_Remotery->__glBeginQuery = (PFNGLBEGINQUERYPROC)rmtGetProcAddress((const GLubyte*)"glBeginQuery");
-        g_Remotery->__glEndQuery = (PFNGLENDQUERYPROC)rmtGetProcAddress((const GLubyte*)"glEndQuery");
-        g_Remotery->__glGetQueryObjectiv = (PFNGLGETQUERYOBJECTIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectiv");
-        g_Remotery->__glGetQueryObjectuiv = (PFNGLGETQUERYOBJECTUIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectuiv");
-        g_Remotery->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjecti64v");
-        g_Remotery->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectui64v");
-        g_Remotery->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtGetProcAddress((const GLubyte*)"glQueryCounter");
+        OpenGL* opengl = g_Remotery->opengl;
+        assert(opengl != NULL);
+
+        opengl->__glGenQueries = (PFNGLGENQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glGenQueries");
+        opengl->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glDeleteQueries");
+        opengl->__glBeginQuery = (PFNGLBEGINQUERYPROC)rmtGetProcAddress((const GLubyte*)"glBeginQuery");
+        opengl->__glEndQuery = (PFNGLENDQUERYPROC)rmtGetProcAddress((const GLubyte*)"glEndQuery");
+        opengl->__glGetQueryObjectiv = (PFNGLGETQUERYOBJECTIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectiv");
+        opengl->__glGetQueryObjectuiv = (PFNGLGETQUERYOBJECTUIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectuiv");
+        opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjecti64v");
+        opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectui64v");
+        opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtGetProcAddress((const GLubyte*)"glQueryCounter");
     }
 }
 
@@ -5387,7 +5417,7 @@ static void FreeOpenGLTimeStamps(Sample* sample)
     OpenGLSample* ogl_sample = (OpenGLSample*)sample;
 
     assert(ogl_sample->timestamp != NULL);
-    ObjectAllocator_Free(g_Remotery->opengl_timestamp_allocator, (void*)ogl_sample->timestamp);
+    ObjectAllocator_Free(g_Remotery->opengl->timestamp_allocator, (void*)ogl_sample->timestamp);
     ogl_sample->timestamp = NULL;
 
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
@@ -5399,13 +5429,16 @@ void _rmt_UnbindOpenGL(void)
 {
     if (g_Remotery != NULL)
     {
+        OpenGL* opengl = g_Remotery->opengl;
+        assert(opengl != NULL);
+
         // Flush the main queue of allocated OpenGL timestamps
         while (1)
         {
             Msg_SampleTree* sample_tree;
             Sample* sample;
 
-            Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_opengl_main);
+            Message* message = MessageQueue_PeekNextMessage(opengl->mq_to_opengl_main);
             if (message == NULL)
                 break;
 
@@ -5417,11 +5450,11 @@ void _rmt_UnbindOpenGL(void)
             FreeOpenGLTimeStamps(sample);
             FreeSampleTree(sample, sample_tree->allocator);
 
-            MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_opengl_main, message);
+            MessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
         }
 
         // Free all allocated OpenGL resources
-        Delete(ObjectAllocator, g_Remotery->opengl_timestamp_allocator);
+        Delete(ObjectAllocator, opengl->timestamp_allocator);
     }
 }
 
@@ -5439,6 +5472,8 @@ void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
 
+        OpenGL* opengl = g_Remotery->opengl;
+
         // Create the OpenGL tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a OpenGL binding is not yet available.
         SampleTree** ogl_tree = &ts->sample_trees[SampleType_OpenGL];
@@ -5450,8 +5485,9 @@ void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         }
 
         // Also create the timestamp allocator on-demand to keep the OpenGL code localised to the same file section
-        if (g_Remotery->opengl_timestamp_allocator == NULL)
-            New_3(ObjectAllocator, g_Remotery->opengl_timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
+        assert(opengl != NULL);
+        if (opengl->timestamp_allocator == NULL)
+            New_3(ObjectAllocator, opengl->timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
 
         // Push the sample
         if (ThreadSampler_Push(ts, *ogl_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
@@ -5460,7 +5496,7 @@ void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 
             // Allocate a timestamp for the sample and activate it
             assert(ogl_sample->timestamp == NULL);
-            error = ObjectAllocator_Alloc(g_Remotery->opengl_timestamp_allocator, (void**)&ogl_sample->timestamp);
+            error = ObjectAllocator_Alloc(opengl->timestamp_allocator, (void**)&ogl_sample->timestamp);
             if (error == RMT_ERROR_NONE)
                 OpenGLTimestamp_Begin(ogl_sample->timestamp);
         }
@@ -5483,7 +5519,7 @@ void _rmt_EndOpenGLSample(void)
             OpenGLTimestamp_End(ogl_sample->timestamp);
 
         // Send to the update loop for ready-polling
-        ThreadSampler_Pop(ts, g_Remotery->mq_to_opengl_main, (Sample*)ogl_sample);
+        ThreadSampler_Pop(ts, g_Remotery->opengl->mq_to_opengl_main, (Sample*)ogl_sample);
     }
 }
 
@@ -5515,9 +5551,13 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 void _rmt_UpdateOpenGLFrame(void)
 {
     Message* first_message = NULL;
+    OpenGL* opengl;
 
     if (g_Remotery == NULL)
         return;
+
+    opengl = g_Remotery->opengl;
+    assert(opengl != NULL);
 
     rmt_BeginCPUSample(rmt_UpdateOpenGLFrame);
 
@@ -5528,7 +5568,7 @@ void _rmt_UpdateOpenGLFrame(void)
         Sample* sample;
         rmtBool are_samples_ready;
 
-        Message* message = MessageQueue_PeekNextMessage(g_Remotery->mq_to_opengl_main);
+        Message* message = MessageQueue_PeekNextMessage(opengl->mq_to_opengl_main);
         if (message == NULL)
             break;
 
@@ -5547,7 +5587,7 @@ void _rmt_UpdateOpenGLFrame(void)
         assert(sample->type == SampleType_OpenGL);
 
         // Retrieve timing of all OpenGL samples
-        are_samples_ready = GetOpenGLSampleTimes(sample, &g_Remotery->opengl_first_timestamp);
+        are_samples_ready = GetOpenGLSampleTimes(sample, &opengl->first_timestamp);
 
         // If the samples are ready, pass them onto the remotery thread for sending to the viewer
         if (are_samples_ready)
@@ -5558,10 +5598,10 @@ void _rmt_UpdateOpenGLFrame(void)
         else
         {
             // Otherwise just put them to the back of the queue
-            AddSampleTreeMessage(g_Remotery->mq_to_opengl_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+            AddSampleTreeMessage(opengl->mq_to_opengl_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
         }
 
-        MessageQueue_ConsumeNextMessage(g_Remotery->mq_to_opengl_main, message);
+        MessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
     }
 
     rmt_EndCPUSample();
