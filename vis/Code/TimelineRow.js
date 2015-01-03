@@ -19,6 +19,14 @@ TimelineRow = (function()
 		</div>
 */}.toString().split(/\n/).slice(1, -1).join("\n");
 
+
+	var CANVAS_Y_OFFSET = 0;
+	var CANVAS_BORDER = 1;
+	var SAMPLE_HEIGHT = 16;
+	var SAMPLE_BORDER = 1;
+	var SAMPLE_Y_SPACING = SAMPLE_HEIGHT + SAMPLE_BORDER * 2;
+
+
 	function TimelineRow(name, width, parent_node, frame_history, check_handler)
 	{
 		this.Name = name;
@@ -77,18 +85,16 @@ TimelineRow = (function()
 	{
 		// Must ALWAYS set the width/height properties together. Setting one on its own has weird side-effects.
 		this.CanvasNode.width = width;
-		this.CanvasNode.height = 18 * this.Depth;
+		this.CanvasNode.height = CANVAS_BORDER + SAMPLE_BORDER + SAMPLE_Y_SPACING * this.Depth;
 	}
 
 
 	TimelineRow.prototype.Clear = function()
 	{
-		// Outer box is background colour, inner box shows the boundary between thread rows
-		this.Ctx.fillStyle = "#2C2C2C"
-		this.Ctx.fillRect(0, 0, this.CanvasNode.width, this.CanvasNode.height);
+		// Fill box that shows the boundary between thread rows
 		this.Ctx.fillStyle = "#666"
-		var b = 1;
-		this.Ctx.fillRect(b, b * 2, this.CanvasNode.width - b * 3, this.CanvasNode.height - b);
+		var b = CANVAS_BORDER;
+		this.Ctx.fillRect(b, b, this.CanvasNode.width - b * 2, this.CanvasNode.height - b * 2);
 	}
 
 
@@ -142,9 +148,22 @@ TimelineRow = (function()
 		for (var i in this.VisibleFrames)
 		{
 			var frame = this.VisibleFrames[i];
+			DrawSamples(this, frame.Samples, time_range, 1);
+		}
+	}
 
-			for (var j in frame.Samples)
-				DrawSample(this, time_range, frame.Samples[j]);
+
+	function DrawSamples(self, samples, time_range, depth)
+	{
+		for (var i in samples)
+		{
+			var sample = samples[i];
+			DrawSample(self, time_range, sample, depth);
+
+			if (depth < self.Depth && sample.children != null)
+			{
+				DrawSamples(self, sample.children, time_range, depth + 1);
+			}
 		}
 	}
 
@@ -175,11 +194,11 @@ TimelineRow = (function()
 			// TODO: When zoomed right out, tiny samples are anti-aliased and this becomes inaccurate
 			var old_sample = this.HoverSample;
 			this.HoverSample = null;
-			DrawSample(this, time_range, old_sample);
+			DrawSample(this, time_range, old_sample, 1);
 
 			// Add new highlight
 			this.HoverSample = sample;
-			DrawSample(this, time_range, sample);
+			DrawSample(this, time_range, sample, 1);
 		}
 	}
 
@@ -192,11 +211,11 @@ TimelineRow = (function()
 			// TODO: When zoomed right out, tiny samples are anti-aliased and this becomes inaccurate
 			var old_sample = this.SelectedSample;
 			this.SelectedSample = null;
-			DrawSample(this, time_range, old_sample);
+			DrawSample(this, time_range, old_sample, 1);
 
 			// Add new highlight
 			this.SelectedSample = sample;
-			DrawSample(this, time_range, sample);
+			DrawSample(this, time_range, sample, 1);
 		}
 	}
 
@@ -258,21 +277,25 @@ TimelineRow = (function()
 	}
 
 
-	function DrawSample(self, time_range, sample)
+	function DrawSample(self, time_range, sample, depth)
 	{
 		if (sample == null)
 			return;
 
-		// Determine location of the sample
-		var offset_x = time_range.PixelOffset(sample.us_start);
-		var size_x = time_range.PixelSize(sample.us_length);
+		// Determine pixel range of the sample
+		var x0 = time_range.PixelOffset(sample.us_start);
+		var x1 = x0 + time_range.PixelSize(sample.us_length);
 
-		// Clip to padded range
-		size_x = Math.min(offset_x + size_x, self.CanvasNode.width - 5) - offset_x;
-		offset_x = Math.max(offset_x, 4);
+		// Clip to padded timeline row
+		var min_x = 3;
+		var max_x = self.CanvasNode.width - 5;
+		x0 = Math.min(Math.max(x0, min_x), max_x);
+		x1 = Math.min(Math.max(x1, min_x), max_x);
 
-		var offset_y = 5;
-		var size_y = 10;
+		var offset_x = x0;
+		var offset_y = CANVAS_Y_OFFSET + CANVAS_BORDER + (depth - 1) * SAMPLE_Y_SPACING + 1;
+		var size_x = x1 - x0;
+		var size_y = SAMPLE_HEIGHT;
 
 		// Normal rendering
 		var ctx = self.Ctx;
