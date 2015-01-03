@@ -317,9 +317,6 @@ typedef struct rmtCUDABind
 #define rmt_EndD3D11Sample()                                                \
     RMT_OPTIONAL(RMT_USE_D3D11, _rmt_EndD3D11Sample())
 
-#define rmt_UpdateD3D11Frame()                                              \
-    RMT_OPTIONAL(RMT_USE_D3D11, _rmt_UpdateD3D11Frame())
-
 
 #define rmt_BindOpenGL()                                                    \
     RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_BindOpenGL())
@@ -335,9 +332,6 @@ typedef struct rmtCUDABind
 
 #define rmt_EndOpenGLSample()                                               \
     RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_EndOpenGLSample())
-
-#define rmt_UpdateOpenGLFrame()                                             \
-    RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_UpdateOpenGLFrame())
 
 
 
@@ -459,7 +453,6 @@ void _rmt_BindD3D11(void* device, void* context);
 void _rmt_UnbindD3D11(void);
 void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache);
 void _rmt_EndD3D11Sample(void);
-void _rmt_UpdateD3D11Frame(void);
 #endif
 
 #ifdef RMT_USE_OPENGL
@@ -467,7 +460,6 @@ void _rmt_BindOpenGL();
 void _rmt_UnbindOpenGL(void);
 void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache);
 void _rmt_EndOpenGLSample(void);
-void _rmt_UpdateOpenGLFrame(void);
 #endif
 
 #ifdef __cplusplus

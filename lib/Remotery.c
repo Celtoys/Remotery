@@ -3522,7 +3522,7 @@ static rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr 
 }
 
 
-static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sample)
+static rmtBool ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sample)
 {
     SampleTree* tree = ts->sample_trees[sample->type];
     SampleTree_Pop(tree, sample);
@@ -3536,7 +3536,11 @@ static void ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sa
         root->last_child = NULL;
         root->nb_children = 0;
         AddSampleTreeMessage(queue, sample, tree->allocator, ts->name, ts);
+
+        return RMT_TRUE;
     }
+
+    return RMT_FALSE;
 }
 
 
@@ -4960,33 +4964,6 @@ void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void _rmt_EndD3D11Sample(void)
-{
-    ThreadSampler* ts;
-    D3D11* d3d11;
-
-    if (g_Remotery == NULL)
-        return;
-
-    // Has D3D11 been unbound?
-    d3d11 = g_Remotery->d3d11;
-    assert(d3d11 != NULL);
-    if (d3d11->device == NULL || d3d11->context == NULL)
-        return;
-
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
-    {
-        // Close the timestamp
-        D3D11Sample* d3d_sample = (D3D11Sample*)ts->sample_trees[SampleType_D3D11]->current_parent;
-        if (d3d_sample->timestamp != NULL)
-            D3D11Timestamp_End(d3d_sample->timestamp, d3d11->context);
-
-        // Send to the update loop for ready-polling
-        ThreadSampler_Pop(ts, d3d11->mq_to_d3d11_main, (Sample*)d3d_sample);
-    }
-}
-
-
 static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 {
     Sample* child;
@@ -5026,7 +5003,7 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 }
 
 
-void _rmt_UpdateD3D11Frame(void)
+static void UpdateD3D11Frame(void)
 {
     D3D11* d3d11;
 
@@ -5066,6 +5043,35 @@ void _rmt_UpdateD3D11Frame(void)
     }
 
     rmt_EndCPUSample();
+}
+
+
+void _rmt_EndD3D11Sample(void)
+{
+    ThreadSampler* ts;
+    D3D11* d3d11;
+
+    if (g_Remotery == NULL)
+        return;
+
+    // Has D3D11 been unbound?
+    d3d11 = g_Remotery->d3d11;
+    assert(d3d11 != NULL);
+    if (d3d11->device == NULL || d3d11->context == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        // Close the timestamp
+        D3D11Sample* d3d_sample = (D3D11Sample*)ts->sample_trees[SampleType_D3D11]->current_parent;
+        if (d3d_sample->timestamp != NULL)
+            D3D11Timestamp_End(d3d_sample->timestamp, d3d11->context);
+
+        // Send to the update loop for ready-polling
+        if (ThreadSampler_Pop(ts, d3d11->mq_to_d3d11_main, (Sample*)d3d_sample))
+            // Perform ready-polling on popping of the root sample
+            UpdateD3D11Frame();
+    }
 }
 
 
@@ -5488,26 +5494,6 @@ void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void _rmt_EndOpenGLSample(void)
-{
-    ThreadSampler* ts;
-
-    if (g_Remotery == NULL)
-        return;
-
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
-    {
-        // Close the timestamp
-        OpenGLSample* ogl_sample = (OpenGLSample*)ts->sample_trees[SampleType_OpenGL]->current_parent;
-        if (ogl_sample->timestamp != NULL)
-            OpenGLTimestamp_End(ogl_sample->timestamp);
-
-        // Send to the update loop for ready-polling
-        ThreadSampler_Pop(ts, g_Remotery->opengl->mq_to_opengl_main, (Sample*)ogl_sample);
-    }
-}
-
-
 static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 {
     Sample* child;
@@ -5532,7 +5518,7 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 }
 
 
-void _rmt_UpdateOpenGLFrame(void)
+static void UpdateOpenGLFrame(void)
 {
     OpenGL* opengl;
 
@@ -5573,6 +5559,29 @@ void _rmt_UpdateOpenGLFrame(void)
 
     rmt_EndCPUSample();
 }
+
+
+void _rmt_EndOpenGLSample(void)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        // Close the timestamp
+        OpenGLSample* ogl_sample = (OpenGLSample*)ts->sample_trees[SampleType_OpenGL]->current_parent;
+        if (ogl_sample->timestamp != NULL)
+            OpenGLTimestamp_End(ogl_sample->timestamp);
+
+        // Send to the update loop for ready-polling
+        if (ThreadSampler_Pop(ts, g_Remotery->opengl->mq_to_opengl_main, (Sample*)ogl_sample))
+            // Perform ready-polling on popping of the root sample
+            UpdateOpenGLFrame();
+    }
+}
+
 
 
 #endif  // RMT_USE_OPENGL
