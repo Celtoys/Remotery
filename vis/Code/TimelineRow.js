@@ -4,11 +4,18 @@ TimelineRow = (function()
 {
 	var row_template = function(){/*
 		<div class='TimelineRow'>
-			<div class='TimelineRowCheck'>
+			<div class='TimelineRowCheck TimelineBox'>
 				<input class='TimelineRowCheckbox' type='checkbox' />
 			</div>
-			<div class='TimelineRowLabel'></div>
+			<div class='TimelineRowExpand TimelineBox NoSelect'>
+				<div class='TimelineRowExpandButton'>+</div>
+			</div>
+			<div class='TimelineRowExpand TimelineBox NoSelect'>
+				<div class='TimelineRowExpandButton'>-</div>
+			</div>
+			<div class='TimelineRowLabel TimelineBox'></div>
 			<canvas class='TimelineRowCanvas'></canvas>
+			<div style="clear:left"></div>
 		</div>
 */}.toString().split(/\n/).slice(1, -1).join("\n");
 
@@ -22,12 +29,25 @@ TimelineRow = (function()
 		this.LabelNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowLabel");
 		this.LabelNode.innerHTML = name;
 		this.CheckboxNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowCheckbox");
+		var expand_node_0 = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowExpand", 0);
+		var expand_node_1 = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowExpand", 1);
+		this.IncNode = DOM.Node.FindWithClass(expand_node_0, "TimelineRowExpandButton");
+		this.DecNode = DOM.Node.FindWithClass(expand_node_1, "TimelineRowExpandButton");
 		this.CanvasNode = DOM.Node.FindWithClass(this.ContainerNode, "TimelineRowCanvas");
 		parent_node.appendChild(this.ContainerNode);
 
 		// All sample view windows visible by default
 		this.CheckboxNode.checked = true;
 		DOM.Event.AddHandler(this.CheckboxNode, "change", function(evt) { check_handler(name, evt); });
+
+		// Manually hook-up events to simulate div:active
+		// I can't get the equivalent CSS to work in Firefox, so...
+		DOM.Event.AddHandler(this.IncNode, "mousedown", Bind(ExpandButtonDown, this));
+		DOM.Event.AddHandler(this.IncNode, "mouseup", Bind(ExpandButtonUp, this));
+		DOM.Event.AddHandler(this.IncNode, "mouseleave", Bind(ExpandButtonUp, this));
+		DOM.Event.AddHandler(this.DecNode, "mousedown", Bind(ExpandButtonDown, this));
+		DOM.Event.AddHandler(this.DecNode, "mouseup", Bind(ExpandButtonUp, this));
+		DOM.Event.AddHandler(this.DecNode, "mouseleave", Bind(ExpandButtonUp, this));
 
 		// Setup the canvas
 		this.Ctx = this.CanvasNode.getContext("2d");
@@ -173,6 +193,20 @@ TimelineRow = (function()
 			this.SelectedSample = sample;
 			DrawSample(this, time_range, sample);
 		}
+	}
+
+
+	function ExpandButtonDown(self, evt)
+	{
+		var node = DOM.Event.GetNode(evt);
+		DOM.Node.AddClass(node, "TimelineRowExpandButtonActive");
+	}
+
+
+	function ExpandButtonUp(self, evt)
+	{
+		var node = DOM.Event.GetNode(evt);
+		DOM.Node.RemoveClass(node, "TimelineRowExpandButtonActive");
 	}
 
 

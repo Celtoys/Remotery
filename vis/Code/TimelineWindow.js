@@ -8,7 +8,7 @@ TimelineWindow = (function()
 {
 	var BORDER = 10;
 
-	var ROW_START_SIZE = 168;
+	var ROW_START_SIZE = 210;
 
 	var box_template = "<div class='TimelineBox'></div>";
 

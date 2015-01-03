@@ -171,14 +171,17 @@ DOM.Node.HasClass = function(node, class_name)
 //
 // Recursively search for a node with the given class name
 //
-DOM.Node.FindWithClass = function(parent_node, class_name)
+DOM.Node.FindWithClass = function(parent_node, class_name, index)
 {
 	// Search the children looking for a node with the given class name
 	for (var i in parent_node.childNodes)
 	{
 		var node = parent_node.childNodes[i];
 		if (DOM.Node.HasClass(node, class_name))
-			return node;
+		{
+			if (index === undefined || index-- == 0)
+				return node;
+		}
 
 		// Recurse into children
 		node = DOM.Node.FindWithClass(node, class_name);
