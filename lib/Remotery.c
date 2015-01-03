@@ -5028,11 +5028,11 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 
 void _rmt_UpdateD3D11Frame(void)
 {
-    Message* first_message = NULL;
     D3D11* d3d11;
 
     if (g_Remotery == NULL)
         return;
+
     d3d11 = g_Remotery->d3d11;
     assert(d3d11 != NULL);
 
@@ -5043,18 +5043,9 @@ void _rmt_UpdateD3D11Frame(void)
     {
         Msg_SampleTree* sample_tree;
         Sample* sample;
-        rmtBool are_samples_ready;
 
         Message* message = MessageQueue_PeekNextMessage(d3d11->mq_to_d3d11_main);
         if (message == NULL)
-            break;
-
-        // Keep track of the first message encountered during this loop and leave it's encountered
-        // again. This means the loop as had a good attempt at trying to get timing data for all messages
-        // in the queue.
-        if (first_message == NULL)
-            first_message = message;
-        else if (first_message == message)
             break;
 
         // There's only one valid message type in this queue
@@ -5064,20 +5055,13 @@ void _rmt_UpdateD3D11Frame(void)
         assert(sample->type == SampleType_D3D11);
 
         // Retrieve timing of all D3D11 samples
-        are_samples_ready = GetD3D11SampleTimes(sample, &d3d11->first_timestamp);
+        // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
+        if (!GetD3D11SampleTimes(sample, &d3d11->first_timestamp))
+            break;
 
-        // If the samples are ready, pass them onto the remotery thread for sending to the viewer
-        if (are_samples_ready)
-        {
-            FreeD3D11TimeStamps(sample);
-            AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
-        }
-        else
-        {
-            // Otherwise just put them to the back of the queue
-            AddSampleTreeMessage(d3d11->mq_to_d3d11_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
-        }
-
+        // Pass samples onto the remotery thread for sending to the viewer
+        FreeD3D11TimeStamps(sample);
+        AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
         MessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
     }
 
@@ -5550,7 +5534,6 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
 
 void _rmt_UpdateOpenGLFrame(void)
 {
-    Message* first_message = NULL;
     OpenGL* opengl;
 
     if (g_Remotery == NULL)
@@ -5566,18 +5549,9 @@ void _rmt_UpdateOpenGLFrame(void)
     {
         Msg_SampleTree* sample_tree;
         Sample* sample;
-        rmtBool are_samples_ready;
 
         Message* message = MessageQueue_PeekNextMessage(opengl->mq_to_opengl_main);
         if (message == NULL)
-            break;
-
-        // Keep track of the first message encountered during this loop and leave it's encountered
-        // again. This means the loop as had a good attempt at trying to get timing data for all messages
-        // in the queue.
-        if (first_message == NULL)
-            first_message = message;
-        else if (first_message == message)
             break;
 
         // There's only one valid message type in this queue
@@ -5587,20 +5561,13 @@ void _rmt_UpdateOpenGLFrame(void)
         assert(sample->type == SampleType_OpenGL);
 
         // Retrieve timing of all OpenGL samples
-        are_samples_ready = GetOpenGLSampleTimes(sample, &opengl->first_timestamp);
+        // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
+        if (!GetOpenGLSampleTimes(sample, &opengl->first_timestamp))
+            break;
 
-        // If the samples are ready, pass them onto the remotery thread for sending to the viewer
-        if (are_samples_ready)
-        {
-            FreeOpenGLTimeStamps(sample);
-            AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
-        }
-        else
-        {
-            // Otherwise just put them to the back of the queue
-            AddSampleTreeMessage(opengl->mq_to_opengl_main, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
-        }
-
+        // Pass samples onto the remotery thread for sending to the viewer
+        FreeOpenGLTimeStamps(sample);
+        AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
         MessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
     }
 
