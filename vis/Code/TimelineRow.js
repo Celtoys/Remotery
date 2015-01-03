@@ -42,14 +42,19 @@ TimelineRow = (function()
 
 		// Manually hook-up events to simulate div:active
 		// I can't get the equivalent CSS to work in Firefox, so...
-		DOM.Event.AddHandler(this.IncNode, "mousedown", Bind(ExpandButtonDown, this));
-		DOM.Event.AddHandler(this.IncNode, "mouseup", Bind(ExpandButtonUp, this));
-		DOM.Event.AddHandler(this.IncNode, "mouseleave", Bind(ExpandButtonUp, this));
-		DOM.Event.AddHandler(this.DecNode, "mousedown", Bind(ExpandButtonDown, this));
-		DOM.Event.AddHandler(this.DecNode, "mouseup", Bind(ExpandButtonUp, this));
-		DOM.Event.AddHandler(this.DecNode, "mouseleave", Bind(ExpandButtonUp, this));
+		DOM.Event.AddHandler(this.IncNode, "mousedown", ExpandButtonDown);
+		DOM.Event.AddHandler(this.IncNode, "mouseup", ExpandButtonUp);
+		DOM.Event.AddHandler(this.IncNode, "mouseleave", ExpandButtonUp);
+		DOM.Event.AddHandler(this.DecNode, "mousedown", ExpandButtonDown);
+		DOM.Event.AddHandler(this.DecNode, "mouseup", ExpandButtonUp);
+		DOM.Event.AddHandler(this.DecNode, "mouseleave", ExpandButtonUp);
+
+		// Pressing +/i increases/decreases depth
+		DOM.Event.AddHandler(this.IncNode, "click", Bind(IncDepth, this));
+		DOM.Event.AddHandler(this.DecNode, "click", Bind(DecDepth, this));
 
 		// Setup the canvas
+		this.Depth = 1;
 		this.Ctx = this.CanvasNode.getContext("2d");
 		this.SetSize(width);
 		this.Clear();
@@ -72,7 +77,7 @@ TimelineRow = (function()
 	{
 		// Must ALWAYS set the width/height properties together. Setting one on its own has weird side-effects.
 		this.CanvasNode.width = width;
-		this.CanvasNode.height = 18;
+		this.CanvasNode.height = 18 * this.Depth;
 	}
 
 
@@ -196,17 +201,34 @@ TimelineRow = (function()
 	}
 
 
-	function ExpandButtonDown(self, evt)
+	function ExpandButtonDown(evt)
 	{
 		var node = DOM.Event.GetNode(evt);
 		DOM.Node.AddClass(node, "TimelineRowExpandButtonActive");
 	}
 
 
-	function ExpandButtonUp(self, evt)
+	function ExpandButtonUp(evt)
 	{
 		var node = DOM.Event.GetNode(evt);
 		DOM.Node.RemoveClass(node, "TimelineRowExpandButtonActive");
+	}
+
+
+	function IncDepth(self)
+	{
+		self.Depth++;
+		self.SetSize(self.CanvasNode.width);
+	}
+
+
+	function DecDepth(self)
+	{
+		if (self.Depth > 1)
+		{
+			self.Depth--;
+			self.SetSize(self.CanvasNode.width);
+		}
 	}
 
 
