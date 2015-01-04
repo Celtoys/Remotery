@@ -25,6 +25,7 @@ TimelineRow = (function()
 	var SAMPLE_HEIGHT = 16;
 	var SAMPLE_BORDER = 1;
 	var SAMPLE_Y_SPACING = SAMPLE_HEIGHT + SAMPLE_BORDER * 2;
+	var SAMPLE_Y_OFFSET = CANVAS_Y_OFFSET + CANVAS_BORDER + 1;
 
 
 	function TimelineRow(name, width, parent_node, frame_history, check_handler)
@@ -75,9 +76,11 @@ TimelineRow = (function()
 
 		// Sample the mouse is currently hovering over
 		this.HoverSample = null;
+		this.HoverSampleDepth = 0;
 
 		// Currently selected sample
 		this.SelectedSample = null;
+		this.SelectedSampleDepth = 0;
 	}
 
 
@@ -161,9 +164,7 @@ TimelineRow = (function()
 			DrawSample(self, time_range, sample, depth);
 
 			if (depth < self.Depth && sample.children != null)
-			{
 				DrawSamples(self, sample.children, time_range, depth + 1);
-			}
 		}
 	}
 
@@ -172,7 +173,7 @@ TimelineRow = (function()
 	{
 		var hover = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
 		if (hover)
-			this.SetHoverSample(hover[1], time_range);
+			this.SetHoverSample(hover[1], hover[2], time_range);
 		return hover;
 	}
 
@@ -181,41 +182,47 @@ TimelineRow = (function()
 	{
 		var select = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
 		if (select)
-			this.SetSelectedSample(select[1], time_range);
+			this.SetSelectedSample(select[1], select[2], time_range);
 		return select;
 	}
 
 
-	TimelineRow.prototype.SetHoverSample = function(sample, time_range)
+	TimelineRow.prototype.SetHoverSample = function(sample, sample_depth, time_range)
 	{
 		if (sample != this.HoverSample)
 		{
 			// Discard old highlight
 			// TODO: When zoomed right out, tiny samples are anti-aliased and this becomes inaccurate
 			var old_sample = this.HoverSample;
+			var old_sample_depth = this.HoverSampleDepth;
 			this.HoverSample = null;
-			DrawSample(this, time_range, old_sample, 1);
+			this.HoverSampleDepth = 0;
+			DrawSample(this, time_range, old_sample, old_sample_depth);
 
 			// Add new highlight
 			this.HoverSample = sample;
-			DrawSample(this, time_range, sample, 1);
+			this.HoverSampleDepth = sample_depth;
+			DrawSample(this, time_range, sample, sample_depth);
 		}
 	}
 
 
-	TimelineRow.prototype.SetSelectedSample = function(sample, time_range)
+	TimelineRow.prototype.SetSelectedSample = function(sample, sample_depth, time_range)
 	{
 		if (sample != this.SelectedSample)
 		{
 			// Discard old highlight
 			// TODO: When zoomed right out, tiny samples are anti-aliased and this becomes inaccurate
 			var old_sample = this.SelectedSample;
+			var old_sample_depth = this.SelectedSampleDepth;
 			this.SelectedSample = null;
-			DrawSample(this, time_range, old_sample, 1);
+			this.SelectedSampleDepth = 0;
+			DrawSample(this, time_range, old_sample, old_sample_depth);
 
 			// Add new highlight
 			this.SelectedSample = sample;
-			DrawSample(this, time_range, sample, 1);
+			this.SelectedSampleDepth = sample_depth;
+			DrawSample(this, time_range, sample, sample_depth);
 		}
 	}
 
@@ -256,6 +263,11 @@ TimelineRow = (function()
 		// Get the time the mouse is over
 		var x = mouse_state.Position[0] - x_offset;
 		var time_us = time_range.Start_us + x / time_range.usPerPixel;
+
+		var canvas_y_offset = DOM.Node.GetPosition(self.CanvasNode)[1];
+		var mouse_y_offset = mouse_state.Position[1] - canvas_y_offset;
+		mouse_y_offset = Math.min(Math.max(mouse_y_offset, 0), self.CanvasNode.height);
+		var depth = Math.floor(mouse_y_offset / SAMPLE_Y_SPACING) + 1;
 		
 		// Search for the first frame to intersect this time
 		for (var i in self.VisibleFrames)
@@ -263,13 +275,32 @@ TimelineRow = (function()
 			var frame = self.VisibleFrames[i];
 			if (time_us >= frame.StartTime_us && time_us < frame.EndTime_us)
 			{
-				// Search for the sample that intersects this time
-				for (var j in frame.Samples)
-				{
-					var sample = frame.Samples[j];
-					if (time_us >= sample.us_start && time_us < sample.us_start + sample.us_length)
-						return [ frame, sample ];
-				}
+				var found_sample = FindSample(self, frame.Samples, time_us, depth, 1);
+				if (found_sample != null)
+					return [ frame, found_sample[0], found_sample[1] ];
+			}
+		}
+
+		return null;
+	}
+
+
+	function FindSample(self, samples, time_us, target_depth, depth)
+	{
+		for (var i in samples)
+		{
+			var sample = samples[i];
+			if (depth == target_depth)
+			{
+				if (time_us >= sample.us_start && time_us < sample.us_start + sample.us_length)
+					return [ sample, depth ];
+			}
+
+			else if (depth < target_depth && sample.children != null)
+			{
+				var found_sample = FindSample(self, sample.children, time_us, target_depth, depth + 1);
+				if (found_sample != null)
+					return found_sample;
 			}
 		}
 
@@ -293,7 +324,7 @@ TimelineRow = (function()
 		x1 = Math.min(Math.max(x1, min_x), max_x);
 
 		var offset_x = x0;
-		var offset_y = CANVAS_Y_OFFSET + CANVAS_BORDER + (depth - 1) * SAMPLE_Y_SPACING + 1;
+		var offset_y = SAMPLE_Y_OFFSET + (depth - 1) * SAMPLE_Y_SPACING;
 		var size_x = x1 - x0;
 		var size_y = SAMPLE_HEIGHT;
 

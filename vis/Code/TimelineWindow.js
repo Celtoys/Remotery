@@ -128,7 +128,7 @@ TimelineWindow = (function()
 	}
 
 
-	function RowOffset(self)
+	function RowXOffset(self)
 	{
 		// Add sizing of the label
 		// TODO: Use computed size
@@ -152,7 +152,7 @@ TimelineWindow = (function()
 				scale = 1 / scale;
 
 		// What time is the mouse hovering over?
-		var x = mouse_state.Position[0] - RowOffset(self);
+		var x = mouse_state.Position[0] - RowXOffset(self);
 		var time_us = self.TimeRange.Start_us + x / self.TimeRange.usPerPixel;
 
 		// Calculate start time relative to the mouse hover position
@@ -187,7 +187,7 @@ TimelineWindow = (function()
 				var thread_row = self.ThreadRows[i];
 				if (thread_row.CanvasNode == row_node)
 				{
-					var select = thread_row.UpdateSelectedSample(mouse_state, self.TimeRange, RowOffset(self));
+					var select = thread_row.UpdateSelectedSample(mouse_state, self.TimeRange, RowXOffset(self));
 
 					// Call any selection handlers
 					if (self.OnSelectedHandler)
@@ -207,7 +207,7 @@ TimelineWindow = (function()
 		if (self.MouseDown)
 		{
 			// Get the time the mouse is over
-			var x = mouse_state.Position[0] - RowOffset(self);
+			var x = mouse_state.Position[0] - RowXOffset(self);
 			var time_us = self.TimeRange.Start_us + x / self.TimeRange.usPerPixel;
 
 			// Shift the visible time range with mouse movement
@@ -229,14 +229,14 @@ TimelineWindow = (function()
 				var thread_row = self.ThreadRows[i];
 				if (thread_row.CanvasNode == row_node)
 				{
-					var hover = thread_row.UpdateHoverSample(mouse_state, self.TimeRange, RowOffset(self));
+					var hover = thread_row.UpdateHoverSample(mouse_state, self.TimeRange, RowXOffset(self));
 
 					if (self.OnHoverHandler)
 						self.OnHoverHandler(thread_row.Name, hover);
 				}
 				else
 				{
-					thread_row.SetHoverSample(null, self.TimeRange);
+					thread_row.SetHoverSample(null, 0, self.TimeRange);
 					if (self.OnHoverHandler)
 						self.OnHoverHandler(thread_row.Name, null);
 				}
