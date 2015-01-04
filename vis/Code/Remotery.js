@@ -97,14 +97,22 @@ Remotery = (function()
 	{
 		var name = message.thread_name;
 
+		// Discard any new samples while paused
+		if (self.TitleWindow.Paused)
+			return;
+
 		// Add to frame history for this thread
 		var thread_frame = new ThreadFrame(message);
 		if (!(name in self.FrameHistory))
 			self.FrameHistory[name] = [ ];
-		self.FrameHistory[name].push(thread_frame);
+		var frame_history = self.FrameHistory[name];
+		frame_history.push(thread_frame);
 
-		if (self.TitleWindow.Paused)
-			return;
+		// Discard old frames to keep memory-use constant
+		var max_nb_frames = 10000;
+		var extra_frames = frame_history.length - max_nb_frames;
+		if (extra_frames > 0)
+			frame_history.splice(0, extra_frames);
 
 		// Create sample windows on-demand
 		if (!(name in self.SampleWindows))
@@ -117,7 +125,7 @@ Remotery = (function()
 
 		// Set on the window and timeline
 		self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
-		self.TimelineWindow.OnSamples(name, self.FrameHistory[name]);
+		self.TimelineWindow.OnSamples(name, frame_history);
 	}
 
 
