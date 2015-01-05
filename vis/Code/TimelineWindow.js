@@ -37,7 +37,7 @@ TimelineWindow = (function()
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousemove", Bind(OnMouseMove, this));		
 
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
-		this.TimeRange = new PixelTimeRange(0, 1 * 1000 * 1000, RowWidth(this));
+		this.TimeRange = new PixelTimeRange(0, 200 * 1000, RowWidth(this));
 
 		this.CheckHandler = check_handler;
 	}
