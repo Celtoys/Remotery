@@ -110,11 +110,13 @@
 
 #endif
 
-#ifdef __cplusplus
-#define RMT_UNREFERENCED_PARAMETER( x ) ( &reinterpret_cast< const int& >( x ) )
+
+#if defined(__cplusplus) && defined(RMT_COMPILER_MSVC)
+    #define RMT_UNREFERENCED_PARAMETER( x ) ( &reinterpret_cast< const int& >( x ) )
 #else
-#define RMT_UNREFERENCED_PARAMETER( x ) ( (void)x )
+    #define RMT_UNREFERENCED_PARAMETER( x) (void)sizeof(x)
 #endif
+
 
 #ifdef RMT_USE_CUDA
     #include <cuda.h>
