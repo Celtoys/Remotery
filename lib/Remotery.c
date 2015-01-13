@@ -3898,7 +3898,7 @@ static rmtError Remotery_ThreadMain(Thread* thread)
 }
 
 
-static rmtError Remotery_Constructor(Remotery* rmt)
+static rmtError Remotery_Constructor(Remotery* rmt, int port)
 {
     rmtError error;
 
@@ -3918,7 +3918,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         return error;
 
     // Create the server
-    New_1(Server, rmt->server, 0x4597);
+    New_1(Server, rmt->server, port);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -4078,14 +4078,14 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 }
 
 
-rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
+rmtError _rmt_CreateGlobalInstance( Remotery** remotery, int port )
 {
-    rmtError error;
+	rmtError error;
 
-    // Creating the Remotery instance also records it as the global instance
-    assert(remotery != NULL);
-    New_0(Remotery, *remotery);
-    return error;
+	// Creating the Remotery instance also records it as the global instance
+	assert( remotery != NULL );
+	New_1( Remotery, *remotery, port );
+	return error;
 }
 
 

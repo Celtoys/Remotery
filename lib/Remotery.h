@@ -237,7 +237,10 @@ typedef enum rmtError
 // TODO: Can embed extern "C" in these macros?
 
 #define rmt_CreateGlobalInstance(rmt)                                               \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt, 0x4597), RMT_ERROR_NONE)
+
+#define rmt_CreateGlobalInstanceWithPort(rmt, port)									\
+	RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt, port), RMT_ERROR_NONE)
 
 #define rmt_DestroyGlobalInstance(rmt)                                              \
     RMT_OPTIONAL(RMT_ENABLED, _rmt_DestroyGlobalInstance(rmt))
@@ -433,7 +436,7 @@ struct rmt_EndOpenGLSampleOnScopeExit
 extern "C" {
 #endif
 
-enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery);
+enum rmtError _rmt_CreateGlobalInstance(Remotery** remotery, int port);
 void _rmt_DestroyGlobalInstance(Remotery* remotery);
 void _rmt_SetGlobalInstance(Remotery* remotery);
 Remotery* _rmt_GetGlobalInstance(void);
