@@ -273,6 +273,8 @@ typedef struct rmtSettings
 	rmtU32 msSleepBetweenServerUpdates;
 	rmtU32 messageQueueSizeInBytes;
 	rmtU32 maxNbMessagesPerUpdate;
+	void* (*malloc)(size_t);
+	void (*free)();
 	rmtPStr logFilename;
 } rmtSettings;
 

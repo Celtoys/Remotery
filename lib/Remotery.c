@@ -52,6 +52,7 @@
 
 // Global settings
 static rmtSettings g_Settings;
+static rmtBool g_SettingsInitialized = RMT_FALSE;
 
 
 /*
@@ -477,7 +478,7 @@ static void StoreRelease(void* volatile*  addr, void* v)
     if (obj != NULL)                \
     {                               \
         type##_Destructor(obj);     \
-        free(obj);                  \
+        g_Settings.free(obj);                  \
         obj = NULL;                 \
     }
 
@@ -490,7 +491,7 @@ static void StoreRelease(void* volatile*  addr, void* v)
 // This is a disadvantage over requiring only a custom Create function
 #define BeginNew(type, obj)                 \
     {                                       \
-        obj = (type*)malloc(sizeof(type));  \
+        obj = (type*)g_Settings.malloc(sizeof(type));  \
         if (obj == NULL)                    \
         {                                   \
             error = RMT_ERROR_MALLOC_FAIL;  \
@@ -1290,7 +1291,7 @@ static void ObjectAllocator_Destructor(ObjectAllocator* allocator)
         ObjectLink* next = allocator->first_free->next;
         assert(allocator->destructor != NULL);
         allocator->destructor(allocator->first_free);
-        free(allocator->first_free);
+        g_Settings.free(allocator->first_free);
         allocator->first_free = next;
     }
 }
@@ -1351,7 +1352,7 @@ static rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
         rmtError error;
 
         // Allocate/construct a new object
-        void* free_object = malloc(allocator->object_size);
+        void* free_object = g_Settings.malloc(allocator->object_size);
         if (free_object == NULL)
             return RMT_ERROR_MALLOC_FAIL;
         assert(allocator->constructor != NULL);
@@ -1361,7 +1362,7 @@ static rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
             // Auto-teardown on failure
             assert(allocator->destructor != NULL);
             allocator->destructor(free_object);
-            free(free_object);
+            g_Settings.free(free_object);
             return error;
         }
 
@@ -1438,7 +1439,7 @@ static void Buffer_Destructor(Buffer* buffer)
 
     if (buffer->data != NULL)
     {
-        free(buffer->data);
+        g_Settings.free(buffer->data);
         buffer->data = NULL;
     }
 }
@@ -3907,18 +3908,6 @@ static rmtError Remotery_Constructor(Remotery* rmt)
 
     assert(rmt != NULL);
 
-	// Default zero'd settings
-	if( g_Settings.port == 0 )
-		g_Settings.port = 0x4597;
-	if( g_Settings.msSleepBetweenServerUpdates == 0 )
-		g_Settings.msSleepBetweenServerUpdates = MS_SLEEP_BETWEEN_SERVER_UPDATES;
-	if( g_Settings.messageQueueSizeInBytes == 0 )
-		g_Settings.messageQueueSizeInBytes = MESSAGE_QUEUE_SIZE_BYTES;
-	if( g_Settings.maxNbMessagesPerUpdate == 0 )
-		g_Settings.maxNbMessagesPerUpdate = MAX_NB_MESSAGES_PER_UPDATE;
-	if( g_Settings.logFilename == NULL )
-		g_Settings.logFilename = "rmtLog.txt";
-
     // Set default state
     rmt->server = NULL;
     rmt->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
@@ -4094,12 +4083,29 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 
 rmtSettings* _rmt_Settings(void)
 {
+	// Default-initialize on first call
+	if( g_SettingsInitialized == RMT_FALSE )
+	{
+		g_Settings.port = 0x4597;
+		g_Settings.msSleepBetweenServerUpdates = MS_SLEEP_BETWEEN_SERVER_UPDATES;
+		g_Settings.messageQueueSizeInBytes = MESSAGE_QUEUE_SIZE_BYTES;
+		g_Settings.maxNbMessagesPerUpdate = MAX_NB_MESSAGES_PER_UPDATE;
+		g_Settings.malloc = malloc;
+		g_Settings.free = free;
+		g_Settings.logFilename = "rmtLog.txt";
+
+		g_SettingsInitialized = RMT_TRUE;
+	}
+
 	return &g_Settings;
 }
 
 rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
 	rmtError error;
+
+	// Default-initialise if user has not set values
+	rmt_Settings();
 
 	// Creating the Remotery instance also records it as the global instance
 	assert(remotery != NULL);
@@ -4668,7 +4674,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
     assert(d3d11 != NULL);
 
     // Allocate space for the D3D11 data
-    *d3d11 = (D3D11*)malloc(sizeof(D3D11));
+    *d3d11 = (D3D11*)g_Settings.malloc(sizeof(D3D11));
     if (*d3d11 == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
@@ -5221,7 +5227,7 @@ static rmtError OpenGL_Create(OpenGL** opengl)
 
     assert(opengl != NULL);
 
-    *opengl = (OpenGL*)malloc(sizeof(OpenGL));
+    *opengl = (OpenGL*)g_Settings.malloc(sizeof(OpenGL));
     if (*opengl == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
