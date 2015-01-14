@@ -50,6 +50,8 @@
 
 #ifdef RMT_ENABLED
 
+// Global settings
+static rmtSettings g_Settings;
 
 
 /*
@@ -3791,7 +3793,8 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
         return RMT_ERROR_NONE;
 
     // Loop reading the max number of messages for this update
-    while (nb_messages_sent++ < MAX_NB_MESSAGES_PER_UPDATE)
+	const rmtU32 maxNbMessagesPerUpdate = g_Settings.maxNbMessagesPerUpdate;
+	while( nb_messages_sent++ < maxNbMessagesPerUpdate )
     {
         rmtError error = RMT_ERROR_NONE;
         Message* message = MessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
@@ -3888,7 +3891,7 @@ static rmtError Remotery_ThreadMain(Thread* thread)
         // This loop will exit with unrelease samples.
         //
 
-        msSleep(MS_SLEEP_BETWEEN_SERVER_UPDATES);
+        msSleep(g_Settings.msSleepBetweenServerUpdates);
     }
 
     // Release all samples to their allocators as a consequence of [NOTE-A]
@@ -3898,11 +3901,23 @@ static rmtError Remotery_ThreadMain(Thread* thread)
 }
 
 
-static rmtError Remotery_Constructor(Remotery* rmt, int port)
+static rmtError Remotery_Constructor(Remotery* rmt)
 {
     rmtError error;
 
     assert(rmt != NULL);
+
+	// Default zero'd settings
+	if( g_Settings.port == 0 )
+		g_Settings.port = 0x4597;
+	if( g_Settings.msSleepBetweenServerUpdates == 0 )
+		g_Settings.msSleepBetweenServerUpdates = MS_SLEEP_BETWEEN_SERVER_UPDATES;
+	if( g_Settings.messageQueueSizeInBytes == 0 )
+		g_Settings.messageQueueSizeInBytes = MESSAGE_QUEUE_SIZE_BYTES;
+	if( g_Settings.maxNbMessagesPerUpdate == 0 )
+		g_Settings.maxNbMessagesPerUpdate = MAX_NB_MESSAGES_PER_UPDATE;
+	if( g_Settings.logFilename == NULL )
+		g_Settings.logFilename = "rmtLog.txt";
 
     // Set default state
     rmt->server = NULL;
@@ -3918,12 +3933,12 @@ static rmtError Remotery_Constructor(Remotery* rmt, int port)
         return error;
 
     // Create the server
-    New_1(Server, rmt->server, port);
+	New_1( Server, rmt->server, g_Settings.port );
     if (error != RMT_ERROR_NONE)
         return error;
 
     // Create the main message thread with only one page
-    New_1(MessageQueue, rmt->mq_to_rmt_thread, MESSAGE_QUEUE_SIZE_BYTES);
+    New_1(MessageQueue, rmt->mq_to_rmt_thread, g_Settings.messageQueueSizeInBytes);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -4077,14 +4092,18 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
     }
 }
 
+rmtSettings* _rmt_Settings(void)
+{
+	return &g_Settings;
+}
 
-rmtError _rmt_CreateGlobalInstance( Remotery** remotery, int port )
+rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
 	rmtError error;
 
 	// Creating the Remotery instance also records it as the global instance
-	assert( remotery != NULL );
-	New_1( Remotery, *remotery, port );
+	assert(remotery != NULL);
+	New_0(Remotery, *remotery);
 	return error;
 }
 
@@ -4661,7 +4680,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
     (*d3d11)->mq_to_d3d11_main = NULL;
     (*d3d11)->first_timestamp = 0;
 
-    New_1(MessageQueue, (*d3d11)->mq_to_d3d11_main, MESSAGE_QUEUE_SIZE_BYTES);
+	New_1(MessageQueue, (*d3d11)->mq_to_d3d11_main, g_Settings.messageQueueSizeInBytes);
     if (error != RMT_ERROR_NONE)
     {
         Delete(D3D11, *d3d11);
@@ -5220,7 +5239,7 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     (*opengl)->mq_to_opengl_main = NULL;
     (*opengl)->first_timestamp = 0;
 
-    New_1(MessageQueue, (*opengl)->mq_to_opengl_main, MESSAGE_QUEUE_SIZE_BYTES);
+	New_1(MessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
     return error;
 }
 
