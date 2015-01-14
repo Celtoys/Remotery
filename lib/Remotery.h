@@ -237,7 +237,7 @@ typedef enum rmtError
 // TODO: Can embed extern "C" in these macros?
 
 #define rmt_Settings()																\
-	RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_Settings(), NULL )
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_Settings(), NULL )
 
 #define rmt_CreateGlobalInstance(rmt)                                               \
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
@@ -266,16 +266,21 @@ typedef enum rmtError
 #define rmt_EndCPUSample()                                                          \
     RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
 
+// Memory allocation functions
+typedef void* (*rmtMallocPtr )(void* mm_context, rmtU32 size);
+typedef void(*rmtFreePtr)(void* mm_context, void* ptr);
+
 // Struture to fill in to modify Remotery default settings
 typedef struct rmtSettings
 {
-	rmtU32 port;
-	rmtU32 msSleepBetweenServerUpdates;
-	rmtU32 messageQueueSizeInBytes;
-	rmtU32 maxNbMessagesPerUpdate;
-	void* (*malloc)(size_t);
-	void (*free)();
-	rmtPStr logFilename;
+    rmtU32 port;
+    rmtU32 msSleepBetweenServerUpdates;
+    rmtU32 messageQueueSizeInBytes;
+    rmtU32 maxNbMessagesPerUpdate;
+    rmtMallocPtr malloc;
+    rmtFreePtr free;
+    void* mm_context;
+    rmtPStr logFilename;
 } rmtSettings;
 
 // Structure to fill in when binding CUDA to Remotery

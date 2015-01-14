@@ -162,6 +162,16 @@ static const rmtU32 MESSAGE_QUEUE_SIZE_BYTES = 64 * 1024;
 // many messages can be consumed per loop.
 static const rmtU32 MAX_NB_MESSAGES_PER_UPDATE = 100;
 
+// Memory management functions
+static void* rmtMalloc( rmtU32 size )
+{
+	return g_Settings.malloc( g_Settings.mm_context, size );
+}
+
+static void rmtFree( void* ptr )
+{
+	g_Settings.free( g_Settings.mm_context, ptr );
+}
 
 
 /*
@@ -478,7 +488,7 @@ static void StoreRelease(void* volatile*  addr, void* v)
     if (obj != NULL)                \
     {                               \
         type##_Destructor(obj);     \
-        g_Settings.free(obj);                  \
+        rmtFree(obj);               \
         obj = NULL;                 \
     }
 
@@ -491,7 +501,7 @@ static void StoreRelease(void* volatile*  addr, void* v)
 // This is a disadvantage over requiring only a custom Create function
 #define BeginNew(type, obj)                 \
     {                                       \
-        obj = (type*)g_Settings.malloc(sizeof(type));  \
+        obj = (type*)rmtMalloc(sizeof(type));  \
         if (obj == NULL)                    \
         {                                   \
             error = RMT_ERROR_MALLOC_FAIL;  \
@@ -1291,7 +1301,7 @@ static void ObjectAllocator_Destructor(ObjectAllocator* allocator)
         ObjectLink* next = allocator->first_free->next;
         assert(allocator->destructor != NULL);
         allocator->destructor(allocator->first_free);
-        g_Settings.free(allocator->first_free);
+        rmtFree(allocator->first_free);
         allocator->first_free = next;
     }
 }
@@ -1352,7 +1362,7 @@ static rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
         rmtError error;
 
         // Allocate/construct a new object
-        void* free_object = g_Settings.malloc(allocator->object_size);
+        void* free_object = rmtMalloc( allocator->object_size );
         if (free_object == NULL)
             return RMT_ERROR_MALLOC_FAIL;
         assert(allocator->constructor != NULL);
@@ -1362,7 +1372,7 @@ static rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
             // Auto-teardown on failure
             assert(allocator->destructor != NULL);
             allocator->destructor(free_object);
-            g_Settings.free(free_object);
+            rmtFree(free_object);
             return error;
         }
 
@@ -1439,7 +1449,7 @@ static void Buffer_Destructor(Buffer* buffer)
 
     if (buffer->data != NULL)
     {
-        g_Settings.free(buffer->data);
+        rmtFree(buffer->data);
         buffer->data = NULL;
     }
 }
@@ -3794,8 +3804,8 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
         return RMT_ERROR_NONE;
 
     // Loop reading the max number of messages for this update
-	const rmtU32 maxNbMessagesPerUpdate = g_Settings.maxNbMessagesPerUpdate;
-	while( nb_messages_sent++ < maxNbMessagesPerUpdate )
+    const rmtU32 maxNbMessagesPerUpdate = g_Settings.maxNbMessagesPerUpdate;
+    while( nb_messages_sent++ < maxNbMessagesPerUpdate )
     {
         rmtError error = RMT_ERROR_NONE;
         Message* message = MessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
@@ -3901,7 +3911,6 @@ static rmtError Remotery_ThreadMain(Thread* thread)
     return RMT_ERROR_NONE;
 }
 
-
 static rmtError Remotery_Constructor(Remotery* rmt)
 {
     rmtError error;
@@ -3922,7 +3931,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         return error;
 
     // Create the server
-	New_1( Server, rmt->server, g_Settings.port );
+    New_1( Server, rmt->server, g_Settings.port );
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -4081,36 +4090,46 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
     }
 }
 
+static void* _rmt_Malloc( void* mm_context, rmtU32 size )
+{
+    return malloc( ( size_t )size );
+}
+
+static void _rmt_Free( void* mm_context, void* ptr )
+{
+    free( ptr );
+}
+
 rmtSettings* _rmt_Settings(void)
 {
-	// Default-initialize on first call
-	if( g_SettingsInitialized == RMT_FALSE )
-	{
-		g_Settings.port = 0x4597;
-		g_Settings.msSleepBetweenServerUpdates = MS_SLEEP_BETWEEN_SERVER_UPDATES;
-		g_Settings.messageQueueSizeInBytes = MESSAGE_QUEUE_SIZE_BYTES;
-		g_Settings.maxNbMessagesPerUpdate = MAX_NB_MESSAGES_PER_UPDATE;
-		g_Settings.malloc = malloc;
-		g_Settings.free = free;
-		g_Settings.logFilename = "rmtLog.txt";
+    // Default-initialize on first call
+    if( g_SettingsInitialized == RMT_FALSE )
+    {
+        g_Settings.port = 0x4597;
+        g_Settings.msSleepBetweenServerUpdates = MS_SLEEP_BETWEEN_SERVER_UPDATES;
+        g_Settings.messageQueueSizeInBytes = MESSAGE_QUEUE_SIZE_BYTES;
+        g_Settings.maxNbMessagesPerUpdate = MAX_NB_MESSAGES_PER_UPDATE;
+        g_Settings.malloc = _rmt_Malloc;
+        g_Settings.free = _rmt_Free;
+        g_Settings.logFilename = "rmtLog.txt";
 
-		g_SettingsInitialized = RMT_TRUE;
-	}
+        g_SettingsInitialized = RMT_TRUE;
+    }
 
-	return &g_Settings;
+    return &g_Settings;
 }
 
 rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
-	rmtError error;
+    rmtError error;
 
-	// Default-initialise if user has not set values
-	rmt_Settings();
+    // Default-initialise if user has not set values
+    rmt_Settings();
 
-	// Creating the Remotery instance also records it as the global instance
-	assert(remotery != NULL);
-	New_0(Remotery, *remotery);
-	return error;
+    // Creating the Remotery instance also records it as the global instance
+    assert(remotery != NULL);
+    New_0(Remotery, *remotery);
+    return error;
 }
 
 
@@ -4674,7 +4693,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
     assert(d3d11 != NULL);
 
     // Allocate space for the D3D11 data
-    *d3d11 = (D3D11*)g_Settings.malloc(sizeof(D3D11));
+    *d3d11 = (D3D11*)rmtMalloc(sizeof(D3D11));
     if (*d3d11 == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
@@ -4686,7 +4705,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
     (*d3d11)->mq_to_d3d11_main = NULL;
     (*d3d11)->first_timestamp = 0;
 
-	New_1(MessageQueue, (*d3d11)->mq_to_d3d11_main, g_Settings.messageQueueSizeInBytes);
+    New_1(MessageQueue, (*d3d11)->mq_to_d3d11_main, g_Settings.messageQueueSizeInBytes);
     if (error != RMT_ERROR_NONE)
     {
         Delete(D3D11, *d3d11);
@@ -5227,7 +5246,7 @@ static rmtError OpenGL_Create(OpenGL** opengl)
 
     assert(opengl != NULL);
 
-    *opengl = (OpenGL*)g_Settings.malloc(sizeof(OpenGL));
+    *opengl = (OpenGL*)rmtMalloc(sizeof(OpenGL));
     if (*opengl == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
@@ -5245,7 +5264,7 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     (*opengl)->mq_to_opengl_main = NULL;
     (*opengl)->first_timestamp = 0;
 
-	New_1(MessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
+    New_1(MessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
     return error;
 }
 
