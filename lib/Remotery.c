@@ -3796,6 +3796,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
 {
     rmtU32 nb_messages_sent = 0;
+    const rmtU32 maxNbMessagesPerUpdate = g_Settings.maxNbMessagesPerUpdate;
 
     assert(rmt != NULL);
 
@@ -3804,7 +3805,6 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
         return RMT_ERROR_NONE;
 
     // Loop reading the max number of messages for this update
-    const rmtU32 maxNbMessagesPerUpdate = g_Settings.maxNbMessagesPerUpdate;
     while( nb_messages_sent++ < maxNbMessagesPerUpdate )
     {
         rmtError error = RMT_ERROR_NONE;
