@@ -4072,15 +4072,15 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 }
 
 
-static void* _rmt_Malloc( void* mm_context, rmtU32 size )
+static void* CRTMalloc(void* mm_context, rmtU32 size)
 {
-    return malloc( ( size_t )size );
+    return malloc((size_t)size);
 }
 
 
-static void _rmt_Free( void* mm_context, void* ptr )
+static void CRTFree(void* mm_context, void* ptr)
 {
-    free( ptr );
+    free(ptr);
 }
 
 
@@ -4093,8 +4093,8 @@ rmtSettings* _rmt_Settings(void)
         g_Settings.msSleepBetweenServerUpdates = 10;
         g_Settings.messageQueueSizeInBytes = 64 * 1024;
         g_Settings.maxNbMessagesPerUpdate = 100;
-        g_Settings.malloc = _rmt_Malloc;
-        g_Settings.free = _rmt_Free;
+        g_Settings.malloc = CRTMalloc;
+        g_Settings.free = CRTFree;
         g_Settings.logFilename = "rmtLog.txt";
 
         g_SettingsInitialized = RMT_TRUE;
