@@ -114,11 +114,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 #endif
 
 
-#if defined(__cplusplus) && defined(RMT_COMPILER_MSVC)
-    #define RMT_UNREFERENCED_PARAMETER( x ) ( &reinterpret_cast< const int& >( x ) )
-#else
-    #define RMT_UNREFERENCED_PARAMETER( x) (void)sizeof(x)
-#endif
+#define RMT_UNREFERENCED_PARAMETER(i) (void)(1 ? (void)0 : ((void)i))
 
 
 #ifdef RMT_USE_CUDA
@@ -4148,7 +4144,7 @@ void _rmt_SetGlobalInstance(Remotery* remotery)
 {
     // Default-initialise if user has not set values
     rmt_Settings();
-    
+
     g_Remotery = remotery;
 }
 
