@@ -4146,6 +4146,9 @@ void _rmt_DestroyGlobalInstance(Remotery* remotery)
 
 void _rmt_SetGlobalInstance(Remotery* remotery)
 {
+    // Default-initialise if user has not set values
+    rmt_Settings();
+    
     g_Remotery = remotery;
 }
 
