@@ -266,22 +266,37 @@ typedef enum rmtError
 #define rmt_EndCPUSample()                                                          \
     RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
 
+
 // Memory allocation functions
 typedef void* (*rmtMallocPtr )(void* mm_context, rmtU32 size);
 typedef void(*rmtFreePtr)(void* mm_context, void* ptr);
+
 
 // Struture to fill in to modify Remotery default settings
 typedef struct rmtSettings
 {
     rmtU32 port;
+
+    // How long to sleep between server updates, hopefully trying to give
+    // a little CPU back to other threads.
     rmtU32 msSleepBetweenServerUpdates;
+
+    // Size of the internal message queues Remotery uses
+    // Will be rounded to page granularity of 64k
     rmtU32 messageQueueSizeInBytes;
+
+    // If the user continuously pushes to the message queue, the server network
+    // code won't get a chance to update unless there's an upper-limit on how
+    // many messages can be consumed per loop.
     rmtU32 maxNbMessagesPerUpdate;
+
     rmtMallocPtr malloc;
     rmtFreePtr free;
     void* mm_context;
+    
     rmtPStr logFilename;
 } rmtSettings;
+
 
 // Structure to fill in when binding CUDA to Remotery
 typedef struct rmtCUDABind

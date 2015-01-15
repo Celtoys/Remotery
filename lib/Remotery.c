@@ -142,22 +142,6 @@ rmtS64 maxS64(rmtS64 a, rmtS64 b)
 }
 
 
-
-// Config
-// TODO: Expose to user
-
-// How long to sleep between server updates, hopefully trying to give
-// a little CPU back to other threads.
-static const rmtU32 MS_SLEEP_BETWEEN_SERVER_UPDATES = 10;
-
-// Will be rounded to page granularity of 64k
-static const rmtU32 MESSAGE_QUEUE_SIZE_BYTES = 64 * 1024;
-
-// If the user continuously pushes to the message queue, the server network
-// code won't get a chance to update unless there's an upper-limit on how
-// many messages can be consumed per loop.
-static const rmtU32 MAX_NB_MESSAGES_PER_UPDATE = 100;
-
 // Memory management functions
 static void* rmtMalloc( rmtU32 size )
 {
@@ -4106,9 +4090,9 @@ rmtSettings* _rmt_Settings(void)
     if( g_SettingsInitialized == RMT_FALSE )
     {
         g_Settings.port = 0x4597;
-        g_Settings.msSleepBetweenServerUpdates = MS_SLEEP_BETWEEN_SERVER_UPDATES;
-        g_Settings.messageQueueSizeInBytes = MESSAGE_QUEUE_SIZE_BYTES;
-        g_Settings.maxNbMessagesPerUpdate = MAX_NB_MESSAGES_PER_UPDATE;
+        g_Settings.msSleepBetweenServerUpdates = 10;
+        g_Settings.messageQueueSizeInBytes = 64 * 1024;
+        g_Settings.maxNbMessagesPerUpdate = 100;
         g_Settings.malloc = _rmt_Malloc;
         g_Settings.free = _rmt_Free;
         g_Settings.logFilename = "rmtLog.txt";
