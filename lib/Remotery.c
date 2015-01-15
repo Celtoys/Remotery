@@ -3294,7 +3294,7 @@ static void SampleTree_Destructor(SampleTree* tree)
 }
 
 
-rmtU32 HashCombine(rmtU32 hash_a, rmtU32 hash_b)
+static rmtU32 HashCombine(rmtU32 hash_a, rmtU32 hash_b)
 {
     // A sequence of 32 uniformly random bits so that each bit of the combined hash is changed on application
     // Derived from the golden ratio: UINT_MAX / ((1 + sqrt(5)) / 2)
