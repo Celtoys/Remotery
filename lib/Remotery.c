@@ -2746,7 +2746,7 @@ static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_si
         rmtU32 s = queue->size;
         rmtU32 r = queue->read_pos;
         rmtU32 w = queue->write_pos;
-        if ((int)(w - r) > s - write_size)
+        if ((int)(w - r) > ((int)(s - write_size)))
             return NULL;
 
         // Point to the newly allocated space
@@ -4281,7 +4281,7 @@ void _rmt_LogText(rmtPStr text)
     // Send the last line
     if (prev_offset > start_offset)
     {
-        assert(prev_offset < sizeof(line_buffer) - 3);
+        assert(prev_offset < ((int)sizeof(line_buffer) - 3));
         QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts);
     }
 }
