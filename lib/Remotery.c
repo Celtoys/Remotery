@@ -46,7 +46,9 @@
 
 #include "Remotery.h"
 
-#pragma comment(lib, "ws2_32.lib")
+#ifdef RMT_PLATFORM_WINDOWS
+  #pragma comment(lib, "ws2_32.lib")
+#endif
 
 #ifdef RMT_ENABLED
 
