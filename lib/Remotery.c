@@ -46,7 +46,9 @@
 
 #include "Remotery.h"
 
-#pragma comment(lib, "ws2_32.lib")
+#ifdef RMT_PLATFORM_WINDOWS
+  #pragma comment(lib, "ws2_32.lib")
+#endif
 
 #ifdef RMT_ENABLED
 
@@ -710,8 +712,8 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
     }
 
     // Point both pages to the same memory file
-    if (mmap(buffer->ptr, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr ||
-        mmap(buffer->ptr + size, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != (*buffer)->ptr + size)
+    if (mmap(buffer->ptr, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != buffer->ptr ||
+        mmap(buffer->ptr + size, size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, file_descriptor, 0) != buffer->ptr + size)
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
 
 #endif
@@ -850,7 +852,7 @@ static rmtError Thread_Constructor(Thread* thread, ThreadProc callback, void* pa
 
     #else
 
-        int32_t error = pthread_create( &thread->handle, NULL, StartFunc, *thread );
+        int32_t error = pthread_create( &thread->handle, NULL, StartFunc, thread );
         if (error)
         {
             // Contents of 'thread' parameter to pthread_create() are undefined after
@@ -1585,7 +1587,7 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port)
         if (ioctlsocket(tcp_socket->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
             return RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL;
     #else
-        if (fcntl((*tcp_socket)->socket, F_SETFL, O_NONBLOCK) == SOCKET_ERROR)
+        if (fcntl(tcp_socket->socket, F_SETFL, O_NONBLOCK) == SOCKET_ERROR)
             return RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL;
     #endif
 
@@ -2744,7 +2746,7 @@ static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_si
         rmtU32 s = queue->size;
         rmtU32 r = queue->read_pos;
         rmtU32 w = queue->write_pos;
-        if ((int)(w - r) > s - write_size)
+        if ((int)(w - r) > ((int)(s - write_size)))
             return NULL;
 
         // Point to the newly allocated space
@@ -4279,7 +4281,7 @@ void _rmt_LogText(rmtPStr text)
     // Send the last line
     if (prev_offset > start_offset)
     {
-        assert(prev_offset < sizeof(line_buffer) - 3);
+        assert(prev_offset < ((int)sizeof(line_buffer) - 3));
         QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts);
     }
 }
