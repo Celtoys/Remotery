@@ -821,7 +821,7 @@ static int Thread_Valid(Thread* thread)
     #if defined(RMT_PLATFORM_WINDOWS)
         return thread->handle != NULL;
     #else
-        return pthread_equal(thread->handle, pthread_self());
+        return !pthread_equal(thread->handle, pthread_self());
     #endif
 }
 
