@@ -2490,8 +2490,6 @@ static rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 l
     status = WebSocket_PollStatus(web_socket);
     if (status.error_state != RMT_ERROR_NONE)
         return status.error_state;
-    if (!status.can_write)
-        return RMT_ERROR_SOCKET_SEND_TIMEOUT;
 
     final_fragment = 0x1 << 7;
     frame_type = (rmtU8)web_socket->mode;
@@ -2600,12 +2598,10 @@ static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 leng
 
     assert(web_socket != NULL);
 
-    // Ensure there is data to receive
+    // Can't read with any socket errors
     status = WebSocket_PollStatus(web_socket);
     if (status.error_state != RMT_ERROR_NONE)
         return status.error_state;
-    if (!status.can_read)
-        return RMT_ERROR_SOCKET_RECV_NO_DATA;
 
     cur_data = (char*)data;
     end_data = cur_data + length;
