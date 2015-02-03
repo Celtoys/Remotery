@@ -1714,17 +1714,24 @@ static rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 l
 
     assert(tcp_socket != NULL);
 
-    // Can't send if there are socket errors
-    status = TCPSocket_PollStatus(tcp_socket);
-    if (status.error_state != RMT_ERROR_NONE)
-        return status.error_state;
-    if (!status.can_write)
-        return RMT_ERROR_SOCKET_SEND_TIMEOUT;
+    start_ms = msTimer_Get();
+
+    // Loop until timeout checking whether data can be written
+    status.can_write = RMT_FALSE;
+    while (!status.can_write)
+    {
+        status = TCPSocket_PollStatus(tcp_socket);
+        if (status.error_state != RMT_ERROR_NONE)
+            return status.error_state;
+
+        cur_ms = msTimer_Get();
+        if (cur_ms - start_ms > timeout_ms)
+            return RMT_ERROR_SOCKET_SEND_TIMEOUT;
+    }
 
     cur_data = (char*)data;
     end_data = cur_data + length;
 
-    start_ms = msTimer_Get();
     while (cur_data < end_data)
     {
         // Attempt to send the remaining chunk of data
