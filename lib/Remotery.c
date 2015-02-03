@@ -3785,10 +3785,11 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     }
     #endif
 
-    // Serialise the sample tree and send to the viewer
+    // Serialise the sample tree and send to the viewer with a reasonably long timeout as the size
+    // of the sample data may be large
     error = json_SampleTree(rmt->json_buf, sample_tree);
     if (error == RMT_ERROR_NONE)
-        error = Server_Send(rmt->server, rmt->json_buf->data, rmt->json_buf->bytes_used, 20);
+        error = Server_Send(rmt->server, rmt->json_buf->data, rmt->json_buf->bytes_used, 5000);
 
     // Release the sample tree back to its allocator
     FreeSampleTree(sample, sample_tree->allocator);
