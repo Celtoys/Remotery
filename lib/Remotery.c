@@ -2515,12 +2515,23 @@ static rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 l
         WriteSize(length, frame_header + 2, 8, 4);
     }
 
-    // Send frame header followed by data
+    // Send frame header
     assert(data != NULL);
     error = TCPSocket_Send(web_socket->tcp_socket, frame_header, frame_header_size, timeout_ms);
     if (error != RMT_ERROR_NONE)
         return error;
-    return TCPSocket_Send(web_socket->tcp_socket, data, length, timeout_ms);
+
+    // Send frame data separately so that we don't have to allocate memory or memcpy it into
+    // the same buffer as the header.
+    // If this step times out then the frame data will be discarded and the browser will receive
+    // an invalid frame without its data, forcing a disconnect error.
+    // Before things get that far, flag this as a send fail and let the server schedule a graceful
+    // disconnect.
+    error = TCPSocket_Send(web_socket->tcp_socket, data, length, timeout_ms);
+    if (error == RMT_ERROR_SOCKET_SEND_TIMEOUT)
+        error = RMT_ERROR_SOCKET_SEND_FAIL;
+
+    return error;
 }
 
 
@@ -2893,6 +2904,13 @@ static rmtBool Server_IsClientConnected(Server* server)
 }
 
 
+static void Server_DisconnectClient(Server* server)
+{
+    assert(server != NULL);
+    Delete(WebSocket, server->client_socket);
+}
+
+
 static rmtError Server_Send(Server* server, const void* data, rmtU32 length, rmtU32 timeout)
 {
     assert(server != NULL);
@@ -2900,7 +2918,8 @@ static rmtError Server_Send(Server* server, const void* data, rmtU32 length, rmt
     {
         rmtError error = WebSocket_Send(server->client_socket, data, length, timeout);
         if (error == RMT_ERROR_SOCKET_SEND_FAIL)
-            Delete(WebSocket, server->client_socket);
+            Server_DisconnectClient(server);
+
         return error;
     }
 
