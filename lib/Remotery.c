@@ -3487,9 +3487,6 @@ typedef struct ThreadSampler
     // Store a unique sample tree for each type
     SampleTree* sample_trees[SampleType_Count];
 
-    // Microsecond accuracy timer for CPU timestamps
-    usTimer timer;
-
     // Next in the global list of active thread samplers
     struct ThreadSampler* volatile next;
 
@@ -3516,9 +3513,6 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
     New_3(SampleTree, thread_sampler->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor, (ObjDestructor)Sample_Destructor);
     if (error != RMT_ERROR_NONE)
         return error;
-
-    // Kick-off the timer
-    usTimer_Init(&thread_sampler->timer);
 
     return RMT_ERROR_NONE;
 }
@@ -3591,6 +3585,9 @@ static void OpenGL_Destructor(OpenGL* opengl);
 struct Remotery
 {
     Server* server;
+
+    // Microsecond accuracy timer for CPU timestamps
+    usTimer timer;
 
     rmtTLS thread_sampler_tls_handle;
 
@@ -3930,6 +3927,9 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->mq_to_rmt_thread = NULL;
     rmt->json_buf = NULL;
     rmt->thread = NULL;
+
+    // Kick-off the timer
+    usTimer_Init(&rmt->timer);
 
     // Allocate a TLS handle for the thread sampler
     error = tlsAlloc(&rmt->thread_sampler_tls_handle);
@@ -4350,7 +4350,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
         if (ThreadSampler_Push(ts, ts->sample_trees[SampleType_CPU], name, name_hash, &sample) == RMT_ERROR_NONE)
-            sample->us_start = usTimer_Get(&ts->timer);
+            sample->us_start = usTimer_Get(&g_Remotery->timer);
     }
 }
 
@@ -4365,7 +4365,7 @@ void _rmt_EndCPUSample(void)
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
         Sample* sample = ts->sample_trees[SampleType_CPU]->current_parent;
-        sample->us_end = usTimer_Get(&ts->timer);
+        sample->us_end = usTimer_Get(&g_Remotery->timer);
         ThreadSampler_Pop(ts, g_Remotery->mq_to_rmt_thread, sample);
     }
 }
