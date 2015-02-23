@@ -2598,7 +2598,7 @@ static rmtError ReceiveFrameHeader(WebSocket* web_socket)
 }
 
 
-static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 length, rmtU32 timeout_ms)
+static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32* msg_len, rmtU32 length, rmtU32 timeout_ms)
 {
     SocketStatus status;
     char* cur_data;
@@ -2626,6 +2626,10 @@ static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32 leng
             error = ReceiveFrameHeader(web_socket);
             if (error != RMT_ERROR_NONE)
                 return error;
+
+            // Set output message length only on initial receive
+            if (msg_len != NULL)
+                *msg_len = web_socket->frame_bytes_remaining;
         }
 
         // Read as much required data as possible
@@ -2906,8 +2910,15 @@ static rmtBool Server_IsClientConnected(Server* server)
 
 static void Server_DisconnectClient(Server* server)
 {
+    WebSocket* client_socket;
+
     assert(server != NULL);
-    Delete(WebSocket, server->client_socket);
+
+    // NULL the variable before destroying the socket
+    client_socket = server->client_socket;
+    server->client_socket = NULL;
+    WriteFence();
+    Delete(WebSocket, client_socket);
 }
 
 
@@ -2921,6 +2932,45 @@ static rmtError Server_Send(Server* server, const void* data, rmtU32 length, rmt
             Server_DisconnectClient(server);
 
         return error;
+    }
+
+    return RMT_ERROR_NONE;
+}
+
+
+static rmtError Server_ReceiveMessage(Server* server, char message_first_byte, rmtU32 message_length)
+{
+    char message_data[1024];
+    rmtError error;
+
+    // Check for potential message data overflow
+    if (message_length >= sizeof(message_data) - 1)
+    {
+        rmt_LogText("Ignoring console input bigger than internal receive buffer (1024 bytes)");
+        return RMT_ERROR_NONE;
+    }
+
+    // Receive the rest of the message
+    message_data[0] = message_first_byte;
+    error = WebSocket_Receive(server->client_socket, message_data + 1, NULL, message_length - 1, 100);
+    if (error != RMT_ERROR_NONE)
+        return error;
+    message_data[message_length] = 0;
+
+    // Each message must have a descriptive 4 byte header
+    if (message_length < 4)
+        return RMT_ERROR_NONE;
+
+    // Silly check for console input message ('CONI')
+    // (don't want to add safe strcmp to lib yet)
+    if (message_data[0] == 'C' && message_data[1] == 'O' && message_data[2] == 'N' && message_data[3] == 'I')
+    {
+        // Pass on to any registered handler 
+        if (g_Settings.input_handler != NULL)
+            g_Settings.input_handler(message_data + 4, g_Settings.input_handler_context);
+
+        rmt_LogText("Console message received...");
+        rmt_LogText(message_data + 4);
     }
 
     return RMT_ERROR_NONE;
@@ -2958,10 +3008,14 @@ static void Server_Update(Server* server)
     {
         // Check for any incoming messages
         char message_first_byte;
-        rmtError error = WebSocket_Receive(server->client_socket, &message_first_byte, 1, 0);
+        rmtU32 message_length;
+        rmtError error = WebSocket_Receive(server->client_socket, &message_first_byte, &message_length, 1, 0);
         if (error == RMT_ERROR_NONE)
         {
-            // data available to read
+            // Parse remaining message
+            error = Server_ReceiveMessage(server, message_first_byte, message_length);
+            if (error != RMT_ERROR_NONE)
+                Server_DisconnectClient(server);
         }
         else if (error == RMT_ERROR_SOCKET_RECV_NO_DATA)
         {
@@ -2974,11 +3028,7 @@ static void Server_Update(Server* server)
         else
         {
             // Anything else is an error that may have closed the connection
-            // NULL the variable before destroying the socket
-            WebSocket* client_socket = server->client_socket;
-            server->client_socket = NULL;
-            WriteFence();
-            Delete(WebSocket, client_socket);
+            Server_DisconnectClient(server);
         }
     }
 
@@ -4120,6 +4170,8 @@ rmtSettings* _rmt_Settings(void)
         g_Settings.maxNbMessagesPerUpdate = 100;
         g_Settings.malloc = CRTMalloc;
         g_Settings.free = CRTFree;
+        g_Settings.input_handler = NULL;
+        g_Settings.input_handler_context = NULL;
         g_Settings.logFilename = "rmtLog.txt";
 
         g_SettingsInitialized = RMT_TRUE;

@@ -267,9 +267,10 @@ typedef enum rmtError
     RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
 
 
-// Memory allocation functions
-typedef void* (*rmtMallocPtr )(void* mm_context, rmtU32 size);
-typedef void(*rmtFreePtr)(void* mm_context, void* ptr);
+// Callback function pointer types
+typedef void* (*rmtMallocPtr)(void* mm_context, rmtU32 size);
+typedef void (*rmtFreePtr)(void* mm_context, void* ptr);
+typedef void (*rmtInputHandlerPtr)(const char* text, void* context);
 
 
 // Struture to fill in to modify Remotery default settings
@@ -290,9 +291,16 @@ typedef struct rmtSettings
     // many messages can be consumed per loop.
     rmtU32 maxNbMessagesPerUpdate;
 
+    // Callback pointers for memory allocation
     rmtMallocPtr malloc;
     rmtFreePtr free;
     void* mm_context;
+
+    // Callback pointer for receiving input from the Remotery console
+    rmtInputHandlerPtr input_handler;
+
+    // Context pointer that gets sent to Remotery console callback function
+    void* input_handler_context;
     
     rmtPStr logFilename;
 } rmtSettings;

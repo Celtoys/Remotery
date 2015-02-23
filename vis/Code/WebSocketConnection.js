@@ -67,6 +67,13 @@ WebSocketConnection = (function()
 	}
 
 
+	WebSocketConnection.prototype.Send = function(msg)
+	{
+		if (this.Connected())
+			this.Socket.send(msg);
+	}
+
+
 	function Log(self, message)
 	{
 		self.Console.Log(message);

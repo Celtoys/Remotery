@@ -13,6 +13,7 @@ Supported features:
 * Profiles itself and shows how it's performing in the viewer.
 * Can optionally sample CUDA/D3D11 GPU activity.
 * Console output for logging text.
+* Console input for sending commands to your game.
 
 
 Compiling
@@ -147,7 +148,7 @@ your D3D11 device and context, ensure you notify Remotery before shutting down R
 
 
 Sampling OpenGL GPU activity
----------------------------------
+----------------------------
 
 Remotery allows sampling of GPU activity on your main OpenGL context. After initialising Remotery, you need
 to bind it to OpenGL with the single call:
@@ -173,3 +174,24 @@ Support for multiple contexts can be added pretty easily if there is demand for 
 your OpenGL device and context, ensure you notify Remotery before shutting down Remotery itself:
 
     rmt_UnbindOpenGL();
+
+
+Applying Configuration Settings
+-------------------------------
+
+Before creating your Remotery instance, you can configure its behaviour by retrieving its settings object:
+
+    rmtSettings* settings = rmt_Settings();
+
+Some important settings are:
+
+    // Redirect any Remotery allocations to your own malloc/free, with an additional context pointer
+    // that gets passed to your callbacks.
+    settings->malloc;
+    settings->free;
+    settings->mm_context;
+
+    // Specify an input handler that receives text input from the Remotery console, with an additional
+    // context pointer that gets passed to your callback.
+    settings->input_handler;
+    settings->input_handler_context;

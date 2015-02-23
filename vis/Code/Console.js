@@ -13,6 +13,8 @@ Console = (function()
 		DOM.Node.AddClass(this.PageContainer.Node, "ConsoleText");
 		this.AppContainer = this.Window.AddControlNew(new WM.Container(10, 10, 400, 160));
 		DOM.Node.AddClass(this.AppContainer.Node, "ConsoleText");
+		this.UserInput = this.Window.AddControlNew(new WM.EditBox(10, 5, 400, 30, "Input", ""));
+		this.UserInput.SetChangeHandler(Bind(ProcessInput, this));
 		this.Window.ShowNoAnim();
 
 		// This accumulates log text as fast as is required
@@ -23,6 +25,7 @@ Console = (function()
 		window.setInterval(Bind(UpdateHTML, this), 500);
 
 		// Setup log requests from the server
+		this.Server = server;
 		server.SetConsole(this);
 		server.AddMessageHandler("LOG", Bind(OnLog, this));
 	}
@@ -43,10 +46,13 @@ Console = (function()
 		// Place controls
 		var parent_size = this.Window.Size;
 		var mid_w = parent_size[0] / 3;
+		this.UserInput.SetPosition(BORDER, parent_size[1] - 2 * BORDER - 30);
+		this.UserInput.SetSize(parent_size[0] - 100, 18);
+		var output_height = this.UserInput.Position[1] - 2 * BORDER;
 		this.PageContainer.SetPosition(BORDER, BORDER);
-		this.PageContainer.SetSize(mid_w - 2 * BORDER, parent_size[1] - 4 * BORDER);
+		this.PageContainer.SetSize(mid_w - 2 * BORDER, output_height);
 		this.AppContainer.SetPosition(mid_w, BORDER);
-		this.AppContainer.SetSize(parent_size[0] - mid_w - BORDER, parent_size[1] - 4 * BORDER);
+		this.AppContainer.SetSize(parent_size[0] - mid_w - BORDER, output_height);
 	}
 
 
@@ -92,6 +98,18 @@ Console = (function()
 		var app_node = self.AppContainer.Node;
 		app_node.innerHTML = self.AppTextBuffer;
 		app_node.scrollTop = app_node.scrollHeight;
+	}
+
+
+	function ProcessInput(self, node)
+	{
+		// Send the message exactly
+		var msg = node.value;
+		self.Server.Send("CONI" + msg);
+
+		// Emit to console and clear
+		self.Log("> " + msg);
+		self.UserInput.SetValue("");
 	}
 
 
