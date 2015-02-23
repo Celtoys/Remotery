@@ -92,7 +92,9 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
     #ifdef RMT_PLATFORM_WINDOWS
         #include <winsock2.h>
-        #include <intrin.h>
+        #ifndef __MINGW32__
+            #include <intrin.h>
+        #endif
         #undef min
         #undef max
     #endif
@@ -111,6 +113,10 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #include <netinet/in.h>
         #include <fcntl.h>
         #include <errno.h>
+    #endif
+
+    #ifdef __MINGW32__
+        #include <pthread.h>
     #endif
 
 #endif
@@ -370,9 +376,9 @@ static void* tlsGet(rmtTLS handle)
 
 static rmtBool AtomicCompareAndSwap(rmtU32 volatile* val, long old_val, long new_val)
 {
-    #if defined(RMT_PLATFORM_WINDOWS)
+    #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
         return _InterlockedCompareExchange((long volatile*)val, new_val, old_val) == old_val ? RMT_TRUE : RMT_FALSE;
-    #elif defined(RMT_PLATFORM_POSIX)
+    #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
         return __sync_bool_compare_and_swap(val, old_val, new_val) ? RMT_TRUE : RMT_FALSE;
     #endif
 }
@@ -380,13 +386,13 @@ static rmtBool AtomicCompareAndSwap(rmtU32 volatile* val, long old_val, long new
 
 static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
 {
-    #if defined(RMT_PLATFORM_WINDOWS)
+    #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
         #ifdef _WIN64
             return _InterlockedCompareExchange64((__int64 volatile*)ptr, (__int64)new_ptr, (__int64)old_ptr) == (__int64)old_ptr ? RMT_TRUE : RMT_FALSE;
         #else
             return _InterlockedCompareExchange((long volatile*)ptr, (long)new_ptr, (long)old_ptr) == (long)old_ptr ? RMT_TRUE : RMT_FALSE;
         #endif
-    #elif defined(RMT_PLATFORM_POSIX)
+    #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
         return __sync_bool_compare_and_swap(ptr, old_ptr, new_ptr) ? RMT_TRUE : RMT_FALSE;
     #endif
 }
@@ -399,9 +405,9 @@ static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, l
 //
 static void AtomicAdd(rmtS32 volatile* value, rmtS32 add)
 {
-    #if defined(RMT_PLATFORM_WINDOWS)
+    #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
         _InterlockedExchangeAdd((long volatile*)value, (long)add);
-    #elif defined(RMT_PLATFORM_POSIX)
+    #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
         __sync_fetch_and_add(value, add);
     #endif
 }
@@ -417,7 +423,7 @@ static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 // Compiler read/write fences (windows implementation)
 static void ReadFence()
 {
-#ifdef RMT_PLATFORM_WINDOWS
+#if defined(RMT_PLATFORM_WINDOWS)
     _ReadBarrier();
 #else
     asm volatile ("" : : : "memory");
@@ -425,7 +431,7 @@ static void ReadFence()
 }
 static void WriteFence()
 {
-#ifdef RMT_PLATFORM_WINDOWS
+#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     _WriteBarrier();
 #else
     asm volatile ("" : : : "memory");
@@ -973,7 +979,7 @@ static void Thread_Destructor(Thread* thread)
 typedef int errno_t;
 #endif
 
-#if !defined(_WIN64) && !defined(__APPLE__)
+#if !defined(_WIN64) && !defined(__APPLE__) || defined(__MINGW32__)
 typedef unsigned int rsize_t;
 #endif
 
@@ -4237,6 +4243,7 @@ static void SetDebuggerThreadName(const char* name)
         info.dwThreadID = (DWORD)-1;
         info.dwFlags = 0;
 
+        #ifndef __MINGW32__
         __try
         {
             RaiseException(0x406D1388, 0, sizeof(info)/sizeof(ULONG_PTR), (ULONG_PTR*)&info);
@@ -4244,6 +4251,7 @@ static void SetDebuggerThreadName(const char* name)
         __except(1 /* EXCEPTION_EXECUTE_HANDLER */)
         {
         }
+        #endif
     #endif
 }
 
