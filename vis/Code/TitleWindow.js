@@ -9,7 +9,7 @@ TitleWindow = (function()
 		this.PingContainer = this.Window.AddControlNew(new WM.Container(4, -13, 10, 10));
 		DOM.Node.AddClass(this.PingContainer.Node, "PingContainer");
 
-		this.EditBox = this.Window.AddControlNew(new WM.EditBox(10, 5, 400, 30, "Connection Address", connection_address));
+		this.EditBox = this.Window.AddControlNew(new WM.EditBox(10, 5, 300, 18, "Connection Address", connection_address));
 
 		// Setup pause button
 		this.Paused = false;

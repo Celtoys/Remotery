@@ -45,7 +45,7 @@ WM.EditBox = (function()
 	EditBox.prototype.SetSize = function(w, h)
 	{
 		this.Size = [ w, h ];
-		DOM.Node.SetSize(this.Node, this.Size);
+		DOM.Node.SetSize(this.EditNode, this.Size);
 	}
 
 
