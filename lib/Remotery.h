@@ -274,6 +274,7 @@ typedef enum rmtError
 
 // Callback function pointer types
 typedef void* (*rmtMallocPtr)(void* mm_context, rmtU32 size);
+typedef void* (*rmtReallocPtr)(void* mm_context, void* ptr, rmtU32 size);
 typedef void (*rmtFreePtr)(void* mm_context, void* ptr);
 typedef void (*rmtInputHandlerPtr)(const char* text, void* context);
 
@@ -298,6 +299,7 @@ typedef struct rmtSettings
 
     // Callback pointers for memory allocation
     rmtMallocPtr malloc;
+    rmtReallocPtr realloc;
     rmtFreePtr free;
     void* mm_context;
 

@@ -156,11 +156,15 @@ static void* rmtMalloc( rmtU32 size )
 	return g_Settings.malloc( g_Settings.mm_context, size );
 }
 
+static void* rmtRealloc( void* ptr, rmtU32 size)
+{
+    return g_Settings.realloc( g_Settings.mm_context, ptr, size );
+}
+
 static void rmtFree( void* ptr )
 {
 	g_Settings.free( g_Settings.mm_context, ptr );
 }
-
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -1455,7 +1459,7 @@ static rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
         rmtU32 a = buffer->bytes_allocated + length;
         a = a + ((g - 1) - ((a - 1) % g));
         buffer->bytes_allocated = a;
-        buffer->data = (rmtU8*)realloc(buffer->data, buffer->bytes_allocated);
+        buffer->data = (rmtU8*)rmtRealloc(buffer->data, buffer->bytes_allocated);
         if (buffer->data == NULL)
             return RMT_ERROR_MALLOC_FAIL;
     }
@@ -4164,6 +4168,11 @@ static void CRTFree(void* mm_context, void* ptr)
     free(ptr);
 }
 
+static void* CRTRealloc(void* mm_context, void* ptr, rmtU32 size)
+{
+    return realloc(ptr, size);
+}
+
 
 rmtSettings* _rmt_Settings(void)
 {
@@ -4176,6 +4185,7 @@ rmtSettings* _rmt_Settings(void)
         g_Settings.maxNbMessagesPerUpdate = 100;
         g_Settings.malloc = CRTMalloc;
         g_Settings.free = CRTFree;
+        g_Settings.realloc = CRTRealloc;
         g_Settings.input_handler = NULL;
         g_Settings.input_handler_context = NULL;
         g_Settings.logFilename = "rmtLog.txt";
