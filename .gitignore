@@ -1,2 +1,41 @@
-*.pib
-*.sublime-project
+# External junk
+.DS_Store
+_ReSharper*
+*.opensdf
+*.sdf
+*.dir
+*.suo
+*.user
+Win32
+Debug
+Release
+build
+bin
+.tags
+.tags_sorted_by_file
+.lock-waf_linux_build
+.lock-waf_win32_build
+darkhammer.sublime-workspace
+*.lnk
+ipch
+__pycache__
+*.pyc
+waf3*
+*.gz
+*.rpm
+
+# Generated files
+docs/Doxyfile
+docs/html
+docs/warnings.txt
+var/waf-*
+3rdparty/tmp
+sharedir.h
+
+# Compiled binaries
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
