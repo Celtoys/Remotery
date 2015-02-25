@@ -6,11 +6,24 @@
 //
 
 
+Settings = (function()
+{
+	function Settings()
+	{
+		this.IsPaused = false;
+	}
+
+	return Settings;
+
+})();
+
+
 Remotery = (function()
 {
 	function Remotery()
 	{
 		this.WindowManager = new WM.WindowManager();
+		this.Settings = new Settings();
 
 		this.ConnectionAddress = LocalStore.Get("App", "Global", "ConnectionAddress", "ws://127.0.0.1:17815/rmt");
 		this.Server = new WebSocketConnection();
@@ -20,7 +33,7 @@ Remotery = (function()
 		this.Console = new Console(this.WindowManager, this.Server);
 
 		// Create required windows
-		this.TitleWindow = new TitleWindow(this.WindowManager, this.Server, this.ConnectionAddress);
+		this.TitleWindow = new TitleWindow(this.WindowManager, this.Settings, this.Server, this.ConnectionAddress);
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
 		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Server, Bind(OnTimelineCheck, this));
 		this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
@@ -84,7 +97,7 @@ Remotery = (function()
 	function DrawTimeline(self)
 	{
 		// Don't waste time drawing the timeline when paused
-		if (self.TitleWindow.Paused)
+		if (self.Settings.IsPaused)
 			return;
 
 		// requestAnimationFrame can run up to 60hz which is way too much for drawing the timeline
@@ -102,7 +115,7 @@ Remotery = (function()
 		var name = message.thread_name;
 
 		// Discard any new samples while paused
-		if (self.TitleWindow.Paused)
+		if (self.Settings.IsPaused)
 			return;
 
 		// Add to frame history for this thread
@@ -159,7 +172,7 @@ Remotery = (function()
 	{
 		// Hover only changes sample window contents when paused
 		var sample_window = self.SampleWindows[thread_name];
-		if (sample_window && self.TitleWindow.Paused)
+		if (sample_window && self.Settings.IsPaused)
 		{
 			if (hover == null)
 			{

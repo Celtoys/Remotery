@@ -1,8 +1,10 @@
 
 TitleWindow = (function()
 {
-	function TitleWindow(wm, server, connection_address)
+	function TitleWindow(wm, settings, server, connection_address)
 	{
+		this.Settings = settings;
+
 		this.Window = wm.AddWindow("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Remotery", 10, 10, 100, 100);
 		this.Window.ShowNoAnim();
 
@@ -12,7 +14,6 @@ TitleWindow = (function()
 		this.EditBox = this.Window.AddControlNew(new WM.EditBox(10, 5, 300, 18, "Connection Address", connection_address));
 
 		// Setup pause button
-		this.Paused = false;
 		this.PauseButton = this.Window.AddControlNew(new WM.Button("Pause", 5, 5, { toggle: true }));
 		this.PauseButton.SetOnClick(Bind(OnPausePressed, this));
 
@@ -35,8 +36,8 @@ TitleWindow = (function()
 
 	function OnPausePressed(self)
 	{
-		self.Paused = self.PauseButton.IsPressed();
-		if (self.Paused)
+		self.Settings.IsPaused = self.PauseButton.IsPressed();
+		if (self.Settings.IsPaused)
 			self.PauseButton.SetText("Paused");
 		else
 			self.PauseButton.SetText("Pause");
