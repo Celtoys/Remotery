@@ -55,6 +55,7 @@ Remotery = (function()
 
 		// Hook up browser-native canvas refresh
 		this.DisplayFrame = 0;
+		this.LastKnownPause = this.Settings.IsPaused;
 		var self = this;
 		(function display_loop()
 		{
@@ -96,6 +97,15 @@ Remotery = (function()
 
 	function DrawTimeline(self)
 	{
+		// Has pause state changed?
+		if (self.Settings.IsPaused != self.LastKnownPaused)
+		{
+			// When switching TO paused, draw one last frame to ensure the sample text gets drawn
+			self.LastKnownPaused = self.Settings.IsPaused;
+			self.TimelineWindow.DrawAllRows();
+			return;
+		}
+
 		// Don't waste time drawing the timeline when paused
 		if (self.Settings.IsPaused)
 			return;

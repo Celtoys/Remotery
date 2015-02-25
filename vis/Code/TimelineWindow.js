@@ -121,11 +121,12 @@ TimelineWindow = (function()
 	TimelineWindow.prototype.DrawAllRows = function()
 	{
 		var time_range = this.TimeRange;
+		var draw_text = this.Settings.IsPaused;
 		for (var i in this.ThreadRows)
 		{
 			var thread_row = this.ThreadRows[i];
 			thread_row.SetVisibleFrames(time_range);
-			thread_row.Draw();
+			thread_row.Draw(draw_text);
 		}
 	}
 

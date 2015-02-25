@@ -90,7 +90,7 @@ TimelineRow = (function()
 		// Must ALWAYS set the width/height properties together. Setting one on its own has weird side-effects.
 		this.CanvasNode.width = width;
 		this.CanvasNode.height = CANVAS_BORDER + SAMPLE_BORDER + SAMPLE_Y_SPACING * this.Depth;
-		this.Draw();
+		this.Draw(true);
 	}
 
 
@@ -150,7 +150,7 @@ TimelineRow = (function()
 	}
 
 
-	TimelineRow.prototype.Draw = function()
+	TimelineRow.prototype.Draw = function(draw_text)
 	{
 		this.Clear();
 
@@ -158,20 +158,20 @@ TimelineRow = (function()
 		for (var i in this.VisibleFrames)
 		{
 			var frame = this.VisibleFrames[i];
-			DrawSamples(this, frame.Samples, 1);
+			DrawSamples(this, frame.Samples, 1, draw_text);
 		}
 	}
 
 
-	function DrawSamples(self, samples, depth)
+	function DrawSamples(self, samples, depth, draw_text)
 	{
 		for (var i in samples)
 		{
 			var sample = samples[i];
-			DrawSample(self, sample, depth);
+			DrawSample(self, sample, depth, draw_text);
 
 			if (depth < self.Depth && sample.children != null)
-				DrawSamples(self, sample.children, depth + 1);
+				DrawSamples(self, sample.children, depth + 1, draw_text);
 		}
 	}
 
@@ -204,12 +204,12 @@ TimelineRow = (function()
 			var old_sample_depth = this.HoverSampleDepth;
 			this.HoverSample = null;
 			this.HoverSampleDepth = 0;
-			DrawSample(this, old_sample, old_sample_depth);
+			DrawSample(this, old_sample, old_sample_depth, true);
 
 			// Add new highlight
 			this.HoverSample = sample;
 			this.HoverSampleDepth = sample_depth;
-			DrawSample(this, sample, sample_depth);
+			DrawSample(this, sample, sample_depth, true);
 		}
 	}
 
@@ -224,12 +224,12 @@ TimelineRow = (function()
 			var old_sample_depth = this.SelectedSampleDepth;
 			this.SelectedSample = null;
 			this.SelectedSampleDepth = 0;
-			DrawSample(this, old_sample, old_sample_depth);
+			DrawSample(this, old_sample, old_sample_depth, true);
 
 			// Add new highlight
 			this.SelectedSample = sample;
 			this.SelectedSampleDepth = sample_depth;
-			DrawSample(this, sample, sample_depth);
+			DrawSample(this, sample, sample_depth, true);
 		}
 	}
 
@@ -320,7 +320,7 @@ TimelineRow = (function()
 	}
 
 
-	function DrawSample(self, sample, depth)
+	function DrawSample(self, sample, depth, draw_text)
 	{
 		if (sample == null)
 			return;
@@ -346,10 +346,9 @@ TimelineRow = (function()
 		ctx.fillStyle = sample.colour;
 		ctx.fillRect(offset_x, offset_y, size_x, size_y);
 
+		// Highlight rendering
 		var b = (sample == self.HoverSample) ? 255 : 0;
 		var r = (sample == self.SelectedSample) ? 255 : 0;
-
-		// Highlight rendering
 		if (b + r > 0)
 		{
 			ctx.lineWidth = 1;
@@ -357,17 +356,18 @@ TimelineRow = (function()
 			ctx.strokeRect(offset_x + 0.5, offset_y + 0.5, size_x - 1, size_y - 1);
 		}
 
-		// if paused
-		/*{
-			//ctx.save();
-			//ctx.beginPath();
-			//ctx.rect(offset_x + 1.5, offset_y + 1.5, size_x - 3, size_y - 3);
-			//ctx.clip();
+		// Draw sample names clipped to the bounds of the sample
+		if (draw_text)
+		{
+			ctx.save();
+			ctx.beginPath();
+			ctx.rect(offset_x + 2.5, offset_y + 1.5, size_x - 5, size_y - 3);
+			ctx.clip();
 			ctx.font = "9px verdana";
-			ctx.fillStyle = "white";
-			ctx.fillText(sample.name, offset_x, offset_y);
-			//ctx.restore();
-		}*/
+			ctx.fillStyle = "black";
+			ctx.fillText(sample.name, offset_x + 5.5, offset_y + 1.5 + 9);
+			ctx.restore();
+		}
 	}
 
 
