@@ -83,6 +83,10 @@ Remotery = (function()
 
 	function DrawTimeline(self)
 	{
+		// Don't waste time drawing the timeline when paused
+		if (self.TitleWindow.Paused)
+			return;
+
 		// requestAnimationFrame can run up to 60hz which is way too much for drawing the timeline
 		// Assume it's running at 60hz and skip frames to achieve 10hz instead
 		// Doing this instead of using setTimeout because it's better for browser rendering (or; will be once WebGL is in use)

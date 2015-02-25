@@ -73,6 +73,7 @@ TimelineRow = (function()
 
 		this.FrameHistory = frame_history;
 		this.VisibleFrames = [ ];
+		this.VisibleTimeRange = null;
 
 		// Sample the mouse is currently hovering over
 		this.HoverSample = null;
@@ -89,6 +90,7 @@ TimelineRow = (function()
 		// Must ALWAYS set the width/height properties together. Setting one on its own has weird side-effects.
 		this.CanvasNode.width = width;
 		this.CanvasNode.height = CANVAS_BORDER + SAMPLE_BORDER + SAMPLE_Y_SPACING * this.Depth;
+		this.Draw();
 	}
 
 
@@ -107,6 +109,11 @@ TimelineRow = (function()
 		this.VisibleFrames = [ ];
 		if (this.FrameHistory.length == 0)
 			return;
+
+		// Store a copy of the visible time range rather than referencing it
+		// This prevents external modifications to the time range from affecting rendering/selection
+		time_range = time_range.Clone();
+		this.VisibleTimeRange = time_range;
 
 		// The frame history can be reset outside this class
 		// This also catches the overflow to the end of the frame list below when a thread stops sending samples
@@ -143,7 +150,7 @@ TimelineRow = (function()
 	}
 
 
-	TimelineRow.prototype.Draw = function(time_range)
+	TimelineRow.prototype.Draw = function()
 	{
 		this.Clear();
 
@@ -151,43 +158,43 @@ TimelineRow = (function()
 		for (var i in this.VisibleFrames)
 		{
 			var frame = this.VisibleFrames[i];
-			DrawSamples(this, frame.Samples, time_range, 1);
+			DrawSamples(this, frame.Samples, 1);
 		}
 	}
 
 
-	function DrawSamples(self, samples, time_range, depth)
+	function DrawSamples(self, samples, depth)
 	{
 		for (var i in samples)
 		{
 			var sample = samples[i];
-			DrawSample(self, time_range, sample, depth);
+			DrawSample(self, sample, depth);
 
 			if (depth < self.Depth && sample.children != null)
-				DrawSamples(self, sample.children, time_range, depth + 1);
+				DrawSamples(self, sample.children, depth + 1);
 		}
 	}
 
 
-	TimelineRow.prototype.UpdateHoverSample = function(mouse_state, time_range, x_offset)
+	TimelineRow.prototype.UpdateHoverSample = function(mouse_state, x_offset)
 	{
-		var hover = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
+		var hover = GetSampleAtPosition(this, mouse_state, x_offset);
 		if (hover)
-			this.SetHoverSample(hover[1], hover[2], time_range);
+			this.SetHoverSample(hover[1], hover[2]);
 		return hover;
 	}
 
 
-	TimelineRow.prototype.UpdateSelectedSample = function(mouse_state, time_range, x_offset)
+	TimelineRow.prototype.UpdateSelectedSample = function(mouse_state, x_offset)
 	{
-		var select = GetSampleAtPosition(this, mouse_state, time_range, x_offset);
+		var select = GetSampleAtPosition(this, mouse_state, x_offset);
 		if (select)
-			this.SetSelectedSample(select[1], select[2], time_range);
+			this.SetSelectedSample(select[1], select[2]);
 		return select;
 	}
 
 
-	TimelineRow.prototype.SetHoverSample = function(sample, sample_depth, time_range)
+	TimelineRow.prototype.SetHoverSample = function(sample, sample_depth)
 	{
 		if (sample != this.HoverSample)
 		{
@@ -197,17 +204,17 @@ TimelineRow = (function()
 			var old_sample_depth = this.HoverSampleDepth;
 			this.HoverSample = null;
 			this.HoverSampleDepth = 0;
-			DrawSample(this, time_range, old_sample, old_sample_depth);
+			DrawSample(this, old_sample, old_sample_depth);
 
 			// Add new highlight
 			this.HoverSample = sample;
 			this.HoverSampleDepth = sample_depth;
-			DrawSample(this, time_range, sample, sample_depth);
+			DrawSample(this, sample, sample_depth);
 		}
 	}
 
 
-	TimelineRow.prototype.SetSelectedSample = function(sample, sample_depth, time_range)
+	TimelineRow.prototype.SetSelectedSample = function(sample, sample_depth)
 	{
 		if (sample != this.SelectedSample)
 		{
@@ -217,12 +224,12 @@ TimelineRow = (function()
 			var old_sample_depth = this.SelectedSampleDepth;
 			this.SelectedSample = null;
 			this.SelectedSampleDepth = 0;
-			DrawSample(this, time_range, old_sample, old_sample_depth);
+			DrawSample(this, old_sample, old_sample_depth);
 
 			// Add new highlight
 			this.SelectedSample = sample;
 			this.SelectedSampleDepth = sample_depth;
-			DrawSample(this, time_range, sample, sample_depth);
+			DrawSample(this, sample, sample_depth);
 		}
 	}
 
@@ -258,8 +265,13 @@ TimelineRow = (function()
 	}
 
 
-	function GetSampleAtPosition(self, mouse_state, time_range, x_offset)
+	function GetSampleAtPosition(self, mouse_state, x_offset)
 	{
+		// Mouse movement can occur before any data is sent to a timeline row
+		var time_range = self.VisibleTimeRange;
+		if (time_range == null)
+			return;
+
 		// Get the time the mouse is over
 		var x = mouse_state.Position[0] - x_offset;
 		var time_us = time_range.Start_us + x / time_range.usPerPixel;
@@ -308,12 +320,13 @@ TimelineRow = (function()
 	}
 
 
-	function DrawSample(self, time_range, sample, depth)
+	function DrawSample(self, sample, depth)
 	{
 		if (sample == null)
 			return;
 
 		// Determine pixel range of the sample
+		var time_range = self.VisibleTimeRange;
 		var x0 = time_range.PixelOffset(sample.us_start);
 		var x1 = x0 + time_range.PixelSize(sample.us_length);
 

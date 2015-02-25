@@ -123,7 +123,7 @@ TimelineWindow = (function()
 		{
 			var thread_row = this.ThreadRows[i];
 			thread_row.SetVisibleFrames(time_range);
-			thread_row.Draw(time_range);
+			thread_row.Draw();
 		}
 	}
 
@@ -187,7 +187,7 @@ TimelineWindow = (function()
 				var thread_row = self.ThreadRows[i];
 				if (thread_row.CanvasNode == row_node)
 				{
-					var select = thread_row.UpdateSelectedSample(mouse_state, self.TimeRange, RowXOffset(self));
+					var select = thread_row.UpdateSelectedSample(mouse_state, RowXOffset(self));
 
 					// Call any selection handlers
 					if (self.OnSelectedHandler)
@@ -229,14 +229,14 @@ TimelineWindow = (function()
 				var thread_row = self.ThreadRows[i];
 				if (thread_row.CanvasNode == row_node)
 				{
-					var hover = thread_row.UpdateHoverSample(mouse_state, self.TimeRange, RowXOffset(self));
+					var hover = thread_row.UpdateHoverSample(mouse_state, RowXOffset(self));
 
 					if (self.OnHoverHandler)
 						self.OnHoverHandler(thread_row.Name, hover);
 				}
 				else
 				{
-					thread_row.SetHoverSample(null, 0, self.TimeRange);
+					thread_row.SetHoverSample(null, 0);
 					if (self.OnHoverHandler)
 						self.OnHoverHandler(thread_row.Name, null);
 				}

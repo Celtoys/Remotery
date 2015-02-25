@@ -51,5 +51,11 @@ PixelTimeRange = (function()
 	}
 
 
+	PixelTimeRange.prototype.Clone = function()
+	{
+		return new PixelTimeRange(this.Start_us, this.Span_us, this.Span_px);
+	}
+
+
 	return PixelTimeRange;
 })();
