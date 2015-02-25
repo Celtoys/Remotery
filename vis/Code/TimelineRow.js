@@ -352,12 +352,22 @@ TimelineRow = (function()
 		// Highlight rendering
 		if (b + r > 0)
 		{
-			ctx.beginPath();
-			ctx.rect(offset_x + 0.5, offset_y + 0.5, size_x - 1, size_y - 1);
 			ctx.lineWidth = 1;
 			ctx.strokeStyle = "rgb(" + r + ", 0, " + b + ")";
-			ctx.stroke();
+			ctx.strokeRect(offset_x + 0.5, offset_y + 0.5, size_x - 1, size_y - 1);
 		}
+
+		// if paused
+		/*{
+			//ctx.save();
+			//ctx.beginPath();
+			//ctx.rect(offset_x + 1.5, offset_y + 1.5, size_x - 3, size_y - 3);
+			//ctx.clip();
+			ctx.font = "9px verdana";
+			ctx.fillStyle = "white";
+			ctx.fillText(sample.name, offset_x, offset_y);
+			//ctx.restore();
+		}*/
 	}
 
 
