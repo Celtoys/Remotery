@@ -13,8 +13,10 @@ TimelineWindow = (function()
 	var box_template = "<div class='TimelineBox'></div>";
 
 
-	function TimelineWindow(wm, server, check_handler)
+	function TimelineWindow(wm, settings, server, check_handler)
 	{
+		this.Settings = settings;
+
 		// Ordered list of thread rows on the timeline
 		this.ThreadRows = [ ];
 
@@ -166,6 +168,10 @@ TimelineWindow = (function()
 
 	function OnMouseDown(self, evt)
 	{
+		// Only manipulate the timelime when paused
+		if (!self.Settings.IsPaused)
+			return;
+
 		self.MouseDown = true;
 		self.TimelineMoved = false;
 		DOM.Event.StopDefaultAction(evt);
@@ -174,6 +180,10 @@ TimelineWindow = (function()
 
 	function OnMouseUp(self, evt)
 	{
+		// Only manipulate the timelime when paused
+		if (!self.Settings.IsPaused)
+			return;
+
 		var mouse_state = new Mouse.State(evt);
 
 		self.MouseDown = false;
@@ -202,6 +212,10 @@ TimelineWindow = (function()
 
 	function OnMouseMove(self, evt)
 	{
+		// Only manipulate the timelime when paused
+		if (!self.Settings.IsPaused)
+			return;
+
 		var mouse_state = new Mouse.State(evt);
 
 		if (self.MouseDown)

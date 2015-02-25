@@ -35,7 +35,7 @@ Remotery = (function()
 		// Create required windows
 		this.TitleWindow = new TitleWindow(this.WindowManager, this.Settings, this.Server, this.ConnectionAddress);
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
-		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Server, Bind(OnTimelineCheck, this));
+		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Settings, this.Server, Bind(OnTimelineCheck, this));
 		this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
 		this.TimelineWindow.SetOnSelected(Bind(OnSampleSelected, this));
 
