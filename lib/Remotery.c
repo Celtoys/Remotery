@@ -2397,12 +2397,12 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
 }
 
 
-static rmtError WebSocket_Constructor(WebSocket* web_socket)
+static rmtError WebSocket_Constructor(WebSocket* web_socket, TCPSocket* tcp_socket)
 {
-    rmtError error;
+    rmtError error = RMT_ERROR_NONE;
 
     assert(web_socket != NULL);
-    web_socket->tcp_socket = NULL;
+    web_socket->tcp_socket = tcp_socket;
     web_socket->mode = WEBSOCKET_NONE;
     web_socket->frame_bytes_remaining = 0;
     web_socket->mask_offset = 0;
@@ -2411,7 +2411,10 @@ static rmtError WebSocket_Constructor(WebSocket* web_socket)
     web_socket->data_mask[2] = 0;
     web_socket->data_mask[3] = 0;
 
-    New_0(TCPSocket, web_socket->tcp_socket);
+    // Caller can optionally specify which TCP socket to use
+    if (web_socket->tcp_socket == NULL)
+        New_0(TCPSocket, web_socket->tcp_socket);
+
     return error;
 }
 
@@ -2464,11 +2467,10 @@ static rmtError WebSocket_AcceptConnection(WebSocket* web_socket, WebSocket** cl
 
     // Allocate and return a new client socket
     assert(client_socket != NULL);
-    New_0(WebSocket, *client_socket);
+    New_1(WebSocket, *client_socket, tcp_socket);
     if (error != RMT_ERROR_NONE)
         return error;
 
-    (*client_socket)->tcp_socket = tcp_socket;
     (*client_socket)->mode = web_socket->mode;
 
     return RMT_ERROR_NONE;
@@ -2882,7 +2884,7 @@ static rmtError Server_CreateListenSocket(Server* server, rmtU16 port)
 {
     rmtError error = RMT_ERROR_NONE;
 
-    New_0(WebSocket, server->listen_socket);
+    New_1(WebSocket, server->listen_socket, NULL);
     if (error == RMT_ERROR_NONE)
         error = WebSocket_RunServer(server->listen_socket, port, WEBSOCKET_TEXT);
 
