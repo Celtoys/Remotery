@@ -50,6 +50,67 @@
   #pragma comment(lib, "ws2_32.lib")
 #endif
 
+#ifdef __ANDROID__
+/*
+ * Copyright (C) 2008 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <linux/ashmem.h>
+#include <fcntl.h>
+#define ASHMEM_DEVICE	"/dev/ashmem"
+
+/*
+ * ashmem_create_region - creates a new ashmem region and returns the file
+ * descriptor, or <0 on error
+ *
+ * `name' is an optional label to give the region (visible in /proc/pid/maps)
+ * `size' is the size of the region, in page-aligned bytes
+ */
+int ashmem_create_region(const char *name, size_t size)
+{
+        int fd, ret;
+
+        fd = open(ASHMEM_DEVICE, O_RDWR);
+        if (fd < 0)
+                return fd;
+
+        if (name) {
+                char buf[ASHMEM_NAME_LEN] = {0};
+
+                strncpy(buf, name, sizeof(buf));
+                buf[sizeof(buf)-1] = 0;
+                ret = ioctl(fd, ASHMEM_SET_NAME, buf);
+                if (ret < 0)
+                        goto error;
+        }
+
+        ret = ioctl(fd, ASHMEM_SET_SIZE, size);
+        if (ret < 0)
+                goto error;
+
+        return fd;
+
+error:
+        close(fd);
+        return ret;
+}
+#endif // __ANDROID__
+
 #ifdef RMT_ENABLED
 
 // Global settings
@@ -232,7 +293,7 @@ static void usTimer_Init(usTimer* timer)
 
         struct timespec tv;
         clock_gettime(CLOCK_REALTIME, &tv);
-        timer->counter_start = (rmtU64)(tv.tv_sec * 1000000 + tv.tv_nsec * 0.001);
+        timer->counter_start = (rmtU64)(tv.tv_sec * 1000000) + (rmtU64)(tv.tv_nsec * 0.001);
 
     #endif
 }
@@ -258,7 +319,7 @@ static rmtU64 usTimer_Get(usTimer* timer)
 
         struct timespec tv;
         clock_gettime(CLOCK_REALTIME, &tv);
-        return (rmtU64)(tv.tv_sec * 1000000 + tv.tv_nsec * 0.001) - timer->counter_start;
+        return  ((rmtU64)(tv.tv_sec * 1000000) + (rmtU64)(tv.tv_nsec * 0.001)) - timer->counter_start;
 
     #endif
 }
@@ -699,6 +760,13 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
 
     // Linux version based on now-defunct Wikipedia section http://en.wikipedia.org/w/index.php?title=Circular_buffer&oldid=600431497
 
+
+#ifdef __ANDROID__
+    file_descriptor = ashmem_create_region("remotery_shm", size * 2);
+    if (file_descriptor < 0) {
+        return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
+    }
+#else
     // Create a unique temporary filename in the shared memory folder
     file_descriptor = mkstemp(path);
     if (file_descriptor < 0)
@@ -713,6 +781,7 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
     if (ftruncate (file_descriptor, size * 2))
         return RMT_ERROR_VIRTUAL_MEMORY_BUFFER_FAIL;
 
+#endif
     // Map 2 contiguous pages
     buffer->ptr = mmap(NULL, size * 2, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     if (buffer->ptr == MAP_FAILED)
