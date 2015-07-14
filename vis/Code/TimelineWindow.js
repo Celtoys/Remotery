@@ -10,6 +10,8 @@ TimelineWindow = (function()
 
 	var ROW_START_SIZE = 210;
 
+	var ROW_END_SIZE = 20;  // make room for scrollbar
+
 	var box_template = "<div class='TimelineBox'></div>";
 
 
@@ -143,7 +145,7 @@ TimelineWindow = (function()
 	{
 		// Subtract sizing of the label
 		// TODO: Use computed size
-		return self.TimelineContainer.Size[0] - ROW_START_SIZE;
+		return self.TimelineContainer.Size[0] - (ROW_START_SIZE + ROW_END_SIZE);
 	}
 
 
@@ -164,6 +166,9 @@ TimelineWindow = (function()
 		// Scale and offset back to the hover time
 		self.TimeRange.Set(time_start_us * scale + time_us, self.TimeRange.Span_us * scale);
 		self.DrawAllRows();
+
+		// Prevent vertical scrolling on mouse-wheel
+		DOM.Event.StopDefaultAction(evt);
 	}
 
 
@@ -262,3 +267,4 @@ TimelineWindow = (function()
 
 	return TimelineWindow;
 })();
+
