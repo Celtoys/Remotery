@@ -3637,7 +3637,7 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
     thread_sampler->next = NULL;
 
     // Set the initial name based on the unique thread sampler address
-    Base64_Encode((rmtU8*)thread_sampler, sizeof(rmtU8*), (rmtU8*)thread_sampler->name);
+    Base64_Encode((rmtU8*)&thread_sampler, sizeof(rmtU8*), (rmtU8*)thread_sampler->name);
 
     // Create the CPU sample tree only - the rest are created on-demand as they need
     // extra context information to function correctly.
