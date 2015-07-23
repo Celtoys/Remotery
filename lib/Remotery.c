@@ -468,12 +468,12 @@ static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, l
 // TODO: Make sure all platforms don't insert a memory barrier as this is only for stats
 //       Alternatively, add strong/weak memory order equivalents
 //
-static void AtomicAdd(rmtS32 volatile* value, rmtS32 add)
+static rmtS32 AtomicAdd(rmtS32 volatile* value, rmtS32 add)
 {
     #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
-        _InterlockedExchangeAdd((long volatile*)value, (long)add);
+        return _InterlockedExchangeAdd((long volatile*)value, (long)add);
     #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
-        __sync_fetch_and_add(value, add);
+        return __sync_fetch_and_add(value, add);
     #endif
 }
 
