@@ -214,7 +214,7 @@ rmtS64 maxS64(rmtS64 a, rmtS64 b)
 // Memory management functions
 static void* rmtMalloc( rmtU32 size )
 {
-	return g_Settings.malloc( g_Settings.mm_context, size );
+    return g_Settings.malloc( g_Settings.mm_context, size );
 }
 
 static void* rmtRealloc( void* ptr, rmtU32 size)
@@ -224,7 +224,7 @@ static void* rmtRealloc( void* ptr, rmtU32 size)
 
 static void rmtFree( void* ptr )
 {
-	g_Settings.free( g_Settings.mm_context, ptr );
+    g_Settings.free( g_Settings.mm_context, ptr );
 }
 
 /*
@@ -1292,34 +1292,34 @@ static const char* hex_encoding_table = "0123456789ABCDEF";
 
 static void itoahex_s( char *dest, rsize_t dmax, rmtS32 value )
 {
-	rsize_t len;
-	rmtS32	halfbytepos;
+    rsize_t len;
+    rmtS32	halfbytepos;
 
-	halfbytepos = 8;
+    halfbytepos = 8;
 
-	/* strip leading 0's */
-	while (halfbytepos > 1)
-	{
-		--halfbytepos;
-		if (value >> (4 * halfbytepos) & 0xF)
-		{
-			++halfbytepos;
-			break;
-		}
-	}
+    /* strip leading 0's */
+    while (halfbytepos > 1)
+    {
+        --halfbytepos;
+        if (value >> (4 * halfbytepos) & 0xF)
+        {
+            ++halfbytepos;
+            break;
+        }
+    }
 
-	len = 0;
-	while(len + 1 < dmax && halfbytepos > 0)
-	{
-		--halfbytepos;
-		dest[len] = hex_encoding_table[value >> (4 * halfbytepos) & 0xF];
-		++len;
-	}
+    len = 0;
+    while(len + 1 < dmax && halfbytepos > 0)
+    {
+        --halfbytepos;
+        dest[len] = hex_encoding_table[value >> (4 * halfbytepos) & 0xF];
+        ++len;
+    }
 
-	if (len < dmax)
-	{
-		dest[len] = 0;
-	}
+    if (len < dmax)
+    {
+        dest[len] = 0;
+    }
 }
 
 
@@ -3674,9 +3674,9 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
     thread_sampler->next = NULL;
 
     // Set the initial name to Thread0 etc.
-	thread_sampler->name[0] = 0;
-	strncat_s(thread_sampler->name, sizeof(thread_sampler->name), "Thread", 6);
-	itoahex_s(thread_sampler->name + 6, sizeof(thread_sampler->name) - 6, AtomicAdd(&countThreads, 1));
+    thread_sampler->name[0] = 0;
+    strncat_s(thread_sampler->name, sizeof(thread_sampler->name), "Thread", 6);
+    itoahex_s(thread_sampler->name + 6, sizeof(thread_sampler->name) - 6, AtomicAdd(&countThreads, 1));
 
     // Create the CPU sample tree only - the rest are created on-demand as they need
     // extra context information to function correctly.
@@ -4211,7 +4211,7 @@ static rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_
         if (error != RMT_ERROR_NONE)
             return error;
         ts = *thread_sampler;
-		//printf("TS name: %s\n", ts->name);
+ 
         // Add to the beginning of the global linked list of thread samplers
         while (1)
         {
