@@ -44,6 +44,7 @@
     @OPENGL:        OpenGL event sampling
 */
 
+#define RMT_IMPL
 #include "Remotery.h"
 
 #ifdef RMT_PLATFORM_WINDOWS
@@ -4284,7 +4285,7 @@ static void* CRTRealloc(void* mm_context, void* ptr, rmtU32 size)
 }
 
 
-rmtSettings* _rmt_Settings(void)
+RMT_API rmtSettings* _rmt_Settings(void)
 {
     // Default-initialize on first call
     if( g_SettingsInitialized == RMT_FALSE )
@@ -4307,7 +4308,7 @@ rmtSettings* _rmt_Settings(void)
 }
 
 
-rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
+RMT_API rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
     rmtError error;
 
@@ -4321,13 +4322,13 @@ rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 }
 
 
-void _rmt_DestroyGlobalInstance(Remotery* remotery)
+RMT_API void _rmt_DestroyGlobalInstance(Remotery* remotery)
 {
     Delete(Remotery, remotery);
 }
 
 
-void _rmt_SetGlobalInstance(Remotery* remotery)
+RMT_API void _rmt_SetGlobalInstance(Remotery* remotery)
 {
     // Default-initialise if user has not set values
     rmt_Settings();
@@ -4336,7 +4337,7 @@ void _rmt_SetGlobalInstance(Remotery* remotery)
 }
 
 
-Remotery* _rmt_GetGlobalInstance(void)
+RMT_API Remotery* _rmt_GetGlobalInstance(void)
 {
     return g_Remotery;
 }
@@ -4376,7 +4377,7 @@ static void SetDebuggerThreadName(const char* name)
 }
 
 
-void _rmt_SetCurrentThreadName(rmtPStr thread_name)
+RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 {
     ThreadSampler* ts;
     rsize_t slen;
@@ -4425,7 +4426,7 @@ static rmtBool QueueLine(MessageQueue* queue, char* text, rmtU32 size, struct Th
 static const char log_message[] = "{ \"id\": \"LOG\", \"text\": \"";
 
 
-void _rmt_LogText(rmtPStr text)
+RMT_API void _rmt_LogText(rmtPStr text)
 {
     int start_offset, prev_offset, i;
     char line_buffer[1024] = { 0 };
@@ -4510,7 +4511,7 @@ static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
+RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 {
     // 'hash_cache' stores a pointer to a sample name's hash value. Internally this is used to identify unique callstacks and it
     // would be ideal that it's not recalculated each time the sample is used. This can be statically cached at the point
@@ -4535,7 +4536,7 @@ void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-void _rmt_EndCPUSample(void)
+RMT_API void _rmt_EndCPUSample(void)
 {
     ThreadSampler* ts;
 
@@ -4762,7 +4763,7 @@ static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample)
 }
 
 
-void _rmt_BindCUDA(const rmtCUDABind* bind)
+RMT_API void _rmt_BindCUDA(const rmtCUDABind* bind)
 {
     assert(bind != NULL);
     if (g_Remotery != NULL)
@@ -4770,7 +4771,7 @@ void _rmt_BindCUDA(const rmtCUDABind* bind)
 }
 
 
-void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
+RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
 {
     ThreadSampler* ts;
 
@@ -4812,7 +4813,7 @@ void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
 }
 
 
-void _rmt_EndCUDASample(void* stream)
+RMT_API void _rmt_EndCUDASample(void* stream)
 {
     ThreadSampler* ts;
 
@@ -5085,7 +5086,7 @@ static void D3D11Sample_Destructor(D3D11Sample* sample)
 }
 
 
-void _rmt_BindD3D11(void* device, void* context)
+RMT_API void _rmt_BindD3D11(void* device, void* context)
 {
     if (g_Remotery != NULL)
     {
@@ -5116,7 +5117,7 @@ static void FreeD3D11TimeStamps(Sample* sample)
 }
 
 
-void _rmt_UnbindD3D11(void)
+RMT_API void _rmt_UnbindD3D11(void)
 {
     if (g_Remotery != NULL)
     {
@@ -5154,7 +5155,7 @@ void _rmt_UnbindD3D11(void)
 }
 
 
-void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
+RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 {
     ThreadSampler* ts;
     D3D11* d3d11;
@@ -5285,7 +5286,7 @@ static void UpdateD3D11Frame(void)
 }
 
 
-void _rmt_EndD3D11Sample(void)
+RMT_API void _rmt_EndD3D11Sample(void)
 {
     ThreadSampler* ts;
     D3D11* d3d11;
@@ -5619,7 +5620,7 @@ static void OpenGLSample_Destructor(OpenGLSample* sample)
 }
 
 
-void _rmt_BindOpenGL()
+RMT_API void _rmt_BindOpenGL()
 {
     if (g_Remotery != NULL)
     {
@@ -5654,7 +5655,7 @@ static void FreeOpenGLTimeStamps(Sample* sample)
 }
 
 
-void _rmt_UnbindOpenGL(void)
+RMT_API void _rmt_UnbindOpenGL(void)
 {
     if (g_Remotery != NULL)
     {
@@ -5688,7 +5689,7 @@ void _rmt_UnbindOpenGL(void)
 }
 
 
-void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
+RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 {
     ThreadSampler* ts;
 
@@ -5800,7 +5801,7 @@ static void UpdateOpenGLFrame(void)
 }
 
 
-void _rmt_EndOpenGLSample(void)
+RMT_API void _rmt_EndOpenGLSample(void)
 {
     ThreadSampler* ts;
 
