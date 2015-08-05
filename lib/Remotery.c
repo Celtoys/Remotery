@@ -5345,8 +5345,10 @@ RMT_API void _rmt_EndD3D11Sample(void)
 #ifndef GLAPI
 #  if defined(__MINGW32__) || defined(__CYGWIN__)
 #    define GLAPI extern
-#  else
+#  elif defined (_WIN32)
 #    define GLAPI WINGDIAPI
+#  else
+#    define GLAPI extern
 #  endif
 #endif
 
@@ -5392,6 +5394,7 @@ GLAPI GLenum GLAPIENTRY glGetError(void);
 #elif defined(__native_client__)
 #  define rmtGetProcAddress(name) NULL /* TODO */
 #else /* __linux */
+extern void* glXGetProcAddressARB(const GLubyte*);
 #  define rmtGetProcAddress(name) (*glXGetProcAddressARB)(name)
 #endif
 
