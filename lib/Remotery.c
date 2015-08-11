@@ -73,6 +73,7 @@
 #include <sys/ioctl.h>
 #include <linux/ashmem.h>
 #include <fcntl.h>
+#include <string.h>
 #define ASHMEM_DEVICE	"/dev/ashmem"
 
 /*
@@ -1057,6 +1058,9 @@ typedef int errno_t;
 typedef unsigned int rsize_t;
 #endif
 
+#if defined(RMT_PLATFORM_MACOS) && !defined(_RSIZE_T)
+typedef __darwin_size_t rsize_t;
+#endif
 
 static rsize_t
 strnlen_s (const char *dest, rsize_t dmax)
