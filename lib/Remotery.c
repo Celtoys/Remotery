@@ -136,6 +136,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
     #include <TinyCRT/TinyCRT.h>
     #include <TinyCRT/TinyWinsock.h>
+    #include <Memory/Memory.h>
 
     #define CreateFileMapping CreateFileMappingA
 
