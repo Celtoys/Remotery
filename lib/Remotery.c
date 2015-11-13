@@ -4271,19 +4271,22 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 }
 
 
-static void* CRTMalloc(void* /*mm_context*/, rmtU32 size)
+static void* CRTMalloc(void* mm_context, rmtU32 size)
 {
+    RMT_UNREFERENCED_PARAMETER(mm_context);
     return malloc((size_t)size);
 }
 
 
-static void CRTFree(void* /*mm_context*/, void* ptr)
+static void CRTFree(void* mm_context, void* ptr)
 {
+    RMT_UNREFERENCED_PARAMETER(mm_context);
     free(ptr);
 }
 
-static void* CRTRealloc(void* /*mm_context*/, void* ptr, rmtU32 size)
+static void* CRTRealloc(void* mm_context, void* ptr, rmtU32 size)
 {
+    RMT_UNREFERENCED_PARAMETER(mm_context);
     return realloc(ptr, size);
 }
 
