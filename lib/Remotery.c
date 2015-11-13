@@ -4342,7 +4342,6 @@ RMT_API Remotery* _rmt_GetGlobalInstance(void)
 
 static void SetDebuggerThreadName(const char* name)
 {
-    RMT_UNREFERENCED_PARAMETER(name);
     #ifdef RMT_PLATFORM_WINDOWS
         THREADNAME_INFO info;
         info.dwType = 0x1000;
@@ -4359,6 +4358,8 @@ static void SetDebuggerThreadName(const char* name)
         {
         }
         #endif
+    #else
+        RMT_UNREFERENCED_PARAMETER(name);
     #endif
 }
 
