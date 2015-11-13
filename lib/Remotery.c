@@ -824,11 +824,10 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
 */
 
 
-// comp.lang.c FAQ 4.13 : http://c-faq.com/ptrs/generic.html
-// Should not store a funcptr in a void*, but any funcptr type will do
-typedef int(*FuncPtr)();
+typedef struct Thread Thread;
+typedef rmtError(*ThreadProc)(Thread* thread);
 
-typedef struct
+typedef struct Thread
 {
     // OS-specific data
     #if defined(RMT_PLATFORM_WINDOWS)
@@ -838,7 +837,7 @@ typedef struct
     #endif
 
     // Callback executed when the thread is created
-    FuncPtr callback;
+    ThreadProc callback;
 
     // Caller-specified parameter passed to Thread_Create
     void* param;
@@ -861,7 +860,7 @@ typedef rmtError (*ThreadProc)(Thread* thread);
     {
         Thread* thread = (Thread*)lpParameter;
         assert(thread != NULL);
-        thread->error = ((ThreadProc)thread->callback)(thread);
+        thread->error = thread->callback(thread);
         return thread->error == RMT_ERROR_NONE ? 1 : 0;
     }
 
@@ -870,7 +869,7 @@ typedef rmtError (*ThreadProc)(Thread* thread);
     {
         Thread* thread = (Thread*)pArgs;
         assert(thread != NULL);
-        thread->error = ((ThreadProc)thread->callback)(thread);
+        thread->error = thread->callback(thread);
         return NULL; // returned error not use, check thread->error.
     }
 #endif
@@ -892,7 +891,7 @@ static rmtError Thread_Constructor(Thread* thread, ThreadProc callback, void* pa
 {
     assert(thread != NULL);
 
-    thread->callback = (FuncPtr)callback;
+    thread->callback = callback;
     thread->param = param;
     thread->error = RMT_ERROR_NONE;
     thread->request_exit = RMT_FALSE;
