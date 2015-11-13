@@ -507,27 +507,6 @@ static void WriteFence()
 }
 
 
-// Get a shared value with acquire semantics, ensuring the read is complete
-// before the function returns.
-void* LoadAcquire(void* volatile const* addr)
-{
-    // Hardware fence is implicit on x86 so only need the compiler fence
-    void* v = *addr;
-    ReadFence();
-    return v;
-}
-
-
-// Set a shared value with release semantics, ensuring any prior writes
-// are complete before the value is set.
-void StoreRelease(void* volatile*  addr, void* v)
-{
-    // Hardware fence is implicit on x86 so only need the compiler fence
-    WriteFence();
-    *addr = v;
-}
-
-
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
