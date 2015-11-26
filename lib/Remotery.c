@@ -5330,7 +5330,7 @@ RMT_API void _rmt_EndD3D11Sample(void)
 #ifndef APIENTRY
 #  if defined(__MINGW32__) || defined(__CYGWIN__)
 #    define APIENTRY __stdcall
-#  elif (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED) || defined(__BORLANDC__)
+#  elif (defined(_MSC_VER) && (_MSC_VER >= 800)) || defined(_STDCALL_SUPPORTED) || defined(__BORLANDC__)
 #    define APIENTRY __stdcall
 #  else
 #    define APIENTRY
@@ -5389,7 +5389,11 @@ GLAPI GLenum GLAPIENTRY glGetError(void);
 #elif defined(__native_client__)
 #  define rmtGetProcAddress(name) NULL /* TODO */
 #else /* __linux */
+#  ifdef __cplusplus
+extern "C" void* glXGetProcAddressARB(const GLubyte*);
+#  else
 extern void* glXGetProcAddressARB(const GLubyte*);
+#  endif // __cplusplus
 #  define rmtGetProcAddress(name) (*glXGetProcAddressARB)(name)
 #endif
 
@@ -5591,7 +5595,7 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
 typedef struct OpenGLSample
 {
     // IS-A inheritance relationship
-    Sample Sample;
+    Sample m_sample;
 
     OpenGLTimestamp* timestamp;
 
@@ -5604,8 +5608,8 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->Sample.type = SampleType_OpenGL;
-    sample->Sample.size_bytes = sizeof(OpenGLSample);
+    sample->m_sample.type = SampleType_OpenGL;
+    sample->m_sample.size_bytes = sizeof(OpenGLSample);
     sample->timestamp = NULL;
 
     return RMT_ERROR_NONE;
