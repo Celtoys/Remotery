@@ -4386,8 +4386,8 @@ static void SetDebuggerThreadName(const char* name)
     #ifdef RMT_PLATFORM_POSIX
         // pthread_setname_np is a non-standard GNU extension.
         char name_clamp[16];
-        strncpy(name_clamp, name, 15);
-        name_clamp[15] = 0;
+        name_clamp[0] = 0;
+        strncat_s(name_clamp, sizeof(name_clamp), name, 15);
         prctl(PR_SET_NAME,name_clamp,0,0,0);
     #endif
 }
