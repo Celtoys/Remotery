@@ -3651,15 +3651,6 @@ typedef struct ThreadSampler
 
 } ThreadSampler;
 
-static void GetDebuggerThreadName(char* name_max_16_bytes)
-{
-    name_max_16_bytes[0] = 0;
-    #ifdef RMT_PLATFORM_POSIX
-        // pthread_getname_np is a non-standard GNU extension.
-        prctl(PR_GET_NAME,name_max_16_bytes,0,0,0);
-    #endif
-}
-
 static rmtS32 countThreads = 0;
 
 static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
@@ -3674,13 +3665,14 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
         thread_sampler->sample_trees[i] = NULL;
     thread_sampler->next = NULL;
 
-    // Set the initial name to Thread0 etc.
-    GetDebuggerThreadName(thread_sampler->name);
-    if (!(thread_sampler->name[0]))
-    {
-        strncat_s(thread_sampler->name, sizeof(thread_sampler->name), "Thread", 6);
-        itoahex_s(thread_sampler->name + 6, sizeof(thread_sampler->name) - 6, AtomicAdd(&countThreads, 1));
-    }
+    // Set the initial name to Thread0 etc. or use the existing POXIS name.
+    thread_sampler->name[0] = 0;
+    #if defined(RMT_PLATFORM_POSIX) && RMT_USE_POSIX_THREADNAMES
+    prctl(PR_GET_NAME,thread_sampler->name,0,0,0);
+    #else
+    strncat_s(thread_sampler->name, sizeof(thread_sampler->name), "Thread", 6);
+    itoahex_s(thread_sampler->name + 6, sizeof(thread_sampler->name) - 6, AtomicAdd(&countThreads, 1));
+    #endif
 
     // Create the CPU sample tree only - the rest are created on-demand as they need
     // extra context information to function correctly.
