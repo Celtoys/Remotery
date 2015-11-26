@@ -3665,7 +3665,7 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
         thread_sampler->sample_trees[i] = NULL;
     thread_sampler->next = NULL;
 
-    // Set the initial name to Thread0 etc. or use the existing POXIS name.
+    // Set the initial name to Thread0 etc. or use the existing POSIX name.
     thread_sampler->name[0] = 0;
     #if defined(RMT_PLATFORM_POSIX) && RMT_USE_POSIX_THREADNAMES
     prctl(PR_GET_NAME,thread_sampler->name,0,0,0);
