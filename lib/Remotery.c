@@ -115,6 +115,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #include <string.h>
         #include <sys/socket.h>
         #include <sys/mman.h>
+        #include <sys/prctl.h>
         #include <netinet/in.h>
         #include <fcntl.h>
         #include <errno.h>
@@ -3664,10 +3665,14 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
         thread_sampler->sample_trees[i] = NULL;
     thread_sampler->next = NULL;
 
-    // Set the initial name to Thread0 etc.
+    // Set the initial name to Thread0 etc. or use the existing POSIX name.
     thread_sampler->name[0] = 0;
+    #if defined(RMT_PLATFORM_POSIX) && RMT_USE_POSIX_THREADNAMES
+    prctl(PR_GET_NAME,thread_sampler->name,0,0,0);
+    #else
     strncat_s(thread_sampler->name, sizeof(thread_sampler->name), "Thread", 6);
     itoahex_s(thread_sampler->name + 6, sizeof(thread_sampler->name) - 6, AtomicAdd(&countThreads, 1));
+    #endif
 
     // Create the CPU sample tree only - the rest are created on-demand as they need
     // extra context information to function correctly.
@@ -4368,6 +4373,14 @@ static void SetDebuggerThreadName(const char* name)
         #endif
     #else
         RMT_UNREFERENCED_PARAMETER(name);
+    #endif
+
+    #ifdef RMT_PLATFORM_POSIX
+        // pthread_setname_np is a non-standard GNU extension.
+        char name_clamp[16];
+        name_clamp[0] = 0;
+        strncat_s(name_clamp, sizeof(name_clamp), name, 15);
+        prctl(PR_SET_NAME,name_clamp,0,0,0);
     #endif
 }
 
