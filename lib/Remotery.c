@@ -119,6 +119,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #include <netinet/in.h>
         #include <fcntl.h>
         #include <errno.h>
+        #include <dlfcn.h>
     #endif
 
     #ifdef __MINGW32__
@@ -171,6 +172,40 @@ static void rmtFree( void* ptr )
 {
     g_Settings.free( g_Settings.mm_context, ptr );
 }
+
+
+// DLL/Shared Library functions
+static void* rmtLoadLibrary(const char* path)
+{
+    #if defined(RMT_PLATFORM_WINDOWS)
+        return (void*)LoadLibraryA(path);
+    #elif defined(RMT_PLATFORM_POSIX)
+        return dlopen(path, RTLD_LOCAL | RTLD_LAZY);
+    #else
+        return NULL;
+    #endif
+}
+
+static void rmtFreeLibrary(void* handle)
+{
+    #if defined(RMT_PLATFORM_WINDOWS)
+        FreeLibrary(handle);
+    #elif defined(RMT_PLATFORM_POSIX)
+        dlclose(handle);
+    #endif
+}
+
+static void* rmtGetProcAddress(void* handle, const char* symbol)
+{
+    #if defined(RMT_PLATFORM_WINDOWS)
+        return GetProcAddress((HMODULE)handle, (LPCSTR)symbol);
+    #elif defined(RMT_PLATFORM_POSIX)
+        return dlsym(handle, symbol);
+    #else
+        return NULL;
+    #endif
+}
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -5392,22 +5427,22 @@ GLAPI GLenum GLAPIENTRY glGetError(void);
 
 // Not sure which platforms we need
 #if defined(_WIN32)
-#  define rmtGetProcAddress(name) wglGetProcAddress((LPCSTR)name)
+#  define rmtglGetProcAddress(name) wglGetProcAddress((LPCSTR)name)
 #elif defined(__APPLE__) && !defined(GLEW_APPLE_GLX)
-#  define rmtGetProcAddress(name) NSGLGetProcAddress(name)
+#  define rmtglGetProcAddress(name) NSGLGetProcAddress(name)
 #elif defined(__sgi) || defined(__sun)
-#  define rmtGetProcAddress(name) dlGetProcAddress(name)
+#  define rmtglGetProcAddress(name) dlGetProcAddress(name)
 #elif defined(__ANDROID__)
-#  define rmtGetProcAddress(name) NULL /* TODO */
+#  define rmtglGetProcAddress(name) NULL /* TODO */
 #elif defined(__native_client__)
-#  define rmtGetProcAddress(name) NULL /* TODO */
+#  define rmtglGetProcAddress(name) NULL /* TODO */
 #else /* __linux */
 #  ifdef __cplusplus
 extern "C" void* glXGetProcAddressARB(const GLubyte*);
 #  else
 extern void* glXGetProcAddressARB(const GLubyte*);
 #  endif // __cplusplus
-#  define rmtGetProcAddress(name) (*glXGetProcAddressARB)(name)
+#  define rmtglGetProcAddress(name) (*glXGetProcAddressARB)(name)
 #endif
 
 #define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL), g_Remotery->opengl->x
@@ -5642,15 +5677,15 @@ RMT_API void _rmt_BindOpenGL()
         OpenGL* opengl = g_Remotery->opengl;
         assert(opengl != NULL);
 
-        opengl->__glGenQueries = (PFNGLGENQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glGenQueries");
-        opengl->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtGetProcAddress((const GLubyte*)"glDeleteQueries");
-        opengl->__glBeginQuery = (PFNGLBEGINQUERYPROC)rmtGetProcAddress((const GLubyte*)"glBeginQuery");
-        opengl->__glEndQuery = (PFNGLENDQUERYPROC)rmtGetProcAddress((const GLubyte*)"glEndQuery");
-        opengl->__glGetQueryObjectiv = (PFNGLGETQUERYOBJECTIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectiv");
-        opengl->__glGetQueryObjectuiv = (PFNGLGETQUERYOBJECTUIVPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectuiv");
-        opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjecti64v");
-        opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtGetProcAddress((const GLubyte*)"glGetQueryObjectui64v");
-        opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtGetProcAddress((const GLubyte*)"glQueryCounter");
+        opengl->__glGenQueries = (PFNGLGENQUERIESPROC)rmtglGetProcAddress((const GLubyte*)"glGenQueries");
+        opengl->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtglGetProcAddress((const GLubyte*)"glDeleteQueries");
+        opengl->__glBeginQuery = (PFNGLBEGINQUERYPROC)rmtglGetProcAddress((const GLubyte*)"glBeginQuery");
+        opengl->__glEndQuery = (PFNGLENDQUERYPROC)rmtglGetProcAddress((const GLubyte*)"glEndQuery");
+        opengl->__glGetQueryObjectiv = (PFNGLGETQUERYOBJECTIVPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjectiv");
+        opengl->__glGetQueryObjectuiv = (PFNGLGETQUERYOBJECTUIVPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjectuiv");
+        opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjecti64v");
+        opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjectui64v");
+        opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtglGetProcAddress((const GLubyte*)"glQueryCounter");
     }
 }
 
