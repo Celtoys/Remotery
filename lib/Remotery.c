@@ -5407,6 +5407,7 @@ typedef rmtU64 GLuint64;
 typedef rmtS64 GLint64;
 typedef unsigned char GLubyte;
 
+typedef GLenum (GLAPIENTRY * PFNGLGETERRORPROC) (void);
 typedef void (GLAPIENTRY * PFNGLGENQUERIESPROC) (GLsizei n, GLuint* ids);
 typedef void (GLAPIENTRY * PFNGLDELETEQUERIESPROC) (GLsizei n, const GLuint* ids);
 typedef void (GLAPIENTRY * PFNGLBEGINQUERYPROC) (GLenum target, GLuint id);
@@ -5417,33 +5418,11 @@ typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTI64VPROC) (GLuint id, GLenum pname
 typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUI64VPROC) (GLuint id, GLenum pname, GLuint64* params);
 typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
 
-GLAPI GLenum GLAPIENTRY glGetError(void);
-
 #define GL_NO_ERROR 0
 #define GL_QUERY_RESULT 0x8866
 #define GL_QUERY_RESULT_AVAILABLE 0x8867
 #define GL_TIME_ELAPSED 0x88BF
 #define GL_TIMESTAMP 0x8E28
-
-// Not sure which platforms we need
-#if defined(_WIN32)
-#  define rmtglGetProcAddress(name) wglGetProcAddress((LPCSTR)name)
-#elif defined(__APPLE__) && !defined(GLEW_APPLE_GLX)
-#  define rmtglGetProcAddress(name) NSGLGetProcAddress(name)
-#elif defined(__sgi) || defined(__sun)
-#  define rmtglGetProcAddress(name) dlGetProcAddress(name)
-#elif defined(__ANDROID__)
-#  define rmtglGetProcAddress(name) NULL /* TODO */
-#elif defined(__native_client__)
-#  define rmtglGetProcAddress(name) NULL /* TODO */
-#else /* __linux */
-#  ifdef __cplusplus
-extern "C" void* glXGetProcAddressARB(const GLubyte*);
-#  else
-extern void* glXGetProcAddressARB(const GLubyte*);
-#  endif // __cplusplus
-#  define rmtglGetProcAddress(name) (*glXGetProcAddressARB)(name)
-#endif
 
 #define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL), g_Remotery->opengl->x
 
@@ -5460,6 +5439,10 @@ extern void* glXGetProcAddressARB(const GLubyte*);
 
 typedef struct OpenGL
 {
+    // Handle to the OS OpenGL DLL
+    void* dll_handle;
+
+    PFNGLGETERRORPROC __glGetError;
     PFNGLGENQUERIESPROC __glGenQueries;
     PFNGLDELETEQUERIESPROC __glDeleteQueries;
     PFNGLBEGINQUERYPROC __glBeginQuery;
@@ -5484,6 +5467,57 @@ typedef struct OpenGL
 } OpenGL;
 
 
+static GLenum rmtglGetError(void)
+{
+    if (g_Remotery != NULL)
+    {
+        assert(g_Remotery->opengl != NULL);
+        if (g_Remotery->opengl->__glGetError != NULL)
+            return g_Remotery->opengl->__glGetError();
+    }
+
+    return (GLenum)0;
+}
+
+
+#ifdef RMT_PLATFORM_LINUX
+    #ifdef __cplusplus
+        extern "C" void* glXGetProcAddressARB(const GLubyte*);
+    #else
+        extern void* glXGetProcAddressARB(const GLubyte*);
+    #endif
+#endif
+
+
+static void* rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
+{
+    assert(opengl != NULL);
+
+    #if defined(RMT_PLATFORM_WINDOWS)
+    {
+        // Get OpenGL extension-loading function for each call
+        typedef void* (*wglGetProcAddressFn)(LPCSTR);
+        {
+            wglGetProcAddressFn wglGetProcAddress = (wglGetProcAddressFn)rmtGetProcAddress(opengl->dll_handle, "wglGetProcAddress");
+            if (wglGetProcAddress != NULL)
+                return wglGetProcAddress(symbol);
+        }
+    }
+
+    #elif defined(__APPLE__) && !defined(GLEW_APPLE_GLX)
+
+        return NSGLGetProcAddress((const GLubyte*)symbol);
+
+    #else
+
+        return glXGetProcAddressARB((const GLubyte*)name);
+
+    #endif
+
+    return NULL;
+}
+
+
 static rmtError OpenGL_Create(OpenGL** opengl)
 {
     rmtError error;
@@ -5494,6 +5528,9 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     if (*opengl == NULL)
         return RMT_ERROR_MALLOC_FAIL;
 
+    (*opengl)->dll_handle = NULL;
+
+    (*opengl)->__glGetError = NULL;
     (*opengl)->__glGenQueries = NULL;
     (*opengl)->__glDeleteQueries = NULL;
     (*opengl)->__glBeginQuery = NULL;
@@ -5545,7 +5582,7 @@ static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
     // Create start/end timestamp queries
     assert(g_Remotery != NULL);
     glGenQueries(2, stamp->queries);
-    error = glGetError();
+    error = rmtglGetError();
     if (error != GL_NO_ERROR)
         return RMT_ERROR_OPENGL_ERROR;
 
@@ -5562,7 +5599,7 @@ static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
     {
         int error;
         glDeleteQueries(2, stamp->queries);
-        error = glGetError();
+        error = rmtglGetError();
         assert(error == GL_NO_ERROR);
     }
 }
@@ -5577,7 +5614,7 @@ static void OpenGLTimestamp_Begin(OpenGLTimestamp* stamp)
     // Start of disjoint and first query
     assert(g_Remotery != NULL);
     glQueryCounter(stamp->queries[0], GL_TIMESTAMP);
-    error = glGetError();
+    error = rmtglGetError();
     assert(error == GL_NO_ERROR);
 }
 
@@ -5591,7 +5628,7 @@ static void OpenGLTimestamp_End(OpenGLTimestamp* stamp)
     // End of disjoint and second query
     assert(g_Remotery != NULL);
     glQueryCounter(stamp->queries[1], GL_TIMESTAMP);
-    error = glGetError();
+    error = rmtglGetError();
     assert(error == GL_NO_ERROR);
 }
 
@@ -5610,21 +5647,21 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
     // Check to see if all queries are ready
     // If any fail to arrive, wait until later
     glGetQueryObjectiv(stamp->queries[0], GL_QUERY_RESULT_AVAILABLE, &startAvailable);
-    error = glGetError();
+    error = rmtglGetError();
     assert(error == GL_NO_ERROR);
     if (!startAvailable)
         return RMT_FALSE;
     glGetQueryObjectiv(stamp->queries[1], GL_QUERY_RESULT_AVAILABLE, &endAvailable);
-    error = glGetError();
+    error = rmtglGetError();
     assert(error == GL_NO_ERROR);
     if (!endAvailable)
         return RMT_FALSE;
 
     glGetQueryObjectui64v(stamp->queries[0], GL_QUERY_RESULT, &start);
-    error = glGetError();
+    error = rmtglGetError();
     assert(error == GL_NO_ERROR);
     glGetQueryObjectui64v(stamp->queries[1], GL_QUERY_RESULT, &end);
-    error = glGetError();
+    error = rmtglGetError();
     assert(error == GL_NO_ERROR);
 
     // Mark the first timestamp
@@ -5677,15 +5714,20 @@ RMT_API void _rmt_BindOpenGL()
         OpenGL* opengl = g_Remotery->opengl;
         assert(opengl != NULL);
 
-        opengl->__glGenQueries = (PFNGLGENQUERIESPROC)rmtglGetProcAddress((const GLubyte*)"glGenQueries");
-        opengl->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtglGetProcAddress((const GLubyte*)"glDeleteQueries");
-        opengl->__glBeginQuery = (PFNGLBEGINQUERYPROC)rmtglGetProcAddress((const GLubyte*)"glBeginQuery");
-        opengl->__glEndQuery = (PFNGLENDQUERYPROC)rmtglGetProcAddress((const GLubyte*)"glEndQuery");
-        opengl->__glGetQueryObjectiv = (PFNGLGETQUERYOBJECTIVPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjectiv");
-        opengl->__glGetQueryObjectuiv = (PFNGLGETQUERYOBJECTUIVPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjectuiv");
-        opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjecti64v");
-        opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtglGetProcAddress((const GLubyte*)"glGetQueryObjectui64v");
-        opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtglGetProcAddress((const GLubyte*)"glQueryCounter");
+        #if defined (RMT_PLATFORM_WINDOWS)
+            opengl->dll_handle = rmtLoadLibrary("opengl32.dll");
+        #endif
+
+        opengl->__glGetError = (PFNGLGETERRORPROC)rmtGetProcAddress(opengl->dll_handle, "glGetError");
+        opengl->__glGenQueries = (PFNGLGENQUERIESPROC)rmtglGetProcAddress(opengl, "glGenQueries");
+        opengl->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtglGetProcAddress(opengl, "glDeleteQueries");
+        opengl->__glBeginQuery = (PFNGLBEGINQUERYPROC)rmtglGetProcAddress(opengl, "glBeginQuery");
+        opengl->__glEndQuery = (PFNGLENDQUERYPROC)rmtglGetProcAddress(opengl, "glEndQuery");
+        opengl->__glGetQueryObjectiv = (PFNGLGETQUERYOBJECTIVPROC)rmtglGetProcAddress(opengl, "glGetQueryObjectiv");
+        opengl->__glGetQueryObjectuiv = (PFNGLGETQUERYOBJECTUIVPROC)rmtglGetProcAddress(opengl, "glGetQueryObjectuiv");
+        opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjecti64v");
+        opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjectui64v");
+        opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtglGetProcAddress(opengl, "glQueryCounter");
     }
 }
 
@@ -5735,6 +5777,13 @@ RMT_API void _rmt_UnbindOpenGL(void)
 
         // Free all allocated OpenGL resources
         Delete(ObjectAllocator, opengl->timestamp_allocator);
+
+        // Release reference to the OpenGL DLL
+        if (opengl->dll_handle != NULL)
+        {
+            rmtFreeLibrary(opengl->dll_handle);
+            opengl->dll_handle = NULL;
+        }
     }
 }
 
