@@ -5510,7 +5510,7 @@ static void* rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
 
     #elif defined(RMT_PLATFORM_LINUX)
 
-        return glXGetProcAddressARB((const GLubyte*)name);
+        return glXGetProcAddressARB((const GLubyte*)symbol);
 
     #endif
 
