@@ -2892,11 +2892,20 @@ static void MessageQueue_Destructor(MessageQueue* queue)
 }
 
 
+static rmtU32 MessageQueue_SizeForPayload(rmtU32 payload_size)
+{
+    // Add message header and align for ARM platforms
+    rmtU32 size = sizeof(Message) + payload_size;
+    size = (size + 3) & ~3U;
+    return size;
+}
+
+
 static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_size, struct ThreadSampler* thread_sampler)
 {
     Message* msg;
 
-    rmtU32 write_size = sizeof(Message) + payload_size;
+    rmtU32 write_size = MessageQueue_SizeForPayload(payload_size);
 
     assert(queue != NULL);
 
@@ -2981,7 +2990,7 @@ static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* messag
     // the read position so that a winning thread's allocation will inherit the "not ready" state.
     //
     // This costs some write bandwidth and has the potential to flush cache to other cores.
-    message_size = sizeof(Message) + message->payload_size;
+    message_size = MessageQueue_SizeForPayload(message->payload_size);
     memset(message, MsgID_NotReady, message_size);
 
     // Ensure clear completes before advancing the read position
