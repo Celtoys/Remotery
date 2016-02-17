@@ -110,6 +110,9 @@ Console = (function()
 		// Emit to console and clear
 		self.Log("> " + msg);
 		self.UserInput.SetValue("");
+
+		// Keep focus with the edit box
+		return true;
 	}
 
 
