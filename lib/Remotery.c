@@ -856,8 +856,9 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
 */
 
 
-typedef struct Thread Thread;
-typedef rmtError(*ThreadProc)(Thread* thread);
+struct Thread;
+typedef rmtError(*ThreadProc)(struct Thread* thread);
+
 
 typedef struct Thread
 {
@@ -881,9 +882,6 @@ typedef struct Thread
     volatile rmtBool request_exit;
 
 } Thread;
-
-
-typedef rmtError (*ThreadProc)(Thread* thread);
 
 
 #if defined(RMT_PLATFORM_WINDOWS)
