@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <math.h>
+#include <signal.h>
+#include <stdio.h>
 #include "Remotery.h"
 
 double delay() {
@@ -14,20 +16,30 @@ double delay() {
     return j;
 }
 
+int sig = 0;
 
-int main( int argc, const char **argv ) {
+/// Allow to close cleanly with ctrl + c
+void sigintHandler(int sig_num) {
+    sig = sig_num;
+    printf("Interrupted\n");
+}
+
+int main( ) {
+    signal(SIGINT, sigintHandler);
+
     Remotery *rmt;
 
     if( RMT_ERROR_NONE != rmt_CreateGlobalInstance(&rmt) ) {
         return -1;
     }
 
-    for(;;) {
+    while (sig == 0) {
         rmt_LogText("start profiling");
         delay();
         rmt_LogText("end profiling");
     }
 
     rmt_DestroyGlobalInstance(rmt);
+    printf("Cleaned up and quit\n");
     return 0;
 }

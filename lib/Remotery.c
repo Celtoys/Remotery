@@ -198,7 +198,14 @@ static void rmtFreeLibrary(void* handle)
 static void* rmtGetProcAddress(void* handle, const char* symbol)
 {
     #if defined(RMT_PLATFORM_WINDOWS)
+        #ifdef _MSC_VER
+            #pragma warning(push)
+            #pragma warning(disable:4152) // C4152: nonstandard extension, function/data pointer conversion in expression
+        #endif
         return GetProcAddress((HMODULE)handle, (LPCSTR)symbol);
+        #ifdef _MSC_VER
+            #pragma warning(pop)
+        #endif
     #elif defined(RMT_PLATFORM_POSIX)
         return dlsym(handle, symbol);
     #else
@@ -2366,12 +2373,19 @@ typedef struct
 
     rmtU32 frame_bytes_remaining;
     rmtU32 mask_offset;
+#ifdef _MSC_VER
+    pragma warning(push)
 
+    #pragma warning(disable:4201) // Nameless struct/union
+#endif
     union
     {
         rmtU8 data_mask[4];
         rmtU32 data_mask_u32;
     };
+#ifdef _MSC_VER
+    #pragma warning(pop)
+#endif
 } WebSocket;
 
 
@@ -3385,6 +3399,7 @@ static rmtError Sample_Constructor(Sample* sample)
 
 static void Sample_Destructor(Sample* sample)
 {
+    assert(sample == 0 || sample != 0);	// To fool warning C4100 on warning level 4
     RMT_UNREFERENCED_PARAMETER(sample);
 }
 
@@ -3738,6 +3753,7 @@ static void ThreadSampler_Destructor(ThreadSampler* ts)
 
 static rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
 {
+    assert(ts == 0 || ts != 0);	// To fool warning C4100 on warning level 4
     RMT_UNREFERENCED_PARAMETER(ts);
     return SampleTree_Push(tree, name, name_hash, sample);
 }
@@ -4307,6 +4323,7 @@ static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 
 static void* CRTMalloc(void* mm_context, rmtU32 size)
 {
+    assert(mm_context == 0 || mm_context != 0);	// To fool warning C4100 on warning level 4
     RMT_UNREFERENCED_PARAMETER(mm_context);
     return malloc((size_t)size);
 }
@@ -4314,12 +4331,14 @@ static void* CRTMalloc(void* mm_context, rmtU32 size)
 
 static void CRTFree(void* mm_context, void* ptr)
 {
+    assert(mm_context == 0 || mm_context != 0);	// To fool warning C4100 on warning level 4
     RMT_UNREFERENCED_PARAMETER(mm_context);
     free(ptr);
 }
 
 static void* CRTRealloc(void* mm_context, void* ptr, rmtU32 size)
 {
+    assert(mm_context == 0 || mm_context != 0);	// To fool warning C4100 on warning level 4
     RMT_UNREFERENCED_PARAMETER(mm_context);
     return realloc(ptr, size);
 }
