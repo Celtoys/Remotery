@@ -1,5 +1,5 @@
 //
-// Copyright 2014 Celtoys Ltd
+// Copyright 2014-2016 Celtoys Ltd
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -3350,9 +3350,10 @@ typedef struct Sample
     // This is also mixed with the callstack hash to allow consistent addressing of any point in the tree
     rmtU32 nb_children;
 
-    // Start and end of the sample in microseconds
+    // Sample end points and length in microseconds
     rmtU64 us_start;
     rmtU64 us_end;
+    rmtU64 us_length;
 
 } Sample;
 
@@ -3378,6 +3379,7 @@ static rmtError Sample_Constructor(Sample* sample)
     sample->nb_children = 0;
     sample->us_start = 0;
     sample->us_end = 0;
+    sample->us_length = 0;
 
     return RMT_ERROR_NONE;
 }
@@ -3401,6 +3403,7 @@ static void Sample_Prepare(Sample* sample, rmtPStr name, rmtU32 name_hash, Sampl
     sample->nb_children = 0;
     sample->us_start = 0;
     sample->us_end = 0;
+    sample->us_length = 0;
 }
 
 
@@ -3423,7 +3426,7 @@ static rmtError json_Sample(Buffer* buffer, Sample* sample)
         JSON_ERROR_CHECK(json_Comma(buffer));
         JSON_ERROR_CHECK(json_FieldU64(buffer, "us_start", sample->us_start));
         JSON_ERROR_CHECK(json_Comma(buffer));
-        JSON_ERROR_CHECK(json_FieldU64(buffer, "us_length", maxS64(sample->us_end - sample->us_start, 0)));
+        JSON_ERROR_CHECK(json_FieldU64(buffer, "us_length", maxS64(sample->us_length, 0)));
 
         if (sample->first_child != NULL)
         {
@@ -3531,7 +3534,7 @@ static rmtU32 HashCombine(rmtU32 hash_a, rmtU32 hash_b)
 }
 
 
-static rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
+static rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash, rmtU32 flags, Sample** sample)
 {
     Sample* parent;
     rmtError error;
@@ -3542,11 +3545,21 @@ static rmtError SampleTree_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash
     assert(tree->current_parent != NULL);
     parent = tree->current_parent;
 
-    if (parent->last_child != NULL && parent->last_child->name_hash == name_hash)
+    if ((flags & RMTSF_Aggregate) != 0)
     {
-        // TODO: Collapse siblings with flag exception?
-        //       Note that above check is not enough - requires a linear search
+        // Linear search for previous instance of this sample name
+        Sample* sibling;
+        for (sibling = parent->first_child; sibling != NULL; sibling = sibling->next_sibling)
+        {
+            if (sibling->name_hash == name_hash)
+            {
+                tree->current_parent = sibling;
+                *sample = sibling;
+                return RMT_ERROR_NONE;
+            }
+        }
     }
+
     if (parent->name_hash == name_hash)
     {
         // TODO: Collapse recursion on flag?
@@ -3736,10 +3749,10 @@ static void ThreadSampler_Destructor(ThreadSampler* ts)
 }
 
 
-static rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, Sample** sample)
+static rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, rmtU32 flags, Sample** sample)
 {
     RMT_UNREFERENCED_PARAMETER(ts);
-    return SampleTree_Push(tree, name, name_hash, sample);
+    return SampleTree_Push(tree, name, name_hash, flags, sample);
 }
 
 
@@ -3974,7 +3987,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     {
         // If these CUDA samples aren't ready yet, stick them to the back of the queue and continue
         rmtBool are_samples_ready;
-        rmt_BeginCPUSample(AreCUDASamplesReady);
+        rmt_BeginCPUSample(AreCUDASamplesReady, 0);
         are_samples_ready = AreCUDASamplesReady(sample);
         rmt_EndCPUSample();
         if (!are_samples_ready)
@@ -3984,7 +3997,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
         }
 
         // Retrieve timing of all CUDA samples
-        rmt_BeginCPUSample(GetCUDASampleTimes);
+        rmt_BeginCPUSample(GetCUDASampleTimes, 0);
         GetCUDASampleTimes(sample->parent, sample);
         rmt_EndCPUSample();
     }
@@ -4089,13 +4102,13 @@ static rmtError Remotery_ThreadMain(Thread* thread)
 
     while (thread->request_exit == RMT_FALSE)
     {
-        rmt_BeginCPUSample(Wakeup);
+        rmt_BeginCPUSample(Wakeup, 0);
 
-            rmt_BeginCPUSample(ServerUpdate);
+            rmt_BeginCPUSample(ServerUpdate, 0);
             Server_Update(rmt->server);
             rmt_EndCPUSample();
 
-            rmt_BeginCPUSample(ConsumeMessageQueue);
+            rmt_BeginCPUSample(ConsumeMessageQueue, 0);
             Remotery_ConsumeMessageQueue(rmt);
             rmt_EndCPUSample();
 
@@ -4561,7 +4574,7 @@ static rmtU32 GetNameHash(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
+RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32 flags, rmtU32* hash_cache)
 {
     // 'hash_cache' stores a pointer to a sample name's hash value. Internally this is used to identify unique callstacks and it
     // would be ideal that it's not recalculated each time the sample is used. This can be statically cached at the point
@@ -4580,8 +4593,14 @@ RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache)
     {
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
-        if (ThreadSampler_Push(ts, ts->sample_trees[SampleType_CPU], name, name_hash, &sample) == RMT_ERROR_NONE)
-            sample->us_start = usTimer_Get(&g_Remotery->timer);
+        if (ThreadSampler_Push(ts, ts->sample_trees[SampleType_CPU], name, name_hash, flags, &sample) == RMT_ERROR_NONE)
+        {
+            // If this is an aggregate sample, store the time in 'end' as we want to preserve 'start'
+            if (sample->us_length != 0)
+                sample->us_end = usTimer_Get(&g_Remotery->timer);
+            else
+                sample->us_start = usTimer_Get(&g_Remotery->timer);
+        }
     }
 }
 
@@ -4596,6 +4615,21 @@ RMT_API void _rmt_EndCPUSample(void)
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
         Sample* sample = ts->sample_trees[SampleType_CPU]->current_parent;
+
+        rmtU64 us_end = usTimer_Get(&g_Remotery->timer);
+
+        // Is this an aggregate sample?
+        if (sample->us_length != 0)
+        {
+            sample->us_length += (us_end - sample->us_end);
+            sample->us_end = us_end;
+        }
+        else
+        {
+            sample->us_end = us_end;
+            sample->us_length = (us_end - sample->us_start);
+        }
+
         sample->us_end = usTimer_Get(&g_Remotery->timer);
         ThreadSampler_Pop(ts, g_Remotery->mq_to_rmt_thread, sample);
     }
@@ -4801,6 +4835,7 @@ static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample)
     // Convert to microseconds and add to the sample
     sample->us_start = (rmtU64)(ms_start * 1000);
     sample->us_end = (rmtU64)(ms_end * 1000);
+    sample->us_length = sample->us_end - sample->us_start;
 
     // Get child sample times
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
@@ -4854,7 +4889,7 @@ RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream
         }
 
         // Push the same and record its event
-        if (ThreadSampler_Push(ts, *cuda_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(ts, *cuda_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             CUDASample* cuda_sample = (CUDASample*)sample;
             CUDAEventRecord(cuda_sample->event_start, stream);
@@ -5240,7 +5275,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
             New_3(ObjectAllocator, d3d11->timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
 
         // Push the sample
-        if (ThreadSampler_Push(ts, *d3d_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(ts, *d3d_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             D3D11Sample* d3d_sample = (D3D11Sample*)sample;
 
@@ -5280,6 +5315,8 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
             d3d11->last_error = result;
             return RMT_FALSE;
         }
+
+        sample->us_length = sample->us_end - sample->us_start;
     }
 
     // Get child sample times
@@ -5303,7 +5340,7 @@ static void UpdateD3D11Frame(void)
     d3d11 = g_Remotery->d3d11;
     assert(d3d11 != NULL);
 
-    rmt_BeginCPUSample(rmt_UpdateD3D11Frame);
+    rmt_BeginCPUSample(rmt_UpdateD3D11Frame, 0);
 
     // Process all messages in the D3D queue
     for (;;)
@@ -5826,7 +5863,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
             New_3(ObjectAllocator, opengl->timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
 
         // Push the sample
-        if (ThreadSampler_Push(ts, *ogl_tree, name, name_hash, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(ts, *ogl_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             OpenGLSample* ogl_sample = (OpenGLSample*)sample;
 
@@ -5851,6 +5888,8 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
     {
         if (!OpenGLTimestamp_GetData(ogl_sample->timestamp, &sample->us_start, &sample->us_end, out_first_timestamp))
             return RMT_FALSE;
+
+        sample->us_length = sample->us_end - sample->us_start;
     }
 
     // Get child sample times
@@ -5874,7 +5913,7 @@ static void UpdateOpenGLFrame(void)
     opengl = g_Remotery->opengl;
     assert(opengl != NULL);
 
-    rmt_BeginCPUSample(rmt_UpdateOpenGLFrame);
+    rmt_BeginCPUSample(rmt_UpdateOpenGLFrame, 0);
 
     // Process all messages in the OpenGL queue
     while (1)
