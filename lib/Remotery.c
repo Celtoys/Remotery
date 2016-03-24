@@ -2944,9 +2944,8 @@ static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_si
 }
 
 
-static void MessageQueue_CommitMessage(MessageQueue* queue, Message* message, MessageID id)
+static void MessageQueue_CommitMessage(Message* message, MessageID id)
 {
-    assert(queue != NULL);
     assert(message != NULL);
 
     // Ensure message writes complete before commit
@@ -2955,8 +2954,6 @@ static void MessageQueue_CommitMessage(MessageQueue* queue, Message* message, Me
     // Setting the message ID signals to the consumer that the message is ready
     assert(message->id == MsgID_NotReady);
     message->id = id;
-
-    RMT_UNREFERENCED_PARAMETER(queue);
 }
 
 
@@ -3688,7 +3685,7 @@ static void AddSampleTreeMessage(MessageQueue* queue, Sample* sample, ObjectAllo
     payload->root_sample = sample;
     payload->allocator = allocator;
     payload->thread_name = thread_name;
-    MessageQueue_CommitMessage(queue, message, MsgID_SampleTree);
+    MessageQueue_CommitMessage(message, MsgID_SampleTree);
 }
 
 
@@ -3760,9 +3757,8 @@ static void ThreadSampler_Destructor(ThreadSampler* ts)
 }
 
 
-static rmtError ThreadSampler_Push(ThreadSampler* ts, SampleTree* tree, rmtPStr name, rmtU32 name_hash, rmtU32 flags, Sample** sample)
+static rmtError ThreadSampler_Push(SampleTree* tree, rmtPStr name, rmtU32 name_hash, rmtU32 flags, Sample** sample)
 {
-    RMT_UNREFERENCED_PARAMETER(ts);
     return SampleTree_Push(tree, name, name_hash, flags, sample);
 }
 
@@ -4491,7 +4487,7 @@ static rmtBool QueueLine(MessageQueue* queue, char* text, rmtU32 size, struct Th
 
     // Copy the text and commit the message
     memcpy(message->payload, text, size);
-    MessageQueue_CommitMessage(queue, message, MsgID_LogText);
+    MessageQueue_CommitMessage(message, MsgID_LogText);
 
     return RMT_TRUE;
 }
@@ -4604,7 +4600,7 @@ RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32 flags, rmtU32* hash_cache)
     {
         Sample* sample;
         rmtU32 name_hash = GetNameHash(name, hash_cache);
-        if (ThreadSampler_Push(ts, ts->sample_trees[SampleType_CPU], name, name_hash, flags, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(ts->sample_trees[SampleType_CPU], name, name_hash, flags, &sample) == RMT_ERROR_NONE)
         {
             // If this is an aggregate sample, store the time in 'end' as we want to preserve 'start'
             if (sample->us_length != 0)
@@ -4900,7 +4896,7 @@ RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream
         }
 
         // Push the same and record its event
-        if (ThreadSampler_Push(ts, *cuda_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(*cuda_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             CUDASample* cuda_sample = (CUDASample*)sample;
             CUDAEventRecord(cuda_sample->event_start, stream);
@@ -5286,7 +5282,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
             New_3(ObjectAllocator, d3d11->timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
 
         // Push the sample
-        if (ThreadSampler_Push(ts, *d3d_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(*d3d_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             D3D11Sample* d3d_sample = (D3D11Sample*)sample;
 
@@ -5874,7 +5870,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
             New_3(ObjectAllocator, opengl->timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
 
         // Push the sample
-        if (ThreadSampler_Push(ts, *ogl_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        if (ThreadSampler_Push(*ogl_tree, name, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             OpenGLSample* ogl_sample = (OpenGLSample*)sample;
 
