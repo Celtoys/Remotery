@@ -105,6 +105,12 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #endif
 
     #ifdef RMT_PLATFORM_LINUX
+
+        // Required when compiling with -std=c99 or -std=c11 for clock_gettime
+        // Not great; would be better to compile with -std=gnu99/gnu11 instead
+        // However, this puts less burden on the user
+        #define _POSIX_C_SOURCE 199309L
+
         #include <time.h>
         #include <sys/prctl.h>
     #endif
