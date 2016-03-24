@@ -128,8 +128,11 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
 #endif
 
-
-#define RMT_UNREFERENCED_PARAMETER(i) (void)(1 ? (void)0 : ((void)i))
+#ifdef _MSC_VER
+    #define RMT_UNREFERENCED_PARAMETER(i) assert(i == 0 || i != 0);	// To fool warning C4100 on warning level 4
+#else
+    #define RMT_UNREFERENCED_PARAMETER(i) (void)(1 ? (void)0 : ((void)i))
+#endif
 
 
 #if RMT_USE_CUDA
@@ -198,7 +201,14 @@ static void rmtFreeLibrary(void* handle)
 static void* rmtGetProcAddress(void* handle, const char* symbol)
 {
     #if defined(RMT_PLATFORM_WINDOWS)
+        #ifdef _MSC_VER
+            #pragma warning(push)
+            #pragma warning(disable:4152) // C4152: nonstandard extension, function/data pointer conversion in expression
+        #endif
         return GetProcAddress((HMODULE)handle, (LPCSTR)symbol);
+        #ifdef _MSC_VER
+            #pragma warning(pop)
+        #endif
     #elif defined(RMT_PLATFORM_POSIX)
         return dlsym(handle, symbol);
     #else
@@ -2369,9 +2379,10 @@ typedef struct
 
     union
     {
-        rmtU8 data_mask[4];
-        rmtU32 data_mask_u32;
-    };
+        rmtU8 mask[4];
+        rmtU32 mask_u32;
+    } data;
+
 } WebSocket;
 
 
@@ -2534,10 +2545,10 @@ static rmtError WebSocket_Constructor(WebSocket* web_socket, TCPSocket* tcp_sock
     web_socket->mode = WEBSOCKET_NONE;
     web_socket->frame_bytes_remaining = 0;
     web_socket->mask_offset = 0;
-    web_socket->data_mask[0] = 0;
-    web_socket->data_mask[1] = 0;
-    web_socket->data_mask[2] = 0;
-    web_socket->data_mask[3] = 0;
+    web_socket->data.mask[0] = 0;
+    web_socket->data.mask[1] = 0;
+    web_socket->data.mask[2] = 0;
+    web_socket->data.mask[3] = 0;
 
     // Caller can optionally specify which TCP socket to use
     if (web_socket->tcp_socket == NULL)
@@ -2726,7 +2737,7 @@ static rmtError ReceiveFrameHeader(WebSocket* web_socket)
     mask_present = (msg_header[1] & 0x80) != 0 ? RMT_TRUE : RMT_FALSE;
     if (mask_present)
     {
-        error = TCPSocket_Receive(web_socket->tcp_socket, web_socket->data_mask, 4, 20);
+        error = TCPSocket_Receive(web_socket->tcp_socket, web_socket->data.mask, 4, 20);
         if (error != RMT_ERROR_NONE)
             return error;
     }
@@ -2788,12 +2799,12 @@ static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32* msg
         }
 
         // Apply data mask
-        if (web_socket->data_mask_u32 != 0)
+        if (web_socket->data.mask_u32 != 0)
         {
             rmtU32 i;
             for (i = 0; i < bytes_to_read; i++)
             {
-                *((rmtU8*)cur_data + i) ^= web_socket->data_mask[web_socket->mask_offset & 3];
+                *((rmtU8*)cur_data + i) ^= web_socket->data.mask[web_socket->mask_offset & 3];
                 web_socket->mask_offset++;
             }
         }
