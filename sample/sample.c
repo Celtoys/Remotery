@@ -8,7 +8,7 @@ double delay() {
     int i, end;
     double j = 0;
 
-    rmt_BeginCPUSample(delay);
+    rmt_BeginCPUSample(delay, 0);
     for( i = 0, end = rand()/100; i < end; ++i ) {
         j += sin(i);
     }
