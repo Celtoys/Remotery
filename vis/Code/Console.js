@@ -19,7 +19,9 @@ Console = (function()
 
 		// This accumulates log text as fast as is required
 		this.PageTextBuffer = "";
+		this.LastPageTextBufferLen = 0;
 		this.AppTextBuffer = "";
+		this.LastAppTextBufferLen = 0;
 
 		// Setup command history control
 		this.CommandHistory = LocalStore.Get("App", "Global", "CommandHistory", [ ]);
@@ -98,13 +100,21 @@ Console = (function()
 	{
 		// Reset the current text buffer as html
 
-		var page_node = self.PageContainer.Node;
-		page_node.innerHTML = self.PageTextBuffer;
-		page_node.scrollTop = page_node.scrollHeight;
+		if (self.LastPageTextBufferLen != self.PageTextBuffer.length)
+		{
+			var page_node = self.PageContainer.Node;
+			page_node.innerHTML = self.PageTextBuffer;
+			page_node.scrollTop = page_node.scrollHeight;
+			self.LastPageTextBufferLen = self.PageTextBuffer.length;
+		}
 
-		var app_node = self.AppContainer.Node;
-		app_node.innerHTML = self.AppTextBuffer;
-		app_node.scrollTop = app_node.scrollHeight;
+		if (self.LastAppTextBufferLen != self.AppTextBuffer.length)
+		{		
+			var app_node = self.AppContainer.Node;
+			app_node.innerHTML = self.AppTextBuffer;
+			app_node.scrollTop = app_node.scrollHeight;
+			self.LastAppTextBufferLen = self.AppTextBuffer.length;
+		}
 	}
 
 
