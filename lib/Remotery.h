@@ -254,6 +254,15 @@ typedef enum rmtError
 } rmtError;
 
 
+typedef enum rmtSampleFlags
+{
+    // Default behaviour
+    RMTSF_None          = 0,
+
+    // Search parent for same-named samples and merge timing instead of adding a new sample
+    RMTSF_Aggregate     = 1,
+} rmtSampleFlags;
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -289,14 +298,14 @@ typedef enum rmtError
 #define rmt_LogText(text)                                                           \
     RMT_OPTIONAL(RMT_ENABLED, _rmt_LogText(text))
 
-#define rmt_BeginCPUSample(name)                                                    \
+#define rmt_BeginCPUSample(name, flags)                                             \
     RMT_OPTIONAL(RMT_ENABLED, {                                                     \
         static rmtU32 rmt_sample_hash_##name = 0;                                   \
-        _rmt_BeginCPUSample(#name, &rmt_sample_hash_##name);                        \
+        _rmt_BeginCPUSample(#name, flags, &rmt_sample_hash_##name);                 \
     })
 
-#define rmt_BeginCPUSampleDynamic(namestr)                                          \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_BeginCPUSample(namestr, NULL))
+#define rmt_BeginCPUSampleDynamic(namestr, flags)                                   \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_BeginCPUSample(namestr, flags, NULL))
 
 #define rmt_EndCPUSample()                                                          \
     RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
@@ -485,8 +494,8 @@ struct rmt_EndOpenGLSampleOnScopeExit
 
 
 // Pairs a call to rmt_Begin<TYPE>Sample with its call to rmt_End<TYPE>Sample when leaving scope
-#define rmt_ScopedCPUSample(name)                                                                       \
-        RMT_OPTIONAL(RMT_ENABLED, rmt_BeginCPUSample(name));                                            \
+#define rmt_ScopedCPUSample(name, flags)                                                                \
+        RMT_OPTIONAL(RMT_ENABLED, rmt_BeginCPUSample(name, flags));                                     \
         RMT_OPTIONAL(RMT_ENABLED, rmt_EndCPUSampleOnScopeExit rmt_ScopedCPUSample##name);
 #define rmt_ScopedCUDASample(name, stream)                                                              \
         RMT_OPTIONAL(RMT_USE_CUDA, rmt_BeginCUDASample(name, stream));                                  \
@@ -525,7 +534,7 @@ RMT_API void _rmt_SetGlobalInstance(Remotery* remotery);
 RMT_API Remotery* _rmt_GetGlobalInstance(void);
 RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name);
 RMT_API void _rmt_LogText(rmtPStr text);
-RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32* hash_cache);
+RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32 flags, rmtU32* hash_cache);
 RMT_API void _rmt_EndCPUSample(void);
 
 #if RMT_USE_CUDA
