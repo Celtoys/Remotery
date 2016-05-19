@@ -1695,7 +1695,7 @@ static void TCPSocket_Destructor(TCPSocket* tcp_socket)
 }
 
 
-static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port)
+static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool limit_connections_to_localhost)
 {
     SOCKET s = INVALID_SOCKET;
     struct sockaddr_in sin;
@@ -1713,7 +1713,7 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port)
 
     // Bind the socket to the incoming port
     sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = INADDR_ANY;
+    sin.sin_addr.s_addr = htonl(limit_connections_to_localhost ? INADDR_LOOPBACK : INADDR_ANY);
     sin.sin_port = htons(port);
     if (bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
         return RMT_ERROR_SOCKET_BIND_FAIL;
@@ -2570,12 +2570,12 @@ static void WebSocket_Destructor(WebSocket* web_socket)
 }
 
 
-static rmtError WebSocket_RunServer(WebSocket* web_socket, rmtU32 port, enum WebSocketMode mode)
+static rmtError WebSocket_RunServer(WebSocket* web_socket, rmtU16 port, rmtBool limit_connections_to_localhost, enum WebSocketMode mode)
 {
     // Create the server's listening socket
     assert(web_socket != NULL);
     web_socket->mode = mode;
-    return TCPSocket_RunServer(web_socket->tcp_socket, (rmtU16)port);
+    return TCPSocket_RunServer(web_socket->tcp_socket, port, limit_connections_to_localhost);
 }
 
 
@@ -3030,31 +3030,33 @@ typedef struct
     rmtU32 last_ping_time;
 
     rmtU16 port;
+    rmtBool limit_connections_to_localhost;
 } Server;
 
 
-static rmtError Server_CreateListenSocket(Server* server, rmtU16 port)
+static rmtError Server_CreateListenSocket(Server* server, rmtU16 port, rmtBool limit_connections_to_localhost)
 {
     rmtError error = RMT_ERROR_NONE;
 
     New_1(WebSocket, server->listen_socket, NULL);
     if (error == RMT_ERROR_NONE)
-        error = WebSocket_RunServer(server->listen_socket, port, WEBSOCKET_TEXT);
+        error = WebSocket_RunServer(server->listen_socket, port, limit_connections_to_localhost, WEBSOCKET_TEXT);
 
     return error;
 }
 
 
-static rmtError Server_Constructor(Server* server, rmtU16 port)
+static rmtError Server_Constructor(Server* server, rmtU16 port, rmtBool limit_connections_to_localhost)
 {
     assert(server != NULL);
     server->listen_socket = NULL;
     server->client_socket = NULL;
     server->last_ping_time = 0;
     server->port = port;
+    server->limit_connections_to_localhost = limit_connections_to_localhost;
 
     // Create the listening WebSocket
-    return Server_CreateListenSocket(server, port);
+    return Server_CreateListenSocket(server, port, limit_connections_to_localhost);
 }
 
 
@@ -3150,7 +3152,7 @@ static void Server_Update(Server* server)
 
     // Recreate the listening socket if it's been destroyed earlier
     if (server->listen_socket == NULL)
-        Server_CreateListenSocket(server, server->port);
+        Server_CreateListenSocket(server, server->port, server->limit_connections_to_localhost);
 
     if (server->listen_socket != NULL && server->client_socket == NULL)
     {
@@ -4171,7 +4173,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         return error;
 
     // Create the server
-    New_1( Server, rmt->server, g_Settings.port );
+    New_2(Server, rmt->server, g_Settings.port, g_Settings.limit_connections_to_localhost);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -4357,6 +4359,7 @@ RMT_API rmtSettings* _rmt_Settings(void)
     if( g_SettingsInitialized == RMT_FALSE )
     {
         g_Settings.port = 0x4597;
+        g_Settings.limit_connections_to_localhost = RMT_FALSE;
         g_Settings.msSleepBetweenServerUpdates = 10;
         g_Settings.messageQueueSizeInBytes = 64 * 1024;
         g_Settings.maxNbMessagesPerUpdate = 100;
