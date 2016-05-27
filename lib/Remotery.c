@@ -4233,11 +4233,11 @@ static void Remotery_Destructor(Remotery* rmt)
     // Join the remotery thread before clearing the global object as the thread is profiling itself
     Delete(Thread, rmt->thread);
 
-    // Ensure this is the module that created it
-    assert(g_RemoteryCreated == RMT_TRUE);
-    assert(g_Remotery == rmt);
-    g_Remotery = NULL;
-    g_RemoteryCreated = RMT_FALSE;
+    if (g_RemoteryCreated)
+    {
+      g_Remotery = NULL;
+      g_RemoteryCreated = RMT_FALSE;
+    }
 
     #if RMT_USE_D3D11
         Delete(D3D11, rmt->d3d11);
@@ -4393,6 +4393,9 @@ RMT_API rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 
 RMT_API void _rmt_DestroyGlobalInstance(Remotery* remotery)
 {
+    // Ensure this is the module that created it
+    assert(g_RemoteryCreated == RMT_TRUE);
+    assert(g_Remotery == remotery);
     Delete(Remotery, remotery);
 }
 
