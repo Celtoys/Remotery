@@ -1830,6 +1830,18 @@ static rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket** cl
     if (s == SOCKET_ERROR)
         return RMT_ERROR_SOCKET_ACCEPT_FAIL;
 
+#ifdef SO_NOSIGPIPE
+    // On POSIX systems, send() may send a SIGPIPE signal when writing to an
+    // already closed connection. By setting this option, we prevent the
+    // signal from being emitted and send will instead return an error and set
+    // errno to EPIPE.
+    //
+    // This is supported on BSD platforms and not on Linux.
+    {
+        int flag = 1;
+        setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &flag, sizeof(flag));
+    }
+#endif
     // Create a client socket for the new connection
     assert(client_socket != NULL);
     New_0(TCPSocket, *client_socket);
@@ -1885,7 +1897,14 @@ static rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 l
     while (cur_data < end_data)
     {
         // Attempt to send the remaining chunk of data
-        int bytes_sent = (int)send(tcp_socket->socket, cur_data, (int)(end_data - cur_data), 0);
+        int bytes_sent;
+        int send_flags = 0;
+#ifdef MSG_NOSIGNAL
+        // On Linux this prevents send from emitting a SIGPIPE signal
+        // Equivalent on BSD to the SO_NOSIGPIPE option.
+        send_flags = MSG_NOSIGNAL;
+#endif
+        bytes_sent = (int)send(tcp_socket->socket, cur_data, (int)(end_data - cur_data), send_flags);
 
         if (bytes_sent == SOCKET_ERROR || bytes_sent == 0)
         {
