@@ -1699,6 +1699,7 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
 {
     SOCKET s = INVALID_SOCKET;
     struct sockaddr_in sin;
+    int enable = 1;
     #ifdef RMT_PLATFORM_WINDOWS
         u_long nonblock = 1;
     #endif
@@ -1710,6 +1711,20 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
     s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == SOCKET_ERROR)
         return RMT_ERROR_SOCKET_CREATE_FAIL;
+
+    // set SO_REUSEADDR so binding doesn't fail when restarting the application
+    // (otherwise the same port can't be reused within TIME_WAIT)
+    // I'm not checking for errors because if this fails (unlikely) we might still
+    // be able to bind to the socket anyway
+    #ifdef RMT_PLATFORM_POSIX
+        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+    #elif defined(RMT_PLATFORM_WINDOWS)
+        // windows also needs SO_EXCLUSEIVEADDRUSE,
+        // see http://www.andy-pearce.com/blog/posts/2013/Feb/so_reuseaddr-on-windows/
+        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&enable, sizeof(enable));
+        enable = 1;
+        setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&enable, sizeof(enable));
+    #endif
 
     // Bind the socket to the incoming port
     sin.sin_family = AF_INET;
