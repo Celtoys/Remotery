@@ -4198,6 +4198,23 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->json_buf = NULL;
     rmt->thread = NULL;
 
+    #if RMT_USE_CUDA
+        rmt->cuda.CtxSetCurrent = NULL;
+        rmt->cuda.EventCreate = NULL;
+        rmt->cuda.EventDestroy = NULL;
+        rmt->cuda.EventElapsedTime = NULL;
+        rmt->cuda.EventQuery = NULL;
+        rmt->cuda.EventRecord = NULL;
+    #endif
+
+    #if RMT_USE_D3D11
+        rmt->d3d11 = NULL;
+    #endif
+
+    #if RMT_USE_OPENGL
+        rmt->opengl = NULL;
+    #endif
+
     // Kick-off the timer
     usTimer_Init(&rmt->timer);
 
@@ -4221,26 +4238,13 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     if (error != RMT_ERROR_NONE)
         return error;
 
-    #if RMT_USE_CUDA
-
-        rmt->cuda.CtxSetCurrent = NULL;
-        rmt->cuda.EventCreate = NULL;
-        rmt->cuda.EventDestroy = NULL;
-        rmt->cuda.EventElapsedTime = NULL;
-        rmt->cuda.EventQuery = NULL;
-        rmt->cuda.EventRecord = NULL;
-
-    #endif
-
     #if RMT_USE_D3D11
-        rmt->d3d11 = NULL;
         error = D3D11_Create(&rmt->d3d11);
         if (error != RMT_ERROR_NONE)
             return error;
     #endif
 
     #if RMT_USE_OPENGL
-        rmt->opengl = NULL;
         error = OpenGL_Create(&rmt->opengl);
         if (error != RMT_ERROR_NONE)
             return error;
