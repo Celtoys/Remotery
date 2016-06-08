@@ -82,17 +82,6 @@ documented just below this comment.
 */
 
 
-
-// Compiler identification
-#if defined(_MSC_VER)
-    #define RMT_COMPILER_MSVC
-#elif defined(__GNUC__)
-    #define RMT_COMPILER_GNUC
-#elif defined(__clang__)
-    #define RMT_COMPILER_CLANG
-#endif
-
-
 // Platform identification
 #if defined(_WINDOWS) || defined(_WIN32)
     #define RMT_PLATFORM_WINDOWS
