@@ -2,22 +2,22 @@
 
 TimelineRow = (function()
 {
-	var row_template = function(){/*
+	var row_template = multiline(function(){/*
 		<div class='TimelineRow'>
 			<div class='TimelineRowCheck TimelineBox'>
 				<input class='TimelineRowCheckbox' type='checkbox' />
 			</div>
-			<div class='TimelineRowExpand TimelineBox NoSelect'>
+			<div class='TimelineRowExpand TimelineBox notextsel'>
 				<div class='TimelineRowExpandButton'>+</div>
 			</div>
-			<div class='TimelineRowExpand TimelineBox NoSelect'>
+			<div class='TimelineRowExpand TimelineBox notextsel'>
 				<div class='TimelineRowExpandButton'>-</div>
 			</div>
 			<div class='TimelineRowLabel TimelineBox'></div>
 			<canvas class='TimelineRowCanvas'></canvas>
 			<div style="clear:left"></div>
 		</div>
-*/}.toString().split(/\n/).slice(1, -1).join("\n");
+	*/});
 
 
 	var CANVAS_Y_OFFSET = 0;

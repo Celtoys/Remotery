@@ -9,11 +9,11 @@ Console = (function()
 	{
 		// Create the window and its controls
 		this.Window = wm.AddWindow("Console", 10, 10, 100, 100);
-		this.PageContainer = this.Window.AddControlNew(new WM.Container(10, 10, 400, 160));
+		this.PageContainer = this.Window.AddControl(new WM.Container(10, 10, 400, 160));
 		DOM.Node.AddClass(this.PageContainer.Node, "ConsoleText");
-		this.AppContainer = this.Window.AddControlNew(new WM.Container(10, 10, 400, 160));
+		this.AppContainer = this.Window.AddControl(new WM.Container(10, 10, 400, 160));
 		DOM.Node.AddClass(this.AppContainer.Node, "ConsoleText");
-		this.UserInput = this.Window.AddControlNew(new WM.EditBox(10, 5, 400, 30, "Input", ""));
+		this.UserInput = this.Window.AddControl(new WM.EditBox(10, 5, 400, 30, "Input", ""));
 		this.UserInput.SetChangeHandler(Bind(ProcessInput, this));
 		this.Window.ShowNoAnim();
 

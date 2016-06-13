@@ -3,7 +3,11 @@
 .notextsel
 {
 	/* Disable text selection so that it doesn't interfere with button-clicking */
-	user-select:none;
+	-moz-user-select: none; /* Firefox */
+	-ms-user-select: none; /* Internet Explorer */
+	-khtml-user-select: none; /* KHTML browsers (e.g. Konqueror) */
+	-webkit-user-select: none; /* Chrome, Safari, and Opera */
+	-webkit-touch-callout: none; /* Disable Android and iOS callouts*/
 
 	/* Stops the text cursor over the label */
 	cursor:default;
@@ -25,13 +29,80 @@
 	/* Clip all contents to the window border */
 	overflow: hidden;
 
-	background: #404040;
+	background: #555;
 
-	border-radius: 5px;
+	border-radius: 3px;
 	-moz-border-radius: 5px;
 
-	-webkit-box-shadow: 3px 3px 3px #111, 1px 1px 1px #606060 inset;
-	box-shadow: 3px 3px 3px #111, 1px 1px 1px #606060 inset;
+	-webkit-box-shadow: 1px 1px 1px #222, 1px 1px 1px #777 inset;
+	box-shadow: 1px 1px 1px #222, 1px 1px 1px #777 inset;
+}
+.Window.Embed
+{
+	position: absolute;
+	border-top-left-radius: 0px;
+	-webkit-box-shadow: 1px 1px 1px #222, 1px 0px 0px #777 inset;
+	box-shadow: 1px 1px 1px #222, 1px 0px 0px #777 inset;
+}
+
+.WindowSizeX
+{
+	position:absolute;
+
+	/* Window width - side resize */
+	left: calc(100% - 5px);
+
+	/* Side resize */
+	width: 5px;
+
+	/* Window height - title bar height - corner resize */
+	height: calc(100% - 17px - 15px);
+
+	cursor: w-resize;
+}
+.WindowSizeY
+{
+	position:absolute;
+
+	/* Window height - side resize */
+	top: calc(100% - 5px);
+
+	/* Window width - corner resize */
+	width: calc(100% - 15px);
+
+	/* Side resize */
+	height: 5px;
+
+	cursor: n-resize;
+}
+.WindowSizeXY
+{
+	position:absolute;
+
+	/* Window height - corner resize */
+	top: calc(100% - 15px);
+
+	/* Window width - corner resize */
+	left: calc(100% - 15px);
+
+	/* Corner resize */
+	width: 15px;
+	height: 15px;
+
+	cursor: nw-resize;
+}
+
+.WindowSizeX.Embed
+{
+	display: none;
+}
+.WindowSizeY.Embed
+{
+	display: none;
+}
+.WindowSizeXY.Embed
+{
+	display: none;
 }
 
 .Window_Transparent
@@ -55,6 +126,10 @@
 
 	border-bottom: 1px solid #303030;
 	border-radius: 5px;
+}
+.WindowTitleBar.Embed
+{
+	display: none;
 }
 
 .WindowTitleBarText
@@ -86,6 +161,10 @@
 
 	padding:10px;
 	border-top: 1px solid #606060;
+}
+.WindowBody.Embed
+{
+	border-top: 0px;
 }
 
 
@@ -246,7 +325,7 @@
 
  
 /* ------------------------------------------------------------------------------------------------------------------ */
-/* Treeview Styles                                                                                                    */
+/* Edit Box Styles                                                                                                    */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 
@@ -511,10 +590,7 @@
 	/* Position relative to the parent window */
 	position:absolute;
 
-	border-radius:6px;
-	border-color:#000;
-	border-width:1px;
-	border-style:solid;
+	border-radius:4px;
 
 	/* Padding at the top includes 2px for the text drop-shadow */
 	padding: 2px 5px 3px 5px;
@@ -524,11 +600,7 @@
 	text-shadow: 1px 1px 1px black;
 	text-align: center;
 
-	/* The gradient for the button background */
-	background-color:#666;
-	background: -webkit-gradient(linear, left top, left bottom, from(#666), to(#383838));
-	background: -moz-linear-gradient(top, #666, #383838);
-	filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#666666', endColorstr='#383838');
+	background-color:#555;
 
 	/* A box shadow and inset box highlight */
 	-webkit-box-shadow: 1px 1px 1px #222, 1px 1px 1px #777 inset;
@@ -543,4 +615,83 @@
 	/* Two inset box shadows to simulate depressing */
 	-webkit-box-shadow: -1px -1px 1px #222 inset, 1px 1px 1px #222 inset;
 	box-shadow: -1px -1px 1px #222 inset, 1px 1px 1px #222 inset;
+}
+
+
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/* Tab Styles                                                                                                    */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+
+.TabContainer
+{
+	color: black;
+	height: 24px;
+
+	border: 0px solid;
+
+	/* Makes overflow: hidden work for TabContents */
+	position: absolute;
+}
+
+.Tabs
+{
+	width: calc(100% - 45px);
+	height: 20px;
+
+	/* Left-to-right display of tabs with no wrap */
+	white-space: nowrap;
+	overflow: hidden;;
+}
+
+.TabContents
+{
+	/* Turns this node into a "positioned node" so that its children can be placed relative to it */
+	position: absolute;
+
+	/* Clip all contents to the container border */
+	overflow: hidden;
+
+	/* Percentages are calculated based on parent size so subtract tab bar height from parent */
+	width: 100%;
+	height: calc(100% - 20px);
+}
+
+.Tab
+{
+	color: #BBB;
+	font: 9px Verdana;
+	text-shadow: 1px 1px 1px black;
+	text-align: center;
+
+	/* Left-to-right display of tabs with no wrap */
+	display: inline-block;
+
+	font: 9px Verdana;
+
+	border-radius: 3px;
+	border-color: #303030;
+	border-width: 0px;
+	border-bottom-width: 1px;
+	border-right-width: 1px;
+	border-style: solid;
+	border-bottom-right-radius: 0px;
+	border-bottom-left-radius: 0px;
+
+	/* Put some space between each tab */
+	margin-right: 1px;
+
+	/* Padding at the top includes 2px for the text drop shadow */
+	padding: 3px 10px 5px 10px;
+
+	/* A box shadow and inset box highlight */
+	-webkit-box-shadow: 1px 0px 0px #222, 1px 1px 0px #777 inset;
+	box-shadow: 1px 0px 0px #222, 1px 1px 0px #777 inset;
+}
+
+.TabSel
+{
+	/* This is to overwrite the tab bottom border */
+	border-bottom-style: none;
 }

@@ -25,7 +25,7 @@ TimelineWindow = (function()
 		// Create window and containers
 		this.Window = wm.AddWindow("Timeline", 10, 20, 100, 100);
 		this.Window.ShowNoAnim();
-		this.TimelineContainer = this.Window.AddControlNew(new WM.Container(10, 10, 800, 160));
+		this.TimelineContainer = this.Window.AddControl(new WM.Container(10, 10, 800, 160));
 		DOM.Node.AddClass(this.TimelineContainer.Node, "TimelineContainer");
 
 		var mouse_wheel_event = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";

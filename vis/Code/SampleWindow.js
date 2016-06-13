@@ -1,36 +1,34 @@
 
 SampleWindow = (function()
 {
-	function SampleWindow(wm, name, offset)
+	function SampleWindow(wm, name)
 	{
 		// Sample digest for checking if grid needs to be repopulated
 		this.NbSamples = 0;
 		this.SampleDigest = null;
 
-		this.XPos = 10 + offset * 410;
 		this.Window = wm.AddWindow(name, 100, 100, 100, 100);
-		this.Window.Show();
 		this.Visible = true;
 
 		// Create a grid that's indexed by the unique sample ID
-		this.Grid = this.Window.AddControlNew(new WM.Grid(0, 0, 380, 400));
+		this.Grid = this.Window.AddControl(new WM.Grid(0, 0, 380, 400));
+		this.Grid.AnchorWidthToParent(20);
+		this.Grid.AnchorHeightToParent(20);
 		this.RootRow = this.Grid.Rows.Add({ "Name": "Samples" }, "GridGroup", { "Name": "GridGroup" });
 		this.RootRow.Rows.AddIndex("_ID");
 	}
 
 
-	SampleWindow.prototype.SetXPos = function(xpos, top_window, bottom_window)
+	SampleWindow.prototype.SetPosition = function(x, y)
 	{
-		Anim.Animate(
-			Bind(AnimatedMove, this, top_window, bottom_window),
-			this.XPos, 10 + xpos * 410, 0.25);
+		this.Window.SetPosition(x, y);
 	}
 
 
-	function AnimatedMove(self, top_window, bottom_window, val)
+	SampleWindow.prototype.SetSize = function(width, height)
 	{
-		self.XPos = val;
-		self.WindowResized(top_window, bottom_window);
+		this.Window.SetSize(width, height);
+		this.Grid.SetSize(width - 20, height - 20);
 	}
 
 
@@ -48,16 +46,9 @@ SampleWindow = (function()
 	}
 
 
-	SampleWindow.prototype.WindowResized = function(top_window, bottom_window)
-	{
-		var top = top_window.Position[1] + top_window.Size[1] + 10;
-		this.Window.SetPosition(this.XPos, top_window.Position[1] + top_window.Size[1] + 10);
-		this.Window.SetSize(400, bottom_window.Position[1] - 10 - top);
-	}
-
-
 	SampleWindow.prototype.OnSamples = function(nb_samples, sample_digest, samples)
 	{
+		// TODO: If selected in tab
 		if (!this.Visible)
 			return;
 

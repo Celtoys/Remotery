@@ -39,7 +39,12 @@ Remotery = (function()
 		this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
 		this.TimelineWindow.SetOnSelected(Bind(OnSampleSelected, this));
 
-		this.NbSampleWindows = 0;
+		this.SampleTreesWindow = this.WindowManager.AddWindow("Sample Trees", 100, 300, 500, 300);
+		this.SampleTreesWindow.Show();
+		this.tabs = new WM.TabContainer(10, 10, 300, 260);
+		this.tabs.AnchorWidthToParent(10);
+		this.tabs.AnchorHeightToParent(30);
+		this.SampleTreesWindow.AddControl(this.tabs);
 		this.SampleWindows = { };
 		this.FrameHistory = { };
 		this.SelectedFrames = { };
@@ -147,10 +152,8 @@ Remotery = (function()
 		// Create sample windows on-demand
 		if (!(name in self.SampleWindows))
 		{
-			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
-			self.SampleWindows[name].WindowResized(self.TimelineWindow.Window, self.Console.Window);
-			self.NbSampleWindows++;
-			MoveSampleWindows(this);
+			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name);
+			self.tabs.AddTab(name, self.SampleWindows[name].Window);
 		}
 
 		// Set on the window and timeline
@@ -164,20 +167,6 @@ Remotery = (function()
 		// Show/hide the equivalent sample window and move all the others to occupy any left-over space
 		var target = DOM.Event.GetNode(evt);
 		self.SampleWindows[name].SetVisible(target.checked);
-		MoveSampleWindows(self);
-	}
-
-
-	function MoveSampleWindows(self)
-	{
-		// Stack all windows next to each other
-		var xpos = 0;
-		for (var i in self.SampleWindows)
-		{
-			var sample_window = self.SampleWindows[i];
-			if (sample_window.Visible)
-				sample_window.SetXPos(xpos++, self.TimelineWindow.Window, self.Console.Window);
-		}
 	}
 
 
@@ -228,8 +217,6 @@ Remotery = (function()
 		self.Console.WindowResized(w, h);
 		self.TitleWindow.WindowResized(w, h);
 		self.TimelineWindow.WindowResized(w, h, self.TitleWindow.Window);
-		for (var i in self.SampleWindows)
-			self.SampleWindows[i].WindowResized(self.TimelineWindow.Window, self.Console.Window);
 	}
 
 

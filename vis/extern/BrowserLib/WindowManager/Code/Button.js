@@ -12,6 +12,12 @@ WM.Button = (function()
 		this.OnClick = null;
 		this.Toggle = opts && opts.toggle;
 
+		this.MouseHeld = false;
+		this.OnHoldClick = null;
+		this.HoldClickDebounce = 0;
+		this.HoldClickRepeatRate = 0;
+		this.OnMouseHoldTriggered = false;
+
 		this.Node = DOM.Node.CreateHTML(template_html);
 
 		// Set node dimensions
@@ -58,6 +64,14 @@ WM.Button = (function()
 	}
 
 
+	Button.prototype.SetOnHoldClick = function(on_hold_click, debounce, repeat)
+	{
+		this.OnHoldClick = on_hold_click;
+		this.HoldClickDebounce = debounce;
+		this.HoldClickRepeatRate = repeat;
+	}
+
+
 	Button.prototype.SetState = function(pressed)
 	{
 		if (pressed)
@@ -89,6 +103,14 @@ WM.Button = (function()
 			self.ToggleState();
 		else
 			self.SetState(true);
+
+		// Trigger repeat clicks from holding the button if required
+		if (self.OnHoldClick != null)
+		{
+			self.MouseHeld = true;
+			self.OnMouseHoldTriggered = false;
+			window.setTimeout(Bind(OnMouseHold, self), self.HoldClickDebounce);
+		}
 
 		// Activate release handlers
 		DOM.Event.AddHandler(self.Node, "mouseout", self.OnMouseOutDelegate);
@@ -123,7 +145,24 @@ WM.Button = (function()
 		if (confirm && self.OnClick)
 			self.OnClick(self);
 
+		// Allow quick clicks of the button to trigger the hold click handler
+		if (confirm && self.OnHoldClick && self.OnMouseHoldTriggered == false)
+			self.OnHoldClick(self);
+
+		self.MouseHeld = false;
+
 		DOM.Event.StopAll(evt);
+	}
+
+
+	function OnMouseHold(self)
+	{
+		if (self.MouseHeld)
+		{
+			self.OnMouseHoldTriggered = true;
+			self.OnHoldClick(self);
+			window.setTimeout(Bind(OnMouseHold, self), self.HoldClickRepeatRate);
+		}
 	}
 
 
