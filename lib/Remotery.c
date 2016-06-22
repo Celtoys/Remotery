@@ -176,8 +176,10 @@ static void rmtFree( void* ptr )
     g_Settings.free( g_Settings.mm_context, ptr );
 }
 
-
+#if RMT_USE_OPENGL
 // DLL/Shared Library functions
+
+#if defined (RMT_PLATFORM_WINDOWS)
 static void* rmtLoadLibrary(const char* path)
 {
     #if defined(RMT_PLATFORM_WINDOWS)
@@ -188,6 +190,7 @@ static void* rmtLoadLibrary(const char* path)
         return NULL;
     #endif
 }
+#endif
 
 static void rmtFreeLibrary(void* handle)
 {
@@ -215,7 +218,7 @@ static void* rmtGetProcAddress(void* handle, const char* symbol)
         return NULL;
     #endif
 }
-
+#endif
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
