@@ -513,6 +513,7 @@
 {
 	/* Clip contents */
 	overflow: hidden;
+	overflow-y: auto;
 
 	position: relative;
 
