@@ -3,12 +3,19 @@ SampleWindow = (function()
 {
 	function SampleWindow(wm, name)
 	{
+		this.Name = name;
+
 		// Sample digest for checking if grid needs to be repopulated
 		this.NbSamples = 0;
 		this.SampleDigest = null;
 
 		this.Window = wm.AddWindow(name, 100, 100, 100, 100);
 		this.Visible = true;
+
+		// This initially be set but true but it would currently require the sample window to disable
+		// it when it gets added to a tab. Not sure how best to fix that right now.
+		// TODO: Fix.
+		this.AllowUpdate = false;
 
 		// Create a grid that's indexed by the unique sample ID
 		this.Grid = this.Window.AddControl(new WM.Grid(0, 0, 380, 400));
@@ -46,10 +53,15 @@ SampleWindow = (function()
 	}
 
 
+	SampleWindow.prototype.SetAllowUpdate = function(allow_update)
+	{
+		this.AllowUpdate = allow_update;
+	}
+
+
 	SampleWindow.prototype.OnSamples = function(nb_samples, sample_digest, samples)
 	{
-		// TODO: If selected in tab
-		if (!this.Visible)
+		if (!this.Visible || !this.AllowUpdate)
 			return;
 
 		// Recreate all the HTML if the number of samples gets bigger

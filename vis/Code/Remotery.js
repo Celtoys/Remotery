@@ -152,8 +152,21 @@ Remotery = (function()
 		// Create sample windows on-demand
 		if (!(name in self.SampleWindows))
 		{
-			self.SampleWindows[name] = new SampleWindow(self.WindowManager, name);
-			self.tabs.AddTab(name, self.SampleWindows[name].Window);
+			var sample_window = new SampleWindow(self.WindowManager, name);
+			self.SampleWindows[name] = sample_window;
+
+			// Enable/disable sample window updates based on tab select status
+			var on_select = Bind(function(sample_window, tab)
+			{
+				sample_window.SetAllowUpdate(true);
+			}, sample_window);
+			var on_unselect = Bind(function(sample_window, tab)
+			{
+				sample_window.SetAllowUpdate(false);
+			}, sample_window);
+
+			// House the sample window in a tab
+			self.tabs.AddTab(name, self.SampleWindows[name].Window, on_select, on_unselect);
 		}
 
 		// Set on the window and timeline

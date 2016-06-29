@@ -15,6 +15,8 @@ WM.Tab = (function()
 		this.Node = DOM.Node.CreateHTML(html);
 		this.SetName(name);
 		this.Window = wnd;
+		this.OnSelectHandler = null;
+		this.OnUnselectHandler = null;
 
 		if (wnd != null)
 		{
@@ -45,6 +47,18 @@ WM.Tab = (function()
 	}
 
 
+	Tab.prototype.SetOnSelect = function(handler)
+	{
+		this.OnSelectHandler = handler;
+	}
+
+
+	Tab.prototype.SetOnUnselect = function(handler)
+	{
+		this.OnUnselectHandler = handler;
+	}
+
+
 	Tab.prototype.Select = function(parent_node)
 	{
 		if (this.Window != null)
@@ -58,6 +72,9 @@ WM.Tab = (function()
 		this.SetWindowSize(contents_size[0], contents_size[1]);
 
 		DOM.Node.AddClass(this.Node, "TabSel");
+
+		if (this.OnSelectHandler)
+			this.OnSelectHandler(this);
 	}
 
 
@@ -69,6 +86,9 @@ WM.Tab = (function()
 		}
 
 		DOM.Node.RemoveClass(this.Node, "TabSel");
+
+		if (this.OnUnselectHandler)
+			this.OnUnselectHandler(this);
 	}
 
 
@@ -145,16 +165,24 @@ WM.TabContainer = (function()
 	}
 
 
-	TabContainer.prototype.AddTab = function(name, wnd)
+	TabContainer.prototype.AddTab = function(name, wnd, on_select, on_unselect)
 	{
 		// Create the tab, add to the node and keep track of it
 		var tab = new WM.Tab(name, wnd);
 		this.TabsNode.appendChild(tab.Node);
 		this.Tabs.push(tab);
 
+		// Set initial handlers so that first container SelectTab gets correct callback
+		if (on_select)
+			tab.SetOnSelect(on_select);
+		if (on_unselect)
+			tab.SetOnUnselect(on_unselect);
+
 		// Select the first added tab
 		if (this.Tabs.length == 1)
 			this.SelectTab(tab);
+
+		return tab;
 	}
 
 
