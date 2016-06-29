@@ -106,8 +106,8 @@ WM.TabContainer = (function()
 		this.SelectedTab = null;
 
 		DOM.Event.AddHandler(this.Node, "click", Bind(OnTabClick, this));
-		this.ButtonLeft.SetOnHoldClick(Bind(OnButtonLeftClick, this), 300, 50);
-		this.ButtonRight.SetOnHoldClick(Bind(OnButtonRightClick, this), 300, 50);
+		this.ButtonLeft.SetOnHoldClick(Bind(OnButtonLeftClick, this), 300, 25);
+		this.ButtonRight.SetOnHoldClick(Bind(OnButtonRightClick, this), 300, 25);
 	}
 
 
