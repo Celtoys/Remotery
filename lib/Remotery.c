@@ -176,8 +176,10 @@ static void rmtFree( void* ptr )
     g_Settings.free( g_Settings.mm_context, ptr );
 }
 
-
+#if RMT_USE_OPENGL
 // DLL/Shared Library functions
+
+#if defined (RMT_PLATFORM_WINDOWS)
 static void* rmtLoadLibrary(const char* path)
 {
     #if defined(RMT_PLATFORM_WINDOWS)
@@ -188,6 +190,7 @@ static void* rmtLoadLibrary(const char* path)
         return NULL;
     #endif
 }
+#endif
 
 static void rmtFreeLibrary(void* handle)
 {
@@ -215,7 +218,7 @@ static void* rmtGetProcAddress(void* handle, const char* symbol)
         return NULL;
     #endif
 }
-
+#endif
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -3835,8 +3838,6 @@ typedef struct ThreadSampler
 
 } ThreadSampler;
 
-static rmtS32 countThreads = 0;
-
 static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
 {
     rmtError error;
@@ -3854,6 +3855,7 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
     #if defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES
     prctl(PR_GET_NAME,thread_sampler->name,0,0,0);
     #else
+    static rmtS32 countThreads = 0;
     strncat_s(thread_sampler->name, sizeof(thread_sampler->name), "Thread", 6);
     itoahex_s(thread_sampler->name + 6, sizeof(thread_sampler->name) - 6, AtomicAdd(&countThreads, 1));
     #endif
