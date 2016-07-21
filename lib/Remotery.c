@@ -1054,6 +1054,7 @@ static void Thread_Destructor(Thread* thread)
 // NOTE: Microsoft also has its own version of these functions so I'm do some hacky PP to remove them
 #define strnlen_s strnlen_s_safe_c
 #define strncat_s strncat_s_safe_c
+#define strcpy_s strcpy_s_safe_c
 
 
 #define RSIZE_MAX_STR (4UL << 10)   /* 4KB */
@@ -1303,6 +1304,84 @@ strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
     /*
      * the entire src was not copied, so the string will be nulled.
      */
+    return RCNEGATE(ESNOSPC);
+}
+
+
+errno_t
+strcpy_s(char *dest, rsize_t dmax, const char *src)
+{
+    rsize_t orig_dmax;
+    char *orig_dest;
+    const char *overlap_bumper;
+
+    if (dest == NULL) {
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (dmax == 0) {
+        return RCNEGATE(ESZEROL);
+    }
+
+    if (dmax > RSIZE_MAX_STR) {
+        return RCNEGATE(ESLEMAX);
+    }
+
+    if (src == NULL) {
+        *dest = '\0';
+        return RCNEGATE(ESNULLP);
+    }
+
+    if (dest == src) {
+        return RCNEGATE(EOK);
+    }
+
+    /* hold base of dest in case src was not copied */
+    orig_dmax = dmax;
+    orig_dest = dest;
+
+    if (dest < src) {
+        overlap_bumper = src;
+
+        while (dmax > 0) {
+            if (dest == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            *dest = *src;
+            if (*dest == '\0') {
+                return RCNEGATE(EOK);
+            }
+
+            dmax--;
+            dest++;
+            src++;
+        }
+
+    }
+    else {
+        overlap_bumper = dest;
+
+        while (dmax > 0) {
+            if (src == overlap_bumper) {
+                return RCNEGATE(ESOVRLP);
+            }
+
+            *dest = *src;
+            if (*dest == '\0') {
+                return RCNEGATE(EOK);
+            }
+
+            dmax--;
+            dest++;
+            src++;
+        }
+    }
+
+    /*
+    * the entire src must have been copied, if not reset dest
+    * to null the string.
+    */
     return RCNEGATE(ESNOSPC);
 }
 
@@ -3354,6 +3433,9 @@ static rmtError json_CloseArray(Buffer* buffer)
 
 
 
+#define SAMPLE_NAME_LEN 128
+
+
 enum SampleType
 {
     SampleType_CPU,
@@ -3375,7 +3457,7 @@ typedef struct Sample
     rmtU32 size_bytes;
 
     // Sample name and unique hash
-    rmtPStr name;
+    char name[SAMPLE_NAME_LEN];
     rmtU32 name_hash;
 
     // Unique, persistent ID among all samples
@@ -3410,7 +3492,7 @@ static rmtError Sample_Constructor(Sample* sample)
 
     sample->type = SampleType_CPU;
     sample->size_bytes = sizeof(Sample);
-    sample->name = NULL;
+    sample->name[0] = 0;
     sample->name_hash = 0;
     sample->unique_id = 0;
     sample->unique_id_html_colour[0] = '#';
@@ -3437,7 +3519,10 @@ static void Sample_Destructor(Sample* sample)
 
 static void Sample_Prepare(Sample* sample, rmtPStr name, rmtU32 name_hash, Sample* parent)
 {
-    sample->name = name;
+    // Copy sample name away for two reasons:
+    //   1. It allows dynamic sprintf-style strings to be transient
+    //   2. The Remotery thread can still inspect the sample even when the source module has been unloaded
+    strcpy_s(sample->name, sizeof(sample->name), name);
     sample->name_hash = name_hash;
     sample->unique_id = 0;
     sample->parent = parent;
