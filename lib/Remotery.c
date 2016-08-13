@@ -101,6 +101,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #ifndef __MINGW32__
             #include <intrin.h>
         #endif
+        #include <stdlib.h>
         #undef min
         #undef max
     #endif
@@ -1892,7 +1893,6 @@ static rmtError HashTable_Insert(HashTable* table, rmtU32 key, rmtU32 value)
 static rmtError HashTable_Resize(HashTable* table)
 {
     rmtU32 old_max_nb_slots = table->max_nb_slots;
-    rmtU32 new_nb_occupied_slots = 0;
     HashSlot* new_slots = NULL;
     HashSlot* old_slots = table->slots;
 
@@ -1918,7 +1918,7 @@ static rmtError HashTable_Resize(HashTable* table)
     for (rmtU32 i = 0; i < old_max_nb_slots; i++)
     {
         HashSlot* slot = old_slots + i;
-        if (slot->key != NULL)
+        if (slot->key != 0)
             HashTable_Insert(table, slot->key, slot->key);
     }
 
@@ -2143,7 +2143,7 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = htonl(limit_connections_to_localhost ? INADDR_LOOPBACK : INADDR_ANY);
     sin.sin_port = htons(port);
-    if (::bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
+    if (bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
         return RMT_ERROR_SOCKET_BIND_FAIL;
 
     // Connection is valid, remaining code is socket state modification
@@ -5995,7 +5995,14 @@ static void* rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
         // Get OpenGL extension-loading function for each call
         typedef void* (*wglGetProcAddressFn)(LPCSTR);
         {
+            #ifdef _MSC_VER
+                #pragma warning(push)
+                #pragma warning(disable:4055) // C4055: 'type cast': from data pointer 'void *' to function pointer
+            #endif
             wglGetProcAddressFn wglGetProcAddress = (wglGetProcAddressFn)rmtGetProcAddress(opengl->dll_handle, "wglGetProcAddress");
+            #ifdef _MSC_VER
+                #pragma warning(pop)
+            #endif
             if (wglGetProcAddress != NULL)
                 return wglGetProcAddress(symbol);
         }
@@ -6215,6 +6222,10 @@ RMT_API void _rmt_BindOpenGL()
             opengl->dll_handle = rmtLoadLibrary("opengl32.dll");
         #endif
 
+        #ifdef _MSC_VER
+            #pragma warning(push)
+            #pragma warning(disable:4055) // C4055: 'type cast': from data pointer 'void *' to function pointer
+        #endif
         opengl->__glGetError = (PFNGLGETERRORPROC)rmtGetProcAddress(opengl->dll_handle, "glGetError");
         opengl->__glGenQueries = (PFNGLGENQUERIESPROC)rmtglGetProcAddress(opengl, "glGenQueries");
         opengl->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtglGetProcAddress(opengl, "glDeleteQueries");
@@ -6225,6 +6236,9 @@ RMT_API void _rmt_BindOpenGL()
         opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjecti64v");
         opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjectui64v");
         opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtglGetProcAddress(opengl, "glQueryCounter");
+        #ifdef _MSC_VER
+            #pragma warning(pop)
+        #endif
     }
 }
 
