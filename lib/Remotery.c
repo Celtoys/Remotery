@@ -1315,8 +1315,6 @@ strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
 errno_t
 strcpy_s(char *dest, rsize_t dmax, const char *src)
 {
-    rsize_t orig_dmax;
-    char *orig_dest;
     const char *overlap_bumper;
 
     if (dest == NULL) {
@@ -1339,10 +1337,6 @@ strcpy_s(char *dest, rsize_t dmax, const char *src)
     if (dest == src) {
         return RCNEGATE(EOK);
     }
-
-    /* hold base of dest in case src was not copied */
-    orig_dmax = dmax;
-    orig_dest = dest;
 
     if (dest < src) {
         overlap_bumper = src;
@@ -1389,7 +1383,7 @@ strcpy_s(char *dest, rsize_t dmax, const char *src)
     return RCNEGATE(ESNOSPC);
 }
 
-
+#if !((defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES))
 
 /* very simple integer to hex */
 static const char* hex_encoding_table = "0123456789ABCDEF";
@@ -1426,6 +1420,7 @@ static void itoahex_s( char *dest, rsize_t dmax, rmtS32 value )
     }
 }
 
+#endif
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -1684,13 +1679,6 @@ static rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
     return RMT_ERROR_NONE;
 }
 
-
-static rmtError Buffer_WriteString(Buffer* buffer, rmtPStr string)
-{
-    assert(string != NULL);
-    return Buffer_Write(buffer, (void*)string, (rmtU32)strnlen_s(string, 2048));
-}
-
 static rmtError Buffer_WriteStringZ(Buffer* buffer, rmtPStr string)
 {
     assert(string != NULL);
@@ -1715,21 +1703,6 @@ static rmtError Buffer_WriteU32(Buffer* buffer, rmtU32 value)
     return Buffer_Write(buffer, temp, sizeof(temp));
 }
 
-
-static rmtBool IsLittleEndian()
-{
-    // Not storing this in a global variable allows the compiler to more easily optimise
-    // this away altogether.
-    union
-    {
-        unsigned int i;
-        unsigned char c[sizeof(unsigned int)];
-    } u;
-    u.i = 1;
-    return u.c[0] == 1 ? RMT_TRUE : RMT_FALSE;
-}
-
-
 static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
 {
     // Write as a double as Javascript DataView doesn't have a 64-bit integer read
@@ -1738,30 +1711,9 @@ static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
         double d;
         unsigned char c[sizeof(double)];
     } u;
-    char temp[8];
+
     u.d = (double)value;
-    if (IsLittleEndian())
-    {
-        temp[0] = u.c[0];
-        temp[1] = u.c[1];
-        temp[2] = u.c[2];
-        temp[3] = u.c[3];
-        temp[4] = u.c[4];
-        temp[5] = u.c[5];
-        temp[6] = u.c[6];
-        temp[7] = u.c[7];
-    }
-    else
-    {
-        temp[0] = u.c[7];
-        temp[1] = u.c[6];
-        temp[2] = u.c[5];
-        temp[3] = u.c[4];
-        temp[4] = u.c[3];
-        temp[5] = u.c[2];
-        temp[6] = u.c[1];
-        temp[7] = u.c[0];
-    }
+
     return Buffer_Write(buffer, u.c, sizeof(u.c));
 }
 
@@ -1892,7 +1844,6 @@ static rmtError HashTable_Insert(HashTable* table, rmtU32 key, rmtU32 value)
 static rmtError HashTable_Resize(HashTable* table)
 {
     rmtU32 old_max_nb_slots = table->max_nb_slots;
-    rmtU32 new_nb_occupied_slots = 0;
     HashSlot* new_slots = NULL;
     HashSlot* old_slots = table->slots;
 
@@ -1915,10 +1866,11 @@ static rmtError HashTable_Resize(HashTable* table)
     table->nb_slots = 0;
 
     // Reinsert all objects into the new table
-    for (rmtU32 i = 0; i < old_max_nb_slots; i++)
+    rmtU32 i;
+    for (i = 0; i < old_max_nb_slots; i++)
     {
         HashSlot* slot = old_slots + i;
-        if (slot->key != NULL)
+        if (slot->key != 0)
             HashTable_Insert(table, slot->key, slot->key);
     }
 
@@ -2143,7 +2095,7 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = htonl(limit_connections_to_localhost ? INADDR_LOOPBACK : INADDR_ANY);
     sin.sin_port = htons(port);
-    if (::bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
+    if (bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
         return RMT_ERROR_SOCKET_BIND_FAIL;
 
     // Connection is valid, remaining code is socket state modification
@@ -4344,7 +4296,7 @@ static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
     rmt_EndCPUSample();
 
     // Write global message header
-    BIN_ERROR_CHECK(Buffer_Write(buffer, "SMPL    ", 8));
+    BIN_ERROR_CHECK(Buffer_Write(buffer, (void*) "SMPL    ", 8));
 
     // Write sample message header
     BIN_ERROR_CHECK(Buffer_WriteStringWithLength(buffer, thread_name));
