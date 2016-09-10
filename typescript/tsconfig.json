@@ -1,0 +1,28 @@
+{
+    //
+    // How I configured this project:
+    //
+    // 1. Download and install TypeScript for Visual Studio 2015 (https://www.microsoft.com/en-us/download/details.aspx?id=48593)
+    // 2. Setup "typescript.tsdk" to point to "C:\\Program Files (x86)\\Microsoft SDKs\\TypeScript\\2.0\\"
+    // 3. Copy https://raw.githubusercontent.com/Microsoft/TypeScript/release-2.0/lib/tsserver.js to the TypeScript directory.
+    //
+    "compileOnSave": true,
+    "compilerOptions": {
+        "target": "es5",
+        "module": "amd",
+        "noImplicitAny": true,
+        "removeComments": true,
+        "preserveConstEnums": true,
+        "outFile": "remotery.js",
+        "sourceMap": true
+    },
+    "files": [
+        "Math.ts",
+        "DOM.ts",
+        "DOM_Node.ts",
+        "WM_Control.ts",
+        "WM_Container.ts",
+        "WM_Window.ts",
+        "Test.ts"
+    ]
+}

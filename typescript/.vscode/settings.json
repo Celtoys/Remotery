@@ -1,0 +1,6 @@
+// Place your settings in this file to overwrite default and user settings.
+{
+    "typescript.tsdk": "C:\\Program Files (x86)\\Microsoft SDKs\\TypeScript\\2.0\\",
+    "editor.fontSize": 13,
+    "editor.lineHeight": 15
+}
