@@ -3,6 +3,7 @@
 .notextsel
 {
 	/* Disable text selection so that it doesn't interfere with button-clicking */
+	user-select: none;
 	-moz-user-select: none; /* Firefox */
 	-ms-user-select: none; /* Internet Explorer */
 	-khtml-user-select: none; /* KHTML browsers (e.g. Konqueror) */
@@ -19,12 +20,15 @@
 /* Window Styles                                                                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-
+body
+{
+	/* Clip contents to browser window without adding scrollbars */
+	overflow: hidden;	
+}
 
 .Window
 {
-	/* Allows movement of the window to exceed browser region without triggering scroll bars */
-	position:fixed;
+	position:absolute;
 
 	/* Clip all contents to the window border */
 	overflow: hidden;
@@ -45,52 +49,44 @@
 	box-shadow: 1px 1px 1px #222, 1px 0px 0px #777 inset;
 }
 
-.WindowSizeX
+:root
 {
-	position:absolute;
-
-	/* Window width - side resize */
-	left: calc(100% - 5px);
-
-	/* Side resize */
-	width: 5px;
-
-	/* Window height - title bar height - corner resize */
-	height: calc(100% - 17px - 15px);
-
-	cursor: w-resize;
+	--SideBarSize: 5px;
 }
-.WindowSizeY
+
+.WindowSizeLeft
 {
-	position:absolute;
-
-	/* Window height - side resize */
-	top: calc(100% - 5px);
-
-	/* Window width - corner resize */
-	width: calc(100% - 15px);
-
-	/* Side resize */
-	height: 5px;
-
-	cursor: n-resize;
+	position: absolute;
+	left: 0px;
+	top: 0px;
+	width: var(--SideBarSize);
+	height: 100%;
 }
-.WindowSizeXY
+.WindowSizeRight
 {
-	position:absolute;
-
-	/* Window height - corner resize */
-	top: calc(100% - 15px);
-
-	/* Window width - corner resize */
-	left: calc(100% - 15px);
-
-	/* Corner resize */
-	width: 15px;
-	height: 15px;
-
-	cursor: nw-resize;
+	position: absolute;
+	left: calc(100% - var(--SideBarSize));
+	top:0px;
+	width: var(--SideBarSize);
+	height:100%;
 }
+.WindowSizeTop
+{
+	position: absolute;
+	left: 0px;
+	top: 0px;
+	width: 100%;
+	height: var(--SideBarSize);
+}
+.WindowSizeBottom
+{
+	position: absolute;
+	left: 0px;
+	top: calc(100% - var(--SideBarSize));
+	width: 100%;
+	height: var(--SideBarSize);
+}
+
 
 .WindowSizeX.Embed
 {
@@ -155,9 +151,12 @@
 	/* Turns this node into a "positioned node" so that its children can be placed relative to it */
 	position: absolute;
 
+	/* Further clip stuff belonging to the body */
+	overflow: hidden;
+
 	/* Fill the parent window node */
-	width: 100%;
-	height: 100%;
+	width: calc(100% - 20px);
+	height: calc(100% - (20px + 17px + 2px));	
 
 	padding:10px;
 	border-top: 1px solid #606060;
@@ -179,6 +178,9 @@
 {
 	/* Position relative to the parent window */
 	position: absolute;
+
+	/* Clip contents */
+	overflow: hidden;
 
 	background:#2C2C2C;
 
@@ -515,6 +517,7 @@
 	overflow: hidden;
 	overflow-y: auto;
 
+	/* TODO: SHOULD THIS BE ABSOLUTE? */
 	position: relative;
 
 	background: #333;
