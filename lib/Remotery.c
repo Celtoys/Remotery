@@ -1918,7 +1918,7 @@ static rmtError HashTable_Resize(HashTable* table)
     for (rmtU32 i = 0; i < old_max_nb_slots; i++)
     {
         HashSlot* slot = old_slots + i;
-        if (slot->key != NULL)
+        if (slot)
             HashTable_Insert(table, slot->key, slot->key);
     }
 
