@@ -1315,8 +1315,6 @@ strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
 errno_t
 strcpy_s(char *dest, rsize_t dmax, const char *src)
 {
-    rsize_t orig_dmax;
-    char *orig_dest;
     const char *overlap_bumper;
 
     if (dest == NULL) {
@@ -1339,10 +1337,6 @@ strcpy_s(char *dest, rsize_t dmax, const char *src)
     if (dest == src) {
         return RCNEGATE(EOK);
     }
-
-    /* hold base of dest in case src was not copied */
-    orig_dmax = dmax;
-    orig_dest = dest;
 
     if (dest < src) {
         overlap_bumper = src;
@@ -1389,7 +1383,7 @@ strcpy_s(char *dest, rsize_t dmax, const char *src)
     return RCNEGATE(ESNOSPC);
 }
 
-
+#if !(defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES)
 
 /* very simple integer to hex */
 static const char* hex_encoding_table = "0123456789ABCDEF";
@@ -1426,6 +1420,7 @@ static void itoahex_s( char *dest, rsize_t dmax, rmtS32 value )
     }
 }
 
+#endif
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
