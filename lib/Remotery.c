@@ -4339,7 +4339,7 @@ static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
     rmt_EndCPUSample();
 
     // Write global message header
-    BIN_ERROR_CHECK(Buffer_Write(buffer, "SMPL    ", 8));
+    BIN_ERROR_CHECK(Buffer_Write(buffer, (void*)"SMPL    ", 8));
 
     // Write sample message header
     BIN_ERROR_CHECK(Buffer_WriteStringWithLength(buffer, thread_name));
