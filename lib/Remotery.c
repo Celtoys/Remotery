@@ -2612,7 +2612,7 @@ static void calc(const void* src, const int bytelength, unsigned char* hash)
     {
         w[lastBlockBytes >> 2] |= (unsigned int) sarray[lastBlockBytes + currentBlock] << ((3 - (lastBlockBytes & 3)) << 3);
     }
-    w[lastBlockBytes >> 2] |= 0x80 << ((3 - (lastBlockBytes & 3)) << 3);
+    w[lastBlockBytes >> 2] |= 0x80U << ((3 - (lastBlockBytes & 3)) << 3);
     if (endCurrentBlock >= 56)
     {
         innerHash(result, w);
