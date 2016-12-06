@@ -1,5 +1,5 @@
 //
-// Copyright 2014-2016 Celtoys Ltd
+// Copyright 2014-2017 Celtoys Ltd
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -3453,6 +3453,13 @@ static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* messag
 }
 
 
+static rmtBool MessageQueue_IsEmpty(MessageQueue* queue)
+{
+    assert(queue != NULL);
+    return queue->write_pos - queue->read_pos == 0;
+}
+
+
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -3462,7 +3469,7 @@ static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* messag
 */
 
 
-typedef void(*Server_ReceiveHandler)(void*, char*);
+typedef void(*Server_ReceiveHandler)(void*, char*, rmtU32);
 
 
 typedef struct
@@ -3580,7 +3587,7 @@ static rmtError Server_ReceiveMessage(Server* server, char message_first_byte, r
 
     // Dispatch to handler
     if (server->receive_handler)
-        server->receive_handler(server->receive_handler_context, message_data);
+        server->receive_handler(server->receive_handler_context, message_data, message_length);
 
     return RMT_ERROR_NONE;
 }
@@ -4538,7 +4545,7 @@ static rmtError Remotery_ThreadMain(Thread* thread)
 }
 
 
-static void Remotery_ReceiveMessage(void* context, char* message_data)
+static void Remotery_ReceiveMessage(void* context, char* message_data, rmtU32 message_length)
 {
     Remotery* rmt = (Remotery*)context;
 
@@ -4562,8 +4569,11 @@ static void Remotery_ReceiveMessage(void* context, char* message_data)
         case FOURCC('G', 'S', 'M', 'P'):
         {
             // Convert name hash to integer
-            char* end = NULL;
-            rmtU32 name_hash = (rmtU32)strtoul(message_data + 4, &end, 10);
+            rmtU32 name_hash = 0;
+            const char* cur = message_data + 4;
+            const char* end = cur + message_length - 4;
+            while (cur < end)
+                name_hash = name_hash * 10 + *cur++ - '0';
 
             // Search all threads for a matching string hash
             ThreadSampler* ts;
@@ -4752,6 +4762,31 @@ static rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_
     *thread_sampler = ts;
     return RMT_ERROR_NONE;
 }
+
+
+static void Remotery_BlockingDeleteSampleTree(Remotery* rmt, enum SampleType sample_type)
+{
+    ThreadSampler* ts;
+
+    // Get the attached thread sampler
+    assert(rmt != NULL);
+    if (Remotery_GetThreadSampler(rmt, &ts) == RMT_ERROR_NONE)
+    {
+        SampleTree* sample_tree = ts->sample_trees[sample_type];
+        if (sample_tree != NULL)
+        {
+            // Wait around until the Remotery server thread has sent all sample trees
+            // of this type to the client
+            while (sample_tree->allocator->nb_inuse > 1)
+                msSleep(1);
+
+            // Now free to delete
+            Delete(SampleTree, sample_tree);
+            ts->sample_trees[sample_type] = NULL;
+        }
+    }
+}
+
 
 
 static void Remotery_DestroyThreadSamplers(Remotery* rmt)
@@ -5399,10 +5434,6 @@ typedef struct D3D11
 
     HRESULT last_error;
 
-    // An allocator separate to the samples themselves so that D3D resource lifetime can be controlled
-    // outside of the Remotery thread.
-    ObjectAllocator* timestamp_allocator;
-
     // Queue to the D3D 11 main update thread
     // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
     // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
@@ -5428,7 +5459,6 @@ static rmtError D3D11_Create(D3D11** d3d11)
     (*d3d11)->device = NULL;
     (*d3d11)->context = NULL;
     (*d3d11)->last_error = S_OK;
-    (*d3d11)->timestamp_allocator = NULL;
     (*d3d11)->mq_to_d3d11_main = NULL;
     (*d3d11)->first_timestamp = 0;
 
@@ -5446,8 +5476,6 @@ static rmtError D3D11_Create(D3D11** d3d11)
 static void D3D11_Destructor(D3D11* d3d11)
 {
     assert(d3d11 != NULL);
-
-    Delete(ObjectAllocator, d3d11->timestamp_allocator);
     Delete(MessageQueue, d3d11->mq_to_d3d11_main);
 }
 
@@ -5601,13 +5629,15 @@ typedef struct D3D11Sample
 
 static rmtError D3D11Sample_Constructor(D3D11Sample* sample)
 {
+    rmtError error;
+
     assert(sample != NULL);
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
     sample->Sample.type = SampleType_D3D11;
     sample->Sample.size_bytes = sizeof(D3D11Sample);
-    sample->timestamp = NULL;
+    New_0(D3D11Timestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
 }
@@ -5615,6 +5645,7 @@ static rmtError D3D11Sample_Constructor(D3D11Sample* sample)
 
 static void D3D11Sample_Destructor(D3D11Sample* sample)
 {
+    Delete(D3D11Timestamp, sample->timestamp);
     Sample_Destructor((Sample*)sample);
 }
 
@@ -5633,21 +5664,7 @@ RMT_API void _rmt_BindD3D11(void* device, void* context)
 }
 
 
-static void FreeD3D11TimeStamps(Sample* sample)
-{
-    Sample* child;
-
-    D3D11Sample* d3d_sample = (D3D11Sample*)sample;
-
-    assert(g_Remotery != NULL);
-    assert(g_Remotery->d3d11 != NULL);
-    assert(d3d_sample->timestamp != NULL);
-    ObjectAllocator_Free(g_Remotery->d3d11->timestamp_allocator, (void*)d3d_sample->timestamp);
-    d3d_sample->timestamp = NULL;
-
-    for (child = sample->first_child; child != NULL; child = child->next_sibling)
-        FreeD3D11TimeStamps(child);
-}
+static void UpdateD3D11Frame(void);
 
 
 RMT_API void _rmt_UnbindD3D11(void)
@@ -5657,33 +5674,17 @@ RMT_API void _rmt_UnbindD3D11(void)
         D3D11* d3d11 = g_Remotery->d3d11;
         assert(d3d11 != NULL);
 
+        // Stall waiting for the D3D queue to empty into the Remotery queue
+        while (!MessageQueue_IsEmpty(d3d11->mq_to_d3d11_main))
+            UpdateD3D11Frame();
+
         // Inform sampler to not add any more samples
         d3d11->device = NULL;
         d3d11->context = NULL;
 
-        // Flush the main queue of allocated D3D timestamps
-        for (;;)
-        {
-            Msg_SampleTree* sample_tree;
-            Sample* sample;
-
-            Message* message = MessageQueue_PeekNextMessage(d3d11->mq_to_d3d11_main);
-            if (message == NULL)
-                break;
-
-            // There's only one valid message type in this queue
-            assert(message->id == MsgID_SampleTree);
-            sample_tree = (Msg_SampleTree*)message->payload;
-            sample = sample_tree->root_sample;
-            assert(sample->type == SampleType_D3D11);
-            FreeD3D11TimeStamps(sample);
-            FreeSampleTree(sample, sample_tree->allocator);
-
-            MessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
-        }
-
-        // Free all allocated D3D resources
-        Delete(ObjectAllocator, d3d11->timestamp_allocator);
+        // Forcefully delete sample tree on this thread to release time stamps from
+        // the same thread that created them
+        Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_D3D11);
     }
 }
 
@@ -5704,7 +5705,6 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
-        rmtError error;
         Sample* sample;
         rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
 
@@ -5713,25 +5713,17 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** d3d_tree = &ts->sample_trees[SampleType_D3D11];
         if (*d3d_tree == NULL)
         {
+            rmtError error;
             New_3(SampleTree, *d3d_tree, sizeof(D3D11Sample), (ObjConstructor)D3D11Sample_Constructor, (ObjDestructor)D3D11Sample_Destructor);
             if (error != RMT_ERROR_NONE)
                 return;
         }
 
-        // Also create the timestamp allocator on-demand to keep the D3D11 code localised to the same file section
-        if (d3d11->timestamp_allocator == NULL)
-            New_3(ObjectAllocator, d3d11->timestamp_allocator, sizeof(D3D11Timestamp), (ObjConstructor)D3D11Timestamp_Constructor, (ObjDestructor)D3D11Timestamp_Destructor);
-
-        // Push the sample
+        // Push the sample and activate the timestamp
         if (ThreadSampler_Push(*d3d_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             D3D11Sample* d3d_sample = (D3D11Sample*)sample;
-
-            // Allocate a timestamp for the sample and activate it
-            assert(d3d_sample->timestamp == NULL);
-            error = ObjectAllocator_Alloc(d3d11->timestamp_allocator, (void**)&d3d_sample->timestamp);
-            if (error == RMT_ERROR_NONE)
-                D3D11Timestamp_Begin(d3d_sample->timestamp, d3d11->context);
+            D3D11Timestamp_Begin(d3d_sample->timestamp, d3d11->context);
         }
     }
 }
@@ -5812,7 +5804,6 @@ static void UpdateD3D11Frame(void)
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
-        FreeD3D11TimeStamps(sample);
         AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
         MessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
     }
@@ -5916,7 +5907,7 @@ typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
 #define GL_TIME_ELAPSED 0x88BF
 #define GL_TIMESTAMP 0x8E28
 
-#define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL), g_Remotery->opengl->x
+#define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL); g_Remotery->opengl->x
 
 #define glGenQueries RMT_GL_GET_FUN(__glGenQueries)
 #define glDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
@@ -5944,10 +5935,6 @@ typedef struct OpenGL
     PFNGLGETQUERYOBJECTI64VPROC __glGetQueryObjecti64v;
     PFNGLGETQUERYOBJECTUI64VPROC __glGetQueryObjectui64v;
     PFNGLQUERYCOUNTERPROC __glQueryCounter;
-
-    // An allocator separate to the samples themselves so that OpenGL resource lifetime can be controlled
-    // outside of the Remotery thread.
-    ObjectAllocator* timestamp_allocator;
 
     // Queue to the OpenGL main update thread
     // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
@@ -6033,7 +6020,6 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     (*opengl)->__glGetQueryObjectui64v = NULL;
     (*opengl)->__glQueryCounter = NULL;
 
-    (*opengl)->timestamp_allocator = NULL;
     (*opengl)->mq_to_opengl_main = NULL;
     (*opengl)->first_timestamp = 0;
 
@@ -6045,7 +6031,6 @@ static rmtError OpenGL_Create(OpenGL** opengl)
 static void OpenGL_Destructor(OpenGL* opengl)
 {
     assert(opengl != NULL);
-    Delete(ObjectAllocator, opengl->timestamp_allocator);
     Delete(MessageQueue, opengl->mq_to_opengl_main);
 }
 
@@ -6181,13 +6166,15 @@ typedef struct OpenGLSample
 
 static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 {
+	rmtError error;
+
     assert(sample != NULL);
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
     sample->m_sample.type = SampleType_OpenGL;
     sample->m_sample.size_bytes = sizeof(OpenGLSample);
-    sample->timestamp = NULL;
+	New_0(OpenGLTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
 }
@@ -6195,6 +6182,7 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 
 static void OpenGLSample_Destructor(OpenGLSample* sample)
 {
+	Delete(OpenGLTimestamp, sample->timestamp);
     Sample_Destructor((Sample*)sample);
 }
 
@@ -6224,19 +6212,7 @@ RMT_API void _rmt_BindOpenGL()
 }
 
 
-static void FreeOpenGLTimeStamps(Sample* sample)
-{
-    Sample* child;
-
-    OpenGLSample* ogl_sample = (OpenGLSample*)sample;
-
-    assert(ogl_sample->timestamp != NULL);
-    ObjectAllocator_Free(g_Remotery->opengl->timestamp_allocator, (void*)ogl_sample->timestamp);
-    ogl_sample->timestamp = NULL;
-
-    for (child = sample->first_child; child != NULL; child = child->next_sibling)
-        FreeOpenGLTimeStamps(child);
-}
+static void UpdateOpenGLFrame(void);
 
 
 RMT_API void _rmt_UnbindOpenGL(void)
@@ -6246,29 +6222,13 @@ RMT_API void _rmt_UnbindOpenGL(void)
         OpenGL* opengl = g_Remotery->opengl;
         assert(opengl != NULL);
 
-        // Flush the main queue of allocated OpenGL timestamps
-        while (1)
-        {
-            Msg_SampleTree* sample_tree;
-            Sample* sample;
+		// Stall waiting for the OpenGL queue to empty into the Remotery queue
+		while (!MessageQueue_IsEmpty(opengl->mq_to_opengl_main))
+			UpdateOpenGLFrame();
 
-            Message* message = MessageQueue_PeekNextMessage(opengl->mq_to_opengl_main);
-            if (message == NULL)
-                break;
-
-            // There's only one valid message type in this queue
-            assert(message->id == MsgID_SampleTree);
-            sample_tree = (Msg_SampleTree*)message->payload;
-            sample = sample_tree->root_sample;
-            assert(sample->type == SampleType_OpenGL);
-            FreeOpenGLTimeStamps(sample);
-            FreeSampleTree(sample, sample_tree->allocator);
-
-            MessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
-        }
-
-        // Free all allocated OpenGL resources
-        Delete(ObjectAllocator, opengl->timestamp_allocator);
+		// Forcefully delete sample tree on this thread to release time stamps from
+		// the same thread that created them
+		Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_OpenGL);
 
         // Release reference to the OpenGL DLL
         if (opengl->dll_handle != NULL)
@@ -6289,7 +6249,6 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
-        rmtError error;
         Sample* sample;
         rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
 
@@ -6300,26 +6259,17 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** ogl_tree = &ts->sample_trees[SampleType_OpenGL];
         if (*ogl_tree == NULL)
         {
-            New_3(SampleTree, *ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor, (ObjDestructor)OpenGLSample_Destructor);
+			rmtError error;
+			New_3(SampleTree, *ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor, (ObjDestructor)OpenGLSample_Destructor);
             if (error != RMT_ERROR_NONE)
                 return;
         }
 
-        // Also create the timestamp allocator on-demand to keep the OpenGL code localised to the same file section
-        assert(opengl != NULL);
-        if (opengl->timestamp_allocator == NULL)
-            New_3(ObjectAllocator, opengl->timestamp_allocator, sizeof(OpenGLTimestamp), (ObjConstructor)OpenGLTimestamp_Constructor, (ObjDestructor)OpenGLTimestamp_Destructor);
-
-        // Push the sample
+        // Push the sample and activate the timestamp
         if (ThreadSampler_Push(*ogl_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             OpenGLSample* ogl_sample = (OpenGLSample*)sample;
-
-            // Allocate a timestamp for the sample and activate it
-            assert(ogl_sample->timestamp == NULL);
-            error = ObjectAllocator_Alloc(opengl->timestamp_allocator, (void**)&ogl_sample->timestamp);
-            if (error == RMT_ERROR_NONE)
-                OpenGLTimestamp_Begin(ogl_sample->timestamp);
+            OpenGLTimestamp_Begin(ogl_sample->timestamp);
         }
     }
 }
@@ -6385,7 +6335,6 @@ static void UpdateOpenGLFrame(void)
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
-        FreeOpenGLTimeStamps(sample);
         AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
         MessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
     }
