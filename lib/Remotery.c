@@ -5919,7 +5919,7 @@ typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
 #define GL_TIME_ELAPSED 0x88BF
 #define GL_TIMESTAMP 0x8E28
 
-#define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL), g_Remotery->opengl->x
+#define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL); g_Remotery->opengl->x
 
 #define glGenQueries RMT_GL_GET_FUN(__glGenQueries)
 #define glDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
