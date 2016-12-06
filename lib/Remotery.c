@@ -287,7 +287,7 @@ static void usTimer_Init(usTimer* timer)
 
         struct timespec tv;
         clock_gettime(CLOCK_REALTIME, &tv);
-        timer->counter_start = (rmtU64)(tv.tv_sec * 1000000) + (rmtU64)(tv.tv_nsec * 0.001);
+        timer->counter_start = (rmtU64)(tv.tv_sec * (rmtU64)1000000) + (rmtU64)(tv.tv_nsec * 0.001);
 
     #endif
 }
@@ -313,7 +313,7 @@ static rmtU64 usTimer_Get(usTimer* timer)
 
         struct timespec tv;
         clock_gettime(CLOCK_REALTIME, &tv);
-        return  ((rmtU64)(tv.tv_sec * 1000000) + (rmtU64)(tv.tv_nsec * 0.001)) - timer->counter_start;
+        return  ((rmtU64)(tv.tv_sec * (rmtU64)1000000) + (rmtU64)(tv.tv_nsec * 0.001)) - timer->counter_start;
 
     #endif
 }
@@ -2612,7 +2612,7 @@ static void calc(const void* src, const int bytelength, unsigned char* hash)
     {
         w[lastBlockBytes >> 2] |= (unsigned int) sarray[lastBlockBytes + currentBlock] << ((3 - (lastBlockBytes & 3)) << 3);
     }
-    w[lastBlockBytes >> 2] |= 0x80 << ((3 - (lastBlockBytes & 3)) << 3);
+    w[lastBlockBytes >> 2] |= 0x80U << ((3 - (lastBlockBytes & 3)) << 3);
     if (endCurrentBlock >= 56)
     {
         innerHash(result, w);
