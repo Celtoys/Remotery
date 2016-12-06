@@ -3462,7 +3462,7 @@ static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* messag
 */
 
 
-typedef void(*Server_ReceiveHandler)(void*, char*);
+typedef void(*Server_ReceiveHandler)(void*, char*, rmtU32);
 
 
 typedef struct
@@ -3580,7 +3580,7 @@ static rmtError Server_ReceiveMessage(Server* server, char message_first_byte, r
 
     // Dispatch to handler
     if (server->receive_handler)
-        server->receive_handler(server->receive_handler_context, message_data);
+        server->receive_handler(server->receive_handler_context, message_data, message_length);
 
     return RMT_ERROR_NONE;
 }
@@ -4538,7 +4538,7 @@ static rmtError Remotery_ThreadMain(Thread* thread)
 }
 
 
-static void Remotery_ReceiveMessage(void* context, char* message_data)
+static void Remotery_ReceiveMessage(void* context, char* message_data, rmtU32 message_length)
 {
     Remotery* rmt = (Remotery*)context;
 
@@ -4562,8 +4562,11 @@ static void Remotery_ReceiveMessage(void* context, char* message_data)
         case FOURCC('G', 'S', 'M', 'P'):
         {
             // Convert name hash to integer
-            char* end = NULL;
-            rmtU32 name_hash = (rmtU32)strtoul(message_data + 4, &end, 10);
+            rmtU32 name_hash = 0;
+            const char* cur = message_data + 4;
+            const char* end = cur + message_length - 4;
+            while (cur < end)
+                name_hash = name_hash * 10 + *cur++ - '0';
 
             // Search all threads for a matching string hash
             ThreadSampler* ts;
