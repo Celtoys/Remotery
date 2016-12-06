@@ -12,6 +12,9 @@ SampleWindow = (function()
 		this.Window.Show();
 		this.Visible = true;
 
+		this.WidthAnchor = null;
+		this.HeightAnchor = null;
+
 	    // This should initially be set to true but it would currently require
 	    // the sample window to disable it when it gets added to a tab. Not sure
 	    // how best to fix that right now.
@@ -30,6 +33,16 @@ SampleWindow = (function()
 		Anim.Animate(
 			Bind(AnimatedMove, this, top_window, bottom_window),
 			this.XPos, 10 + xpos * 410, 0.25);
+	}
+
+
+	SampleWindow.prototype.AnchorWidthToParent = function (d)
+	{
+	    this.WidthAnchor = d;
+	}
+	SampleWindow.prototype.AnchorHeightToParent = function (d)
+	{
+	    this.HeightAnchor = d;
 	}
 
 
