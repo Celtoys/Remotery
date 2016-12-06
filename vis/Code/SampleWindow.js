@@ -12,6 +12,12 @@ SampleWindow = (function()
 		this.Window.Show();
 		this.Visible = true;
 
+	    // This should initially be set to true but it would currently require
+	    // the sample window to disable it when it gets added to a tab. Not sure
+	    // how best to fix that right now.
+	    // TODO: Fix.
+		this.AllowUpdate = false;
+
 		// Create a grid that's indexed by the unique sample ID
 		this.Grid = this.Window.AddControl(new WM.Grid(0, 0, 380, 400));
 		this.RootRow = this.Grid.Rows.Add({ "Name": "Samples" }, "GridGroup", { "Name": "GridGroup" });
@@ -48,6 +54,12 @@ SampleWindow = (function()
 	}
 
 
+	SampleWindow.prototype.SetAllowUpdate = function(allow_update)
+	{
+	    this.AllowUpdate = allow_update;
+	}
+
+
 	SampleWindow.prototype.WindowResized = function(top_window, bottom_window)
 	{
 		var top = top_window.Position[1] + top_window.Size[1] + 10;
@@ -58,8 +70,14 @@ SampleWindow = (function()
 
 	SampleWindow.prototype.OnSamples = function(nb_samples, sample_digest, samples)
 	{
-		if (!this.Visible)
-			return;
+		if (!this.Visible || !this.AllowUpdate)
+		    return;
+		if (nb_samples == 0)
+		    return;
+
+	    // TODO: Handle select in timeline
+	    // TODO: Discard old sample roots after timeout
+        // TODO: Revisit whether a "GridGroup" CSS per sample root is the right choice
 
 		// Recreate all the HTML if the number of samples gets bigger
 		if (nb_samples > this.NbSamples)
