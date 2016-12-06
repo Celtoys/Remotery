@@ -213,9 +213,6 @@ Remotery = (function()
 			var sample_window = new SampleWindow(self.WindowManager, name);
 			self.SampleWindows[name] = sample_window;
 
-			sample_window.AnchorWidthToParent(10);
-			sample_window.AnchorHeightToParent(10);
-
 			// Enable/disable sample window updates based on tab select status
 			var on_select = Bind(function(sample_window, tab)
 			{
