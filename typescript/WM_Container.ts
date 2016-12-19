@@ -46,6 +46,44 @@ namespace WM
             }
         }
 
+        SnapControl(pos: int2, snap_pos: int2, mask: int2, p_mask: int2, n_mask: int2, top_left: int2, bottom_right: int2, b: number) : boolean
+        {
+            var snapped = false;
+
+            // Distance from input position to opposing corners of the control
+            let d_tl = int2.Abs(int2.Sub(pos, top_left));
+            let d_br = int2.Abs(int2.Sub(pos, bottom_right));
+
+            if (mask.x != 0)
+            {
+                if (d_tl.x < b)
+                {
+                    snap_pos.x = top_left.x - p_mask.x;
+                    snapped = true;
+                }                    
+                if (d_br.x < b)
+                {
+                    snap_pos.x = bottom_right.x + n_mask.x;
+                    snapped = true;
+                }
+            }
+
+            if (mask.y != 0)
+            {
+                if (d_tl.y < b)
+                {
+                    snap_pos.y = top_left.y - p_mask.y;
+                    snapped = true;
+                }                    
+                if (d_br.y < b)
+                {
+                    snap_pos.y = bottom_right.y + n_mask.y;
+                    snapped = true;
+                }
+            }
+
+            return snapped;
+        }
 
         GetSnapEdge(pos: int2, mask: int2, excluding: Control) : int2
         {
@@ -65,38 +103,30 @@ namespace WM
                 if (control == excluding)
                     continue;
 
-                // Distance from input position to opposing corners of the control
-                let d_tl = int2.Abs(int2.Sub(pos, control.TopLeft));
-                let d_br = int2.Abs(int2.Sub(pos, control.BottomRight));
+                var top_left = control.TopLeft;
+                var bottom_right = control.BottomRight;
 
-                if (mask.x != 0)
-                {
-                    if (d_tl.x < b)
-                    {
-                        snap_pos.x = control.TopLeft.x - p_mask.x;
-                        snapped = true;
-                    }                    
-                    if (d_br.x < b)
-                    {
-                        snap_pos.x = control.BottomRight.x + n_mask.x;
-                        snapped = true;
-                    }
-                }
-
-                if (mask.y != 0)
-                {
-                    if (d_tl.y < b)
-                    {
-                        snap_pos.y = control.TopLeft.y - p_mask.y;
-                        snapped = true;
-                    }                    
-                    if (d_br.y < b)
-                    {
-                        snap_pos.y = control.BottomRight.y + n_mask.y;
-                        snapped = true;
-                    }
-                }
+                snapped = this.SnapControl(
+                    pos,
+                    snap_pos,
+                    mask,
+                    p_mask,
+                    n_mask,
+                    control.TopLeft,
+                    control.BottomRight,
+                    b) || snapped;
             }
+
+            // Snap to parent container bounds
+            snapped = this.SnapControl(
+                pos,
+                snap_pos,
+                mask,
+                p_mask,
+                n_mask,
+                new int2(b),
+                int2.Sub(this.Size, new int2(b)),
+                b) || snapped;
 
             return snapped ? snap_pos : null;
         }

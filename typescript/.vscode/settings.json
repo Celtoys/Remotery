@@ -2,5 +2,7 @@
 {
     "typescript.tsdk": "C:\\Program Files (x86)\\Microsoft SDKs\\TypeScript\\2.0\\",
     "editor.fontSize": 13,
-    "editor.lineHeight": 15
+    "editor.lineHeight": 15,
+    "editor.autoClosingBrackets": false,
+    "editor.renderWhitespace": "all"
 }

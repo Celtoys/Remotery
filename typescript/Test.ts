@@ -33,7 +33,7 @@ function TestAll()
     c0.Add(w2);
 
     let w3 = new WM.Window("BlahNext", new int2(40, 40), new int2(200, 200));
-    w3.AnchorLeftToParent(w1);
-    w3.AnchorRightToParent(30);
+    //w3.AnchorLeftToParent(w1);
+    //w3.AnchorRightToParent(30);
     w0.Add(w3);
 }

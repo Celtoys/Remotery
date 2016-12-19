@@ -474,6 +474,32 @@ var WM;
                 }
             }
         };
+        Container.prototype.SnapControl = function (pos, snap_pos, mask, p_mask, n_mask, top_left, bottom_right, b) {
+            var snapped = false;
+            var d_tl = int2.Abs(int2.Sub(pos, top_left));
+            var d_br = int2.Abs(int2.Sub(pos, bottom_right));
+            if (mask.x != 0) {
+                if (d_tl.x < b) {
+                    snap_pos.x = top_left.x - p_mask.x;
+                    snapped = true;
+                }
+                if (d_br.x < b) {
+                    snap_pos.x = bottom_right.x + n_mask.x;
+                    snapped = true;
+                }
+            }
+            if (mask.y != 0) {
+                if (d_tl.y < b) {
+                    snap_pos.y = top_left.y - p_mask.y;
+                    snapped = true;
+                }
+                if (d_br.y < b) {
+                    snap_pos.y = bottom_right.y + n_mask.y;
+                    snapped = true;
+                }
+            }
+            return snapped;
+        };
         Container.prototype.GetSnapEdge = function (pos, mask, excluding) {
             var b = 5;
             var p_mask = int2.Mul(int2.Max0(mask), new int2(b - 1));
@@ -484,29 +510,11 @@ var WM;
                 var control = _a[_i];
                 if (control == excluding)
                     continue;
-                var d_tl = int2.Abs(int2.Sub(pos, control.TopLeft));
-                var d_br = int2.Abs(int2.Sub(pos, control.BottomRight));
-                if (mask.x != 0) {
-                    if (d_tl.x < b) {
-                        snap_pos.x = control.TopLeft.x - p_mask.x;
-                        snapped = true;
-                    }
-                    if (d_br.x < b) {
-                        snap_pos.x = control.BottomRight.x + n_mask.x;
-                        snapped = true;
-                    }
-                }
-                if (mask.y != 0) {
-                    if (d_tl.y < b) {
-                        snap_pos.y = control.TopLeft.y - p_mask.y;
-                        snapped = true;
-                    }
-                    if (d_br.y < b) {
-                        snap_pos.y = control.BottomRight.y + n_mask.y;
-                        snapped = true;
-                    }
-                }
+                var top_left = control.TopLeft;
+                var bottom_right = control.BottomRight;
+                snapped = this.SnapControl(pos, snap_pos, mask, p_mask, n_mask, control.TopLeft, control.BottomRight, b) || snapped;
             }
+            snapped = this.SnapControl(pos, snap_pos, mask, p_mask, n_mask, new int2(b), int2.Sub(this.Size, new int2(b)), b) || snapped;
             return snapped ? snap_pos : null;
         };
         Object.defineProperty(Container.prototype, "ControlParentNode", {
@@ -712,8 +720,6 @@ function TestAll() {
     var w2 = new WM.Window("Derp", new int2(400, 400), new int2(200, 200));
     c0.Add(w2);
     var w3 = new WM.Window("BlahNext", new int2(40, 40), new int2(200, 200));
-    w3.AnchorLeftToParent(w1);
-    w3.AnchorRightToParent(30);
     w0.Add(w3);
 }
 //# sourceMappingURL=remotery.js.map
