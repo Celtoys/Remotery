@@ -172,13 +172,13 @@ namespace WM
 
             // -1/1 for left/right top/bottom
             let mask = new int2(0);
-            if (offset_bottom_right.x < this.SideBarSize && offset_bottom_right.x > 0)
+            if (offset_bottom_right.x < this.SideBarSize && offset_bottom_right.x >= 0)
                 mask.x = 1;
             if (offset_top_left.x < this.SideBarSize && offset_top_left.x >= 0)
                 mask.x = -1; 
-            if (offset_bottom_right.y < this.SideBarSize && offset_bottom_right.y > 0)
+            if (offset_bottom_right.y < this.SideBarSize && offset_bottom_right.y >= 0)
                 mask.y = 1;
-            if (offset_top_left.y < this.SideBarSize && offset_top_left.y > 0)
+            if (offset_top_left.y < this.SideBarSize && offset_top_left.y >= 0)
                 mask.y = -1;
 
             return mask;
