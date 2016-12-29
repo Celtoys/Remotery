@@ -201,7 +201,7 @@ namespace WM
                 cursor += "w";
             cursor += "-resize";
 
-            $(event.srcElement).Cursor = cursor;
+            $(event.target).Cursor = cursor;
         }
 
         private OnBeginSize = (event: MouseEvent, in_mask: int2, gather_sibling_anchors: boolean) =>
