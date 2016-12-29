@@ -182,6 +182,7 @@ namespace WM
             }
 
             // Snap to parent container bounds
+            let parent_size = this.ControlParentNode.Size;
             snapped = this.SnapControl(
                 pos,
                 snap_pos,
@@ -189,7 +190,7 @@ namespace WM
                 p_mask,
                 n_mask,
                 new int2(b),
-                int2.Sub(this.Size, new int2(b))) || snapped;
+                int2.Sub(parent_size, new int2(b))) || snapped;
 
             return snapped ? snap_pos : null;
         }
