@@ -77,10 +77,10 @@ namespace WM
             this.SizeBottomNode.MouseMoveEvent.Subscribe(this.OnMoveOverSize);
 
             // Window sizing handlers
-            this.SizeLeftNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
-            this.SizeRightNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
-            this.SizeTopNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
-            this.SizeBottomNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
+            this.SizeLeftNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
+            this.SizeRightNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
+            this.SizeTopNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
+            this.SizeBottomNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
         }
 
         // Uncached window title text so that any old HTML can be used
@@ -204,7 +204,7 @@ namespace WM
             $(event.srcElement).Cursor = cursor;
         }
 
-        private OnBeginSize = (event: MouseEvent, gather_anchors: boolean) =>
+        private OnBeginSize = (event: MouseEvent, in_mask: int2, gather_sibling_anchors: boolean) =>
         {
 	    	let mouse_pos = DOM.Event.GetMousePosition(event);
 
@@ -213,12 +213,12 @@ namespace WM
             this.DragWindowStartPosition = this.Position.Copy();
             this.DragWindowStartSize = this.Size.Copy();
 
-            let mask = this.GetSizeMask(mouse_pos);
+            let mask = in_mask || this.GetSizeMask(mouse_pos);
 
             // Reset list just in case end event isn't received
             this.AnchorControls = [];
 
-            if (gather_anchors)
+            if (gather_sibling_anchors)
             {
                 // Gather auto-anchor controls from siblings on side resizers only
                 if ((mask.x != 0) != (mask.y != 0))
@@ -232,25 +232,25 @@ namespace WM
                             parent_container.GetSnapControls(this.TopLeft, mask, this, this.AnchorControls, 1);
                     }
                 }
-
-                // Gather auto-anchor controls for children on bottom and right resizers
-                let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
-                if (mask.x > 0 || mask.y > 0)
-                    this.GetSnapControls(this_br, mask, null, this.AnchorControls, 1);
-                
-                // Gather auto-anchor controls for children on top and left resizers, inverting
-                // the mouse offset so that child sizing moves away from mouse movement to counter
-                // this window increasing in size
-                if (mask.x < 0 || mask.y < 0)
-                    this.GetSnapControls(this_br, mask, null, this.AnchorControls, -1);
             }
+
+            // Gather auto-anchor controls for children on bottom and right resizers
+            let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
+            if (mask.x > 0 || mask.y > 0)
+                this.GetSnapControls(this_br, mask, null, this.AnchorControls, 1);
+            
+            // Gather auto-anchor controls for children on top and left resizers, inverting
+            // the mouse offset so that child sizing moves away from mouse movement to counter
+            // this window increasing in size
+            if (mask.x < 0 || mask.y < 0)
+                this.GetSnapControls(this_br, mask, null, this.AnchorControls, -1);
 
             // Start resizing gathered auto-anchors
             for (let control of this.AnchorControls)
             {
                 let window = control[0] as Window;
                 if (window != null)
-                    window.OnBeginSize(event, false);
+                    window.OnBeginSize(event, control[1], false);
             }
 
     		// Dynamically add handlers for movement and release
