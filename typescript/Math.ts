@@ -4,8 +4,8 @@ class int2
     x: number;
     y: number;
 
-    static Zero = new int2(0, 0);
-    static One = new int2(1, 1);
+    static readonly Zero = new int2(0, 0);
+    static readonly One = new int2(1, 1);
 
     constructor(x: number = 0, y: number = x)
     {
