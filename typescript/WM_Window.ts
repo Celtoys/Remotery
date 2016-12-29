@@ -309,6 +309,9 @@ namespace WM
         }
         private OnEndSize = (event: MouseEvent, mask: int2) =>
         {
+            // Clear anchor references so they don't hang around if a window is deleted
+            this.AnchorControls = [];
+
     		// Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnSizeDelegate);
             $(document).MouseUpEvent.Unsubscribe(this.OnEndSizeDelegate);
