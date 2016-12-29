@@ -160,19 +160,12 @@ namespace WM
 
         // --- Window sizing ---------------------------------------------------------------------
 
-        private GetRelativeMousePos(event: MouseEvent): int2
+        private GetSizeMask(mouse_pos: int2) : int2
         {
-	    	let mouse_pos = DOM.Event.GetMousePosition(event);
-
             // Subtract absolute parent node position from the mouse position
             if (this.ParentNode)
                 mouse_pos = int2.Sub(mouse_pos, this.ParentNode.Position);
 
-            return mouse_pos;            
-        }
-
-        private GetSizeMask(mouse_pos: int2) : int2
-        {
             // Use the DOM Node dimensions as they include visible borders/margins
             let offset_top_left = int2.Sub(mouse_pos, this.TopLeft); 
             let offset_bottom_right = int2.Sub(this.BottomRight, mouse_pos);
@@ -193,7 +186,7 @@ namespace WM
 
         private OnMoveOverSize = (event: MouseEvent) =>
         {
-	    	let mouse_pos = this.GetRelativeMousePos(event);
+	    	let mouse_pos = DOM.Event.GetMousePosition(event);
 
             // Dynamically decide on the mouse cursor
             let mask = this.GetSizeMask(mouse_pos);
@@ -213,7 +206,7 @@ namespace WM
 
         private OnBeginSize = (event: MouseEvent, gather_anchors: boolean) =>
         {
-	    	let mouse_pos = this.GetRelativeMousePos(event);
+	    	let mouse_pos = DOM.Event.GetMousePosition(event);
 
             // Prepare for drag
             this.DragMouseStartPosition = mouse_pos;
@@ -255,7 +248,7 @@ namespace WM
         private OnSize = (event: MouseEvent, mask: int2) =>
         {
             // Use the offset from the mouse start position to drag the edge around
-	    	let mouse_pos = this.GetRelativeMousePos(event);
+	    	let mouse_pos = DOM.Event.GetMousePosition(event);
             let offset = int2.Sub(mouse_pos, this.DragMouseStartPosition);
 
             // Size goes left/right with mask
