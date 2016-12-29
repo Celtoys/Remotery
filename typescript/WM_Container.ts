@@ -151,7 +151,7 @@ namespace WM
             return snapped;
         }
 
-        GetSnapEdge(pos: int2, mask: int2, excluding: Control) : int2
+        GetSnapEdge(pos: int2, mask: int2, excluding: Control[]) : int2
         {
             // Selects between control edge and a border-distance outside the control edge
             let b = Container.SnapBorderSize;
@@ -165,7 +165,7 @@ namespace WM
             let snapped = false;
             for (let control of this.Controls)
             {
-                if (control == excluding)
+                if (excluding.indexOf(control) != -1)
                     continue;
 
                 var top_left = control.TopLeft;

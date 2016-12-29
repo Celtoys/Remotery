@@ -134,11 +134,11 @@ namespace WM
             let parent_container = this.ParentContainer;
             if (parent_container != null)
             {
-                let snap_pos_tl = parent_container.GetSnapEdge(this.TopLeft, new int2(-1, -1), this);
+                let snap_pos_tl = parent_container.GetSnapEdge(this.TopLeft, new int2(-1, -1), [ this ]);
                 if (snap_pos_tl != null)
                     this.Position = snap_pos_tl;
 
-                let snap_pos_br = parent_container.GetSnapEdge(this.BottomRight, new int2(1, 1), this);
+                let snap_pos_br = parent_container.GetSnapEdge(this.BottomRight, new int2(1, 1), [ this ]);
                 if (snap_pos_br != null)
                     this.Position = int2.Sub(snap_pos_br, this.Size);
             }
@@ -265,19 +265,25 @@ namespace WM
             let position_mask = int2.Min0(mask);
             this.Position = int2.Sub(this.DragWindowStartPosition, int2.Mul(offset, position_mask));
 
+            // Build up a list of controls to exclude from snapping
+            // Don't snap anchor controls as they'll already be dragged around with this size event
+            let exclude_controls: [Control] = [ this ];
+            for (let anchor of this.AnchorControls)
+                exclude_controls.push(anchor[0]);
+
             // Snap edges to neighbouring edges in the parent container
             let parent_container = this.ParentContainer;
             if (parent_container != null)
             {
                 if (mask.x > 0 || mask.y > 0)
                 {
-                    let snap_pos = parent_container.GetSnapEdge(this.BottomRight, mask, this);
+                    let snap_pos = parent_container.GetSnapEdge(this.BottomRight, mask, exclude_controls);
                     if (snap_pos != null)
                         this.BottomRight = snap_pos;
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
-                    let snap_pos = parent_container.GetSnapEdge(this.TopLeft, mask, this);
+                    let snap_pos = parent_container.GetSnapEdge(this.TopLeft, mask, exclude_controls);
                     if (snap_pos != null)
                         this.TopLeft = snap_pos;
                 }
