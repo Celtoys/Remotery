@@ -184,7 +184,7 @@ namespace WM
             return mask;
         }
 
-        private SetResizeCursor(target: EventTarget, size_mask: int2)
+        private SetResizeCursor(node: DOM.Node, size_mask: int2)
         {
             // Combine resize directions
             let cursor = "";
@@ -201,12 +201,12 @@ namespace WM
             if (cursor.length > 0)
                 cursor += "-resize";
 
-            $(target).Cursor = cursor;
+            node.Cursor = cursor;
         }
 
-        private RestoreCursor(target: EventTarget)
+        private RestoreCursor(node: DOM.Node)
         {
-            $(target).Cursor = "auto";
+            node.Cursor = "auto";
         }
 
         private OnMoveOverSize = (event: MouseEvent) =>
@@ -214,7 +214,7 @@ namespace WM
             // Dynamically decide on the mouse cursor
 	    	let mouse_pos = DOM.Event.GetMousePosition(event);
             let mask = this.GetSizeMask(mouse_pos);
-            this.SetResizeCursor(event.target, mask);
+            this.SetResizeCursor($(event.target), mask);
         }
 
         private OnBeginSize = (event: MouseEvent, in_mask: int2, gather_sibling_anchors: boolean) =>
@@ -329,7 +329,7 @@ namespace WM
 
             // The cursor will exceed the bounds of the resize element under sizing so
             // force it to whatever it needs to be here
-            this.SetResizeCursor(event.target, mask);
+            this.SetResizeCursor($(document.body), mask);
 
             // ####
             this.ParentContainer.UpdateControlSizes();
@@ -342,7 +342,7 @@ namespace WM
             this.AnchorControls = [];
 
             // Set cursor back to auto
-            this.RestoreCursor(event.target);
+            this.RestoreCursor($(document.body));
 
     		// Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnSizeDelegate);
