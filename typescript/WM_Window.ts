@@ -184,24 +184,37 @@ namespace WM
             return mask;
         }
 
+        private SetResizeCursor(target: EventTarget, size_mask: int2)
+        {
+            // Combine resize directions
+            let cursor = "";
+            if (size_mask.y > 0)
+                cursor += "s";
+            if (size_mask.y < 0)
+                cursor += "n";
+            if (size_mask.x > 0)
+                cursor += "e";
+            if (size_mask.x < 0)
+                cursor += "w";
+            
+            // Concat resize ident
+            if (cursor.length > 0)
+                cursor += "-resize";
+
+            $(target).Cursor = cursor;
+        }
+
+        private RestoreCursor(target: EventTarget)
+        {
+            $(target).Cursor = "auto";
+        }
+
         private OnMoveOverSize = (event: MouseEvent) =>
         {
-	    	let mouse_pos = DOM.Event.GetMousePosition(event);
-
             // Dynamically decide on the mouse cursor
+	    	let mouse_pos = DOM.Event.GetMousePosition(event);
             let mask = this.GetSizeMask(mouse_pos);
-            let cursor = "";
-            if (mask.y > 0)
-                cursor += "s";
-            if (mask.y < 0)
-                cursor += "n";
-            if (mask.x > 0)
-                cursor += "e";
-            if (mask.x < 0)
-                cursor += "w";
-            cursor += "-resize";
-
-            $(event.target).Cursor = cursor;
+            this.SetResizeCursor(event.target, mask);
         }
 
         private OnBeginSize = (event: MouseEvent, in_mask: int2, gather_sibling_anchors: boolean) =>
@@ -314,6 +327,10 @@ namespace WM
                     window.OnSize(event, control[1], control[2]);
             }
 
+            // The cursor will exceed the bounds of the resize element under sizing so
+            // force it to whatever it needs to be here
+            this.SetResizeCursor(event.target, mask);
+
             // ####
             this.ParentContainer.UpdateControlSizes();
 
@@ -323,6 +340,9 @@ namespace WM
         {
             // Clear anchor references so they don't hang around if a window is deleted
             this.AnchorControls = [];
+
+            // Set cursor back to auto
+            this.RestoreCursor(event.target);
 
     		// Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnSizeDelegate);
