@@ -38,7 +38,7 @@ namespace WM
         private MouseOffset: int2;
 
         // List of controls that are auto-anchored to a container edge during sizing
-        private AnchorControls: [Control, int2][];
+        private AnchorControls: [Control, int2, number][];
 
         // Transient delegates for mouse size events
         private OnSizeDelegate: EventListener;
@@ -215,18 +215,34 @@ namespace WM
 
             let mask = this.GetSizeMask(mouse_pos);
 
-            // Gather auto-anchor controls on side resizers only
+            // Reset list just in case end event isn't received
             this.AnchorControls = [];
-            if (gather_anchors && (mask.x != 0) != (mask.y != 0))
+
+            if (gather_anchors)
             {
-                let parent_container = this.ParentContainer;
-                if (parent_container != null)
+                // Gather auto-anchor controls from siblings on side resizers only
+                if ((mask.x != 0) != (mask.y != 0))
                 {
-                    if (mask.x > 0 || mask.y > 0)
-                        parent_container.GetSnapControls(this.BottomRight, mask, this, this.AnchorControls);
-                    if (mask.x < 0 || mask.y < 0)
-                        parent_container.GetSnapControls(this.TopLeft, mask, this, this.AnchorControls);
+                    let parent_container = this.ParentContainer;
+                    if (parent_container != null)
+                    {
+                        if (mask.x > 0 || mask.y > 0)
+                            parent_container.GetSnapControls(this.BottomRight, mask, this, this.AnchorControls, 1);
+                        if (mask.x < 0 || mask.y < 0)
+                            parent_container.GetSnapControls(this.TopLeft, mask, this, this.AnchorControls, 1);
+                    }
                 }
+
+                // Gather auto-anchor controls for children on bottom and right resizers
+                let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
+                if (mask.x > 0 || mask.y > 0)
+                    this.GetSnapControls(this_br, mask, null, this.AnchorControls, 1);
+                
+                // Gather auto-anchor controls for children on top and left resizers, inverting
+                // the mouse offset so that child sizing moves away from mouse movement to counter
+                // this window increasing in size
+                if (mask.x < 0 || mask.y < 0)
+                    this.GetSnapControls(this_br, mask, null, this.AnchorControls, -1);
             }
 
             // Start resizing gathered auto-anchors
@@ -238,18 +254,21 @@ namespace WM
             }
 
     		// Dynamically add handlers for movement and release
-            this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask); };
+            this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1); };
             this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
             $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
             $(document).MouseUpEvent.Subscribe(this.OnEndSizeDelegate);
 
     		DOM.Event.StopDefaultAction(event);
         }
-        private OnSize = (event: MouseEvent, mask: int2) =>
+        private OnSize = (event: MouseEvent, mask: int2, offset_scale: number) =>
         {
             // Use the offset from the mouse start position to drag the edge around
 	    	let mouse_pos = DOM.Event.GetMousePosition(event);
             let offset = int2.Sub(mouse_pos, this.DragMouseStartPosition);
+
+            // Scale offset to invert or not
+            offset = int2.Mul(offset, new int2(offset_scale));
 
             // Size goes left/right with mask
             this.Size = int2.Add(this.DragWindowStartSize, int2.Mul(offset, mask));
@@ -292,7 +311,7 @@ namespace WM
             {
                 let window = control[0] as Window;
                 if (window != null)
-                    window.OnSize(event, control[1]);
+                    window.OnSize(event, control[1], control[2]);
             }
 
             // ####
