@@ -474,7 +474,43 @@ var WM;
                 }
             }
         };
-        Container.prototype.SnapControl = function (pos, snap_pos, mask, p_mask, n_mask, top_left, bottom_right, b) {
+        Container.prototype.WillControlSnap = function (pos, mask, top_left, bottom_right) {
+            var d_tl = int2.Abs(int2.Sub(pos, top_left));
+            var d_br = int2.Abs(int2.Sub(pos, bottom_right));
+            var out_mask = new int2(0, 0);
+            var b = Container.SnapBorderSize;
+            if (mask.x != 0) {
+                if (d_tl.x < b)
+                    out_mask.x = -1;
+                if (d_br.x < b)
+                    out_mask.x = 1;
+            }
+            if (mask.y != 0) {
+                if (d_tl.y < b)
+                    out_mask.y = -1;
+                if (d_br.y < b)
+                    out_mask.y = 1;
+            }
+            if (out_mask.x != 0 || out_mask.y != 0)
+                return out_mask;
+            return null;
+        };
+        Container.prototype.GetSnapControls = function (pos, mask, excluding, controls) {
+            var b = Container.SnapBorderSize;
+            var snapped = false;
+            for (var _i = 0, _a = this.Controls; _i < _a.length; _i++) {
+                var control = _a[_i];
+                if (control == excluding)
+                    continue;
+                var top_left = control.TopLeft;
+                var bottom_right = control.BottomRight;
+                var out_mask = this.WillControlSnap(pos, mask, top_left, bottom_right);
+                if (out_mask != null)
+                    controls.push([control, out_mask]);
+            }
+        };
+        Container.prototype.SnapControl = function (pos, snap_pos, mask, p_mask, n_mask, top_left, bottom_right) {
+            var b = Container.SnapBorderSize;
             var snapped = false;
             var d_tl = int2.Abs(int2.Sub(pos, top_left));
             var d_br = int2.Abs(int2.Sub(pos, bottom_right));
@@ -501,7 +537,7 @@ var WM;
             return snapped;
         };
         Container.prototype.GetSnapEdge = function (pos, mask, excluding) {
-            var b = 5;
+            var b = Container.SnapBorderSize;
             var p_mask = int2.Mul(int2.Max0(mask), new int2(b - 1));
             var n_mask = int2.Mul(int2.Min0(mask), new int2(-b + 1));
             var snap_pos = pos.Copy();
@@ -512,9 +548,9 @@ var WM;
                     continue;
                 var top_left = control.TopLeft;
                 var bottom_right = control.BottomRight;
-                snapped = this.SnapControl(pos, snap_pos, mask, p_mask, n_mask, control.TopLeft, control.BottomRight, b) || snapped;
+                snapped = this.SnapControl(pos, snap_pos, mask, p_mask, n_mask, control.TopLeft, control.BottomRight) || snapped;
             }
-            snapped = this.SnapControl(pos, snap_pos, mask, p_mask, n_mask, new int2(b), int2.Sub(this.Size, new int2(b)), b) || snapped;
+            snapped = this.SnapControl(pos, snap_pos, mask, p_mask, n_mask, new int2(b), int2.Sub(this.Size, new int2(b))) || snapped;
             return snapped ? snap_pos : null;
         };
         Object.defineProperty(Container.prototype, "ControlParentNode", {
@@ -537,6 +573,7 @@ var WM;
             }
         };
         Container.TemplateHTML = "<div class='Container'></div>";
+        Container.SnapBorderSize = 5;
         return Container;
     }(WM.Control));
     WM.Container = Container;
@@ -569,7 +606,6 @@ var WM;
                     if (snap_pos_br != null)
                         _this.Position = int2.Sub(snap_pos_br, _this.Size);
                 }
-                _this.ParentContainer.UpdateControlSizes();
                 DOM.Event.StopDefaultAction(event);
             };
             this.OnEndMove = function () {
@@ -592,12 +628,28 @@ var WM;
                 cursor += "-resize";
                 $(event.srcElement).Cursor = cursor;
             };
-            this.OnBeginSize = function (event) {
+            this.OnBeginSize = function (event, gather_anchors) {
                 var mouse_pos = _this.GetRelativeMousePos(event);
                 _this.DragMouseStartPosition = mouse_pos;
                 _this.DragWindowStartPosition = _this.Position.Copy();
                 _this.DragWindowStartSize = _this.Size.Copy();
                 var mask = _this.GetSizeMask(mouse_pos);
+                _this.AnchorControls = [];
+                if (gather_anchors && (mask.x != 0) != (mask.y != 0)) {
+                    var parent_container = _this.ParentContainer;
+                    if (parent_container != null) {
+                        if (mask.x > 0 || mask.y > 0)
+                            parent_container.GetSnapControls(_this.BottomRight, mask, _this, _this.AnchorControls);
+                        if (mask.x < 0 || mask.y < 0)
+                            parent_container.GetSnapControls(_this.TopLeft, mask, _this, _this.AnchorControls);
+                    }
+                }
+                for (var _i = 0, _a = _this.AnchorControls; _i < _a.length; _i++) {
+                    var control = _a[_i];
+                    var window_1 = control[0];
+                    if (window_1 != null)
+                        window_1.OnBeginSize(event, false);
+                }
                 _this.OnSizeDelegate = function (event) { _this.OnSize(event, mask); };
                 _this.OnEndSizeDelegate = function (event) { _this.OnEndSize(event, mask); };
                 $(document).MouseMoveEvent.Subscribe(_this.OnSizeDelegate);
@@ -626,7 +678,12 @@ var WM;
                 var min_window_size = new int2(50);
                 _this.Size = int2.Max(_this.Size, min_window_size);
                 _this.Position = int2.Min(_this.Position, int2.Sub(int2.Add(_this.DragWindowStartPosition, _this.DragWindowStartSize), min_window_size));
-                _this.ParentContainer.UpdateControlSizes();
+                for (var _i = 0, _a = _this.AnchorControls; _i < _a.length; _i++) {
+                    var control = _a[_i];
+                    var window_2 = control[0];
+                    if (window_2 != null)
+                        window_2.OnSize(event, control[1]);
+                }
                 DOM.Event.StopDefaultAction(event);
             };
             this.OnEndSize = function (event, mask) {
@@ -651,10 +708,10 @@ var WM;
             this.SizeRightNode.MouseMoveEvent.Subscribe(this.OnMoveOverSize);
             this.SizeTopNode.MouseMoveEvent.Subscribe(this.OnMoveOverSize);
             this.SizeBottomNode.MouseMoveEvent.Subscribe(this.OnMoveOverSize);
-            this.SizeLeftNode.MouseDownEvent.Subscribe(this.OnBeginSize);
-            this.SizeRightNode.MouseDownEvent.Subscribe(this.OnBeginSize);
-            this.SizeTopNode.MouseDownEvent.Subscribe(this.OnBeginSize);
-            this.SizeBottomNode.MouseDownEvent.Subscribe(this.OnBeginSize);
+            this.SizeLeftNode.MouseDownEvent.Subscribe(function (event) { _this.OnBeginSize(event, true); });
+            this.SizeRightNode.MouseDownEvent.Subscribe(function (event) { _this.OnBeginSize(event, true); });
+            this.SizeTopNode.MouseDownEvent.Subscribe(function (event) { _this.OnBeginSize(event, true); });
+            this.SizeBottomNode.MouseDownEvent.Subscribe(function (event) { _this.OnBeginSize(event, true); });
         }
         Object.defineProperty(Window.prototype, "Title", {
             get: function () {

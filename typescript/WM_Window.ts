@@ -37,6 +37,9 @@ namespace WM
         private DragWindowStartSize: int2;
         private MouseOffset: int2;
 
+        // List of controls that are auto-anchored to a container edge during sizing
+        private AnchorControls: [Control, int2][];
+
         // Transient delegates for mouse size events
         private OnSizeDelegate: EventListener;
         private OnEndSizeDelegate: EventListener;
@@ -74,10 +77,10 @@ namespace WM
             this.SizeBottomNode.MouseMoveEvent.Subscribe(this.OnMoveOverSize);
 
             // Window sizing handlers
-            this.SizeLeftNode.MouseDownEvent.Subscribe(this.OnBeginSize);
-            this.SizeRightNode.MouseDownEvent.Subscribe(this.OnBeginSize);
-            this.SizeTopNode.MouseDownEvent.Subscribe(this.OnBeginSize);
-            this.SizeBottomNode.MouseDownEvent.Subscribe(this.OnBeginSize);
+            this.SizeLeftNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
+            this.SizeRightNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
+            this.SizeTopNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
+            this.SizeBottomNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, true); });
         }
 
         // Uncached window title text so that any old HTML can be used
@@ -208,7 +211,7 @@ namespace WM
             $(event.srcElement).Cursor = cursor;
         }
 
-        private OnBeginSize = (event: MouseEvent) =>
+        private OnBeginSize = (event: MouseEvent, gather_anchors: boolean) =>
         {
 	    	let mouse_pos = this.GetRelativeMousePos(event);
 
@@ -217,8 +220,31 @@ namespace WM
             this.DragWindowStartPosition = this.Position.Copy();
             this.DragWindowStartSize = this.Size.Copy();
 
-    		// Dynamically add handlers for movement and release
             let mask = this.GetSizeMask(mouse_pos);
+
+            // Gather auto-anchor controls on side resizers only
+            this.AnchorControls = [];
+            if (gather_anchors && (mask.x != 0) != (mask.y != 0))
+            {
+                let parent_container = this.ParentContainer;
+                if (parent_container != null)
+                {
+                    if (mask.x > 0 || mask.y > 0)
+                        parent_container.GetSnapControls(this.BottomRight, mask, this, this.AnchorControls);
+                    if (mask.x < 0 || mask.y < 0)
+                        parent_container.GetSnapControls(this.TopLeft, mask, this, this.AnchorControls);
+                }
+            }
+
+            // Start resizing gathered auto-anchors
+            for (let control of this.AnchorControls)
+            {
+                let window = control[0] as Window;
+                if (window != null)
+                    window.OnBeginSize(event, false);
+            }
+
+    		// Dynamically add handlers for movement and release
             this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask); };
             this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
             $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
@@ -261,6 +287,14 @@ namespace WM
             let min_window_size = new int2(50);
             this.Size = int2.Max(this.Size, min_window_size);
             this.Position = int2.Min(this.Position, int2.Sub(int2.Add(this.DragWindowStartPosition, this.DragWindowStartSize), min_window_size));
+
+            // Resize all 
+            for (let control of this.AnchorControls)
+            {
+                let window = control[0] as Window;
+                if (window != null)
+                    window.OnSize(event, control[1]);
+            }
 
             // ####
             this.ParentContainer.UpdateControlSizes();
