@@ -4,6 +4,9 @@ class int2
     x: number;
     y: number;
 
+    static Zero = new int2(0, 0);
+    static One = new int2(1, 1);
+
     constructor(x: number = 0, y: number = x)
     {
         this.x = x;
@@ -62,6 +65,13 @@ class int2
         return new int2(
             Math.max(a.x, 0),
             Math.max(a.y, 0));
+    }
+
+    static Neg(a: int2) : int2
+    {
+        return new int2(
+            -a.x,
+            -a.y);
     }
 
     static Abs(a: int2) : int2
