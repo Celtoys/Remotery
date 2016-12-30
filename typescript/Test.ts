@@ -10,19 +10,21 @@
 
 function TestAll()
 {
-    let c0 = new WM.Container(new int2(10, 10), new int2(1000, 800));
-    c0.Show();
+    let Container = new WM.Container(new int2(10, 10), new int2(1000, 800));
+    Container.Show();
 
-    let w0 = new WM.Window("Test Window", new int2(300, 300), new int2(200, 200));
-    w0.Title = "Changed Title";
-    c0.Add(w0);
+    let WindowA = new WM.Window("Window A", new int2(10, 10), new int2(200, 200));
+    WindowA.Title = "Window A Changed";
+    Container.Add(WindowA);
 
-    let w1 = new WM.Window("Blah", new int2(10, 10), new int2(200, 200));
-    w0.Add(w1);
+    WindowA.Add(new WM.Window("SubWindow A", new int2(10, 10), new int2(200, 200)));
+    WindowA.Add(new WM.Window("SubWindow B", new int2(40, 40), new int2(200, 200)));
 
-    let w2 = new WM.Window("Derp", new int2(400, 400), new int2(200, 200));
-    c0.Add(w2);
-
-    let w3 = new WM.Window("BlahNext", new int2(40, 40), new int2(200, 200));
-    w0.Add(w3);
+    Container.Add(new WM.Window("Window B", new int2(220, 10), new int2(200, 200)));
+    Container.Add(new WM.Window("Window C", new int2(430, 10), new int2(200, 200)));
+    Container.Add(new WM.Window("Window D", new int2(640, 10), new int2(200, 200)));
+    Container.Add(new WM.Window("Window E", new int2(10, 220), new int2(200, 200)));
+    Container.Add(new WM.Window("Window F", new int2(220, 220), new int2(200, 200)));
+    Container.Add(new WM.Window("Window G", new int2(430, 220), new int2(200, 200)));
+    Container.Add(new WM.Window("Window H", new int2(640, 220), new int2(200, 200)));
 }
