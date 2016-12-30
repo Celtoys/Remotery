@@ -16,7 +16,7 @@ namespace DOM
         // ----- Constructor ---------------------------------------------------------------
 
 
-        constructor(parameter: string | Element | Document, index?: number)
+        constructor(parameter: string | Element | Document | EventTarget, index?: number)
         {
             // If no index is provided replace with the first one 
             if (index === undefined)
@@ -30,6 +30,10 @@ namespace DOM
             else if (parameter instanceof Document)
             {
                 this.Element = <HTMLElement>parameter.documentElement;
+            }
+            else if (parameter instanceof EventTarget)
+            {
+                this.Element = <HTMLElement>parameter;
             }
             else if (typeof parameter === "string")
             {
@@ -254,7 +258,7 @@ namespace DOM
 
 
 // jQuery-style HTML element lookup which just passes straight onto DOM.Node constructor
-function $(parameter: string | Element | Document, index?: number)
+function $(parameter: string | Element | Document | EventTarget, index?: number)
 {
     return new DOM.Node(parameter, index);
 }
