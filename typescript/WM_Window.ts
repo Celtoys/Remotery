@@ -50,10 +50,10 @@ namespace WM
             super(position, size, new DOM.Node(Window.TemplateHTML));
 
             // Locate internal nodes
-		    this.TitleBarNode = this.Node.Find(".WindowTitleBar");
-		    this.TitleBarTextNode = this.Node.Find(".WindowTitleBarText");
-		    this.TitleBarCloseNode = this.Node.Find(".WindowTitleBarClose");
-		    this.BodyNode = this.Node.Find(".WindowBody");
+            this.TitleBarNode = this.Node.Find(".WindowTitleBar");
+            this.TitleBarTextNode = this.Node.Find(".WindowTitleBarText");
+            this.TitleBarCloseNode = this.Node.Find(".WindowTitleBarClose");
+            this.BodyNode = this.Node.Find(".WindowBody");
             this.SizeLeftNode = this.Node.Find(".WindowSizeLeft");
             this.SizeRightNode = this.Node.Find(".WindowSizeRight");
             this.SizeTopNode = this.Node.Find(".WindowSizeTop");
@@ -125,7 +125,7 @@ namespace WM
         }
         private OnMove = (event: MouseEvent) =>
         {
-    		// Use the offset at the beginning of movement to drag the window around
+            // Use the offset at the beginning of movement to drag the window around
             let mouse_pos = DOM.Event.GetMousePosition(event);
             let offset = int2.Sub(mouse_pos, this.DragMouseStartPosition);
             this.Position = int2.Add(this.DragWindowStartPosition, offset);
@@ -152,7 +152,7 @@ namespace WM
         }
         private OnEndMove = () =>
         {
-    		// Remove handlers added during mouse down
+            // Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnMove);
             $(document).MouseUpEvent.Unsubscribe(this.OnEndMove);
             DOM.Event.StopDefaultAction(event);
@@ -212,7 +212,7 @@ namespace WM
         private OnMoveOverSize = (event: MouseEvent) =>
         {
             // Dynamically decide on the mouse cursor
-	    	let mouse_pos = DOM.Event.GetMousePosition(event);
+            let mouse_pos = DOM.Event.GetMousePosition(event);
             let mask = this.GetSizeMask(mouse_pos);
             this.SetResizeCursor($(event.target), mask);
         }
@@ -266,18 +266,18 @@ namespace WM
                     window.OnBeginSize(event, control[1], false);
             }
 
-    		// Dynamically add handlers for movement and release
+            // Dynamically add handlers for movement and release
             this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1); };
             this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
             $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
             $(document).MouseUpEvent.Subscribe(this.OnEndSizeDelegate);
 
-    		DOM.Event.StopDefaultAction(event);
+            DOM.Event.StopDefaultAction(event);
         }
         private OnSize = (event: MouseEvent, mask: int2, offset_scale: number) =>
         {
             // Use the offset from the mouse start position to drag the edge around
-	    	let mouse_pos = DOM.Event.GetMousePosition(event);
+            let mouse_pos = DOM.Event.GetMousePosition(event);
             let offset = int2.Sub(mouse_pos, this.DragMouseStartPosition);
 
             // Scale offset to invert or not
@@ -344,7 +344,7 @@ namespace WM
             // Set cursor back to auto
             this.RestoreCursor($(document.body));
 
-    		// Remove handlers added during mouse down
+            // Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnSizeDelegate);
             $(document).MouseUpEvent.Unsubscribe(this.OnEndSizeDelegate);
             DOM.Event.StopDefaultAction(event);            
