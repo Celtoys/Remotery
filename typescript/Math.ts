@@ -89,3 +89,27 @@ class int2
     }
 }
 
+
+class AABB
+{
+    min: int2;
+    max: int2;
+
+    constructor(min: int2, max: int2)
+    {
+        this.min = min;
+        this.max = max;
+    }
+
+    Expand(e: number)
+    {
+        let ev = new int2(e);
+        this.min = int2.Sub(this.min, ev);
+        this.max = int2.Add(this.max, ev);
+    }
+
+    static Intersect(a: AABB, b: AABB) : boolean
+    {
+        return a.min.x < b.max.x && a.min.y < b.max.y && b.min.x < a.max.x && b.min.y < a.max.y;
+    }
+}
