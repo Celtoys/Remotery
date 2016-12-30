@@ -1,22 +1,4 @@
 
-//
-// Options:
-//    * Anchor to width/height of parent container
-//    * Anchor left/right and top/bottom to parent container
-//      - Note that with relative movement there is no need to anchor left/right to parent container
-//    * Anchor left/right and top/bottom to neighbouring controls
-//      - If the objects are numbers then it's interpreted as anchoring to parent container
-//      - What happens when a control is removed? Its anchor reference in neighbouring controls needs to be removed?
-//      - Without any form of cleanup, closed windows will be kept alive in memory by the GC
-//      - When you move or resize a control, it needs to know that it is anchoring neighbouring controls
-//        - The slow alternative would be to reanchor all controls in the parent container
-//
-// Currently I have no need for control-relative anchoring but I can see myself using it if it becomes available.
-//
-// TODO: Anchor to a control needs an anchor distance
-// TODO: Update only neighbouring anchored controls instead of visiting every control in the parent container
-//
-
 namespace WM
 {
     export class Control
@@ -35,12 +17,6 @@ namespace WM
 
         // Records current visibility state - not for external writes
         private _Visible: boolean = false;
-
-        // Layout anchor points
-        private LeftAnchor: number | Control;
-        private RightAnchor: number | Control;
-        private TopAnchor: number;
-        private BottomAnchor: number;
 
 
         // ----- Constructor ---------------------------------------------------------------
@@ -182,79 +158,13 @@ namespace WM
                 this._ParentContainer.SetTopControl(this);
         }
 
-        // Set anchor and trigger resize event
-        AnchorLeftToParent(left: number | Control) : void
-        {
-            this.LeftAnchor = left;
-            this.OnParentResize();
-        }
-        AnchorRightToParent(right: number | Control) : void
-        {
-            this.RightAnchor = right;
-            this.OnParentResize();
-        }
-        AnchorTopToParent(left: number) : void
-        {
-            this.TopAnchor = left;
-            this.OnParentResize();
-        }
-        AnchorBottomToParent(left: number) : void
-        {
-            this.BottomAnchor = left;
-            this.OnParentResize();
-        }
-
-        /*AnchorWidthToParent(width: number) : void
-        {
-            // Set anchor and trigger resize event
-            this.WidthAnchor = width;
-            this.OnParentResize();
-        }
-        AnchorHeightToParent(height: number) : void
-        {
-            // Set anchor and trigger resize event
-            this.HeightAnchor = height;
-            this.OnParentResize();
-        }*/
-
 
         // ----- Internal API Methods ------------------------------------------------------
 
 
         OnParentResize = () =>
         {
-            //let parent_size = this.ParentNode.Size;
-
-            if (this.LeftAnchor != null && this.LeftAnchor instanceof Control)
-            {
-                let left_anchor = <Control>this.LeftAnchor;
-                let left = left_anchor.BottomRight.x;
-                this.Position = new int2(left, this.Position.y);
-            }
-            if (this.RightAnchor != null)
-            {
-                let left: number;
-                if (this.ParentContainer && typeof this.RightAnchor == "number")
-                {
-                    left = this.ParentContainer.Size.x - <number>this.RightAnchor;
-                }
-                if (this.RightAnchor instanceof Control)
-                {   
-                }
-                this.BottomRight = new int2(left, this.BottomRight.y);
-            }
-
-            // Update anchor points
-            /*if (this.WidthAnchor != null)
-            {
-                let new_size_x = parent_size.x - this.Position.x - this.WidthAnchor;
-                this.Size = new int2(new_size_x, this.Size.y);
-            }
-            if (this.HeightAnchor != null)
-            {
-                let new_size_y = parent_size.y - this.Position.y - this.HeightAnchor;
-                this.Size = new int2(this.Size.x, new_size_y);
-            }*/
+            // TODO: Snap on show?
         }
 
         private OnMouseDown = (event: MouseEvent) =>
