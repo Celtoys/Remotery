@@ -217,34 +217,81 @@ namespace WM
             this.SetResizeCursor($(event.target), mask);
         }
 
-        private OnBeginSize = (event: MouseEvent, in_mask: int2, gather_sibling_anchors: boolean) =>
+        private MakeControlAABB(control: Control)
         {
-	    	let mouse_pos = DOM.Event.GetMousePosition(event);
+            // Expand control AABB by snap region to check for snap intersections
+            let aabb = new AABB(control.TopLeft, control.BottomRight);
+            aabb.Expand(Container.SnapBorderSize);
+            return aabb;
+        }
 
-            // Prepare for drag
-            this.DragMouseStartPosition = mouse_pos;
-            this.DragWindowStartPosition = this.Position.Copy();
-            this.DragWindowStartSize = this.Size.Copy();
+        private TakeConnectedAnchorControls(aabb_0: AABB, anchor_controls: [Control, int2, number][])
+        {
+            // Search what's left of the anchor controls list for intersecting controls
+            for (let i = 0; i < this.AnchorControls.length; )
+            {
+                let anchor_control = this.AnchorControls[i];
+                let aabb_1 = this.MakeControlAABB(anchor_control[0]);
 
-            let mask = in_mask || this.GetSizeMask(mouse_pos);
+                if (AABB.Intersect(aabb_0, aabb_1))
+                {
+                    // Add to the list of connected controls
+                    anchor_controls.push(anchor_control);
 
+                    // Swap the control with the back of the array and reduce array count
+                    // Faster than a splice for removal (unless the VM detects this)
+                    this.AnchorControls[i] = this.AnchorControls[this.AnchorControls.length - 1];
+                    this.AnchorControls.length--;
+                }
+                else
+                {
+                    // Only advance when there's no swap as we want to evaluate each
+                    // new control swapped in
+                    i++;
+                }
+            }
+        }
+
+        private MakeAnchorControlIsland()
+        {
+            let anchor_controls: [Control, int2, number][] = [ ];
+
+            // First find all controls connected to this one
+            let aabb_0 = this.MakeControlAABB(this);
+            this.TakeConnectedAnchorControls(aabb_0, anchor_controls);
+
+            // Then find all controls connected to each of them
+            for (let anchor_control of anchor_controls)
+            {
+                let aabb_0 = this.MakeControlAABB(anchor_control[0]);
+                this.TakeConnectedAnchorControls(aabb_0, anchor_controls);
+            }
+
+            // Replace the anchor control list with only connected controls
+            this.AnchorControls = anchor_controls;
+        }
+
+        private GatherAnchorControls(mask: int2, gather_sibling_anchors: boolean)
+        {
             // Reset list just in case end event isn't received
             this.AnchorControls = [];
 
-            if (gather_sibling_anchors)
+            let parent_container = this.ParentContainer;
+            if (gather_sibling_anchors && parent_container)
             {
                 // Gather auto-anchor controls from siblings on side resizers only
                 if ((mask.x != 0) != (mask.y != 0))
                 {
-                    let parent_container = this.ParentContainer;
-                    if (parent_container != null)
-                    {
-                        if (mask.x > 0 || mask.y > 0)
-                            parent_container.GetSnapControls(this.BottomRight, mask, this, this.AnchorControls, 1);
-                        if (mask.x < 0 || mask.y < 0)
-                            parent_container.GetSnapControls(this.TopLeft, mask, this, this.AnchorControls, 1);
-                    }
+                    if (mask.x > 0 || mask.y > 0)
+                        parent_container.GetSnapControls(this.BottomRight, mask, this, this.AnchorControls, 1);
+                    if (mask.x < 0 || mask.y < 0)
+                        parent_container.GetSnapControls(this.TopLeft, mask, this, this.AnchorControls, 1);
                 }
+
+                // We don't want windows at disjoint locations getting dragged into
+                // the auto anchor so only allow those connected by existing snap
+                // boundaries
+                this.MakeAnchorControlIsland();
             }
 
             // Gather auto-anchor controls for children on bottom and right resizers
@@ -257,8 +304,21 @@ namespace WM
             // this window increasing in size
             if (mask.x < 0 || mask.y < 0)
                 this.GetSnapControls(this_br, mask, null, this.AnchorControls, -1);
+        }
+
+        private OnBeginSize = (event: MouseEvent, in_mask: int2, gather_sibling_anchors: boolean) =>
+        {
+            let mouse_pos = DOM.Event.GetMousePosition(event);
+
+            // Prepare for drag
+            this.DragMouseStartPosition = mouse_pos;
+            this.DragWindowStartPosition = this.Position.Copy();
+            this.DragWindowStartSize = this.Size.Copy();
+
+            let mask = in_mask || this.GetSizeMask(mouse_pos);
 
             // Start resizing gathered auto-anchors
+            this.GatherAnchorControls(mask, gather_sibling_anchors);
             for (let control of this.AnchorControls)
             {
                 let window = control[0] as Window;
