@@ -164,6 +164,18 @@ namespace WM
                 this.RemoveSnapRuler(side);
         }
 
+        private UpdateTLSnapRulers(snap_code: SnapCode)
+        {
+            this.UpdateSnapRuler(Side.Top, (snap_code & SnapCode.Y) != 0, this.TopLeft.y - 3);
+            this.UpdateSnapRuler(Side.Left, (snap_code & SnapCode.X) != 0, this.TopLeft.x - 3);
+        }
+
+        private UpdateBRSnapRulers(snap_code: SnapCode)
+        {
+            this.UpdateSnapRuler(Side.Bottom, (snap_code & SnapCode.Y) != 0, this.BottomRight.y + 1);
+            this.UpdateSnapRuler(Side.Right, (snap_code & SnapCode.X) != 0, this.BottomRight.x + 1);
+        }
+
         // --- Window movement --------------------------------------------------------------------
         
         private OnBeginMove = (event: MouseEvent) =>
@@ -197,6 +209,9 @@ namespace WM
                 let snap_br = parent_container.GetSnapEdge(this.BottomRight, new int2(1, 1), [ this ]);
                 if (snap_br[0] != SnapCode.None)
                     this.Position = int2.Sub(snap_br[1], this.Size);
+
+                this.UpdateTLSnapRulers(snap_tl[0]);
+                this.UpdateBRSnapRulers(snap_br[0]);
             }
             
             // ####
@@ -208,6 +223,8 @@ namespace WM
         }
         private OnEndMove = () =>
         {
+            this.RemoveSnapRulers();
+            
             // Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnMove);
             $(document).MouseUpEvent.Unsubscribe(this.OnEndMove);
@@ -422,8 +439,7 @@ namespace WM
                     if (snap[0] != SnapCode.None)
                         this.BottomRight = snap[1];
 
-                    this.UpdateSnapRuler(Side.Bottom, (snap[0] & SnapCode.Y) != 0, this.BottomRight.y + 1);
-                    this.UpdateSnapRuler(Side.Right, (snap[0] & SnapCode.X) != 0, this.BottomRight.x + 1);
+                    this.UpdateBRSnapRulers(snap[0]);
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
@@ -431,8 +447,7 @@ namespace WM
                     if (snap[0] != SnapCode.None)
                         this.TopLeft = snap[1];
 
-                    this.UpdateSnapRuler(Side.Top, (snap[0] & SnapCode.Y) != 0, this.TopLeft.y - 3);
-                    this.UpdateSnapRuler(Side.Left, (snap[0] & SnapCode.X) != 0, this.TopLeft.x - 3);
+                    this.UpdateTLSnapRulers(snap[0]);
                 }
             }
 
