@@ -21,6 +21,7 @@
         "DOM.ts",
         "DOM_Node.ts",
         "WM_Control.ts",
+        "WM_Ruler.ts",
         "WM_Container.ts",
         "WM_Window.ts",
         "Test.ts"
