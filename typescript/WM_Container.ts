@@ -23,6 +23,16 @@ namespace WM
             return control;
         }
 
+        Remove(control: Control)
+        {
+            control.Hide();
+
+            let index = this.Controls.indexOf(control);
+            this.Controls.splice(index, 1);
+
+            control.ParentContainer = null;
+        }
+
         SetTopControl(control: Control) : void
         {
             // ZINDEX needs to be relative to parent!
