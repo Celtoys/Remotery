@@ -3,6 +3,14 @@
 
 namespace WM
 {
+    const enum Side
+    {
+        Left,
+        Right,
+        Top,
+        Bottom,
+    };
+
     export class Window extends Container
     {
         static TemplateHTML = `
@@ -40,7 +48,7 @@ namespace WM
         // List of controls that are auto-anchored to a container edge during sizing
         private AnchorControls: [Control, int2, number][];
 
-        private SnapRuler: Ruler;
+        private SnapRulers: Ruler[] = [ null, null, null, null ];
 
         // Transient delegates for mouse size events
         private OnSizeDelegate: EventListener;
@@ -110,41 +118,50 @@ namespace WM
             this.SizeBottomNode.ZIndex = z_index + 1;
         }
 
-        private SetSnapRuler(position: number)
+        private SetSnapRuler(side: Side, position: number)
         {
-            if (this.SnapRuler == null)
+            if (this.SnapRulers[side] == null)
             {
                 // Create on-demand
-                this.SnapRuler = new Ruler(RulerOrient.Vertical, position);
-                this.SnapRuler.Node.Colour = "#FFF";
+                let orient = (side == Side.Left || side == Side.Right) ? RulerOrient.Vertical : RulerOrient.Horizontal;
+                this.SnapRulers[side] = new Ruler(orient, position);
+                this.SnapRulers[side].Node.Colour = "#FFF";
 
                 // Add to the same parent container as the window for clipping
                 if (this.ParentContainer)
-                    this.ParentContainer.Add(this.SnapRuler);
+                    this.ParentContainer.Add(this.SnapRulers[side]);
             }
             else
             {
-                this.SnapRuler.SetPosition(position);
+                this.SnapRulers[side].SetPosition(position);
             }
         }
 
-        private RemoveSnapRuler()
+        private RemoveSnapRuler(side: Side)
         {
-            if (this.SnapRuler != null)
+            if (this.SnapRulers[side] != null)
             {
                 // Remove from the container and clear the remaining reference
                 if (this.ParentContainer)
-                    this.ParentContainer.Remove(this.SnapRuler);
-                this.SnapRuler = null;
+                    this.ParentContainer.Remove(this.SnapRulers[side]);
+                this.SnapRulers[side] = null;
             }
         }
 
-        private UpdateSnapRuler(show: boolean, position: number)
+        private RemoveSnapRulers()
+        {
+            this.RemoveSnapRuler(Side.Left);
+            this.RemoveSnapRuler(Side.Right);
+            this.RemoveSnapRuler(Side.Top);
+            this.RemoveSnapRuler(Side.Bottom);
+        }
+
+        private UpdateSnapRuler(side: Side, show: boolean, position: number)
         {
             if (show)
-                this.SetSnapRuler(position);
+                this.SetSnapRuler(side, position);
             else
-                this.RemoveSnapRuler();
+                this.RemoveSnapRuler(side);
         }
 
         // --- Window movement --------------------------------------------------------------------
@@ -405,7 +422,8 @@ namespace WM
                     if (snap[0] != SnapCode.None)
                         this.BottomRight = snap[1];
 
-                    this.UpdateSnapRuler((snap[0] & SnapCode.X) != 0, this.BottomRight.x + 1);
+                    this.UpdateSnapRuler(Side.Bottom, (snap[0] & SnapCode.Y) != 0, this.BottomRight.y + 1);
+                    this.UpdateSnapRuler(Side.Right, (snap[0] & SnapCode.X) != 0, this.BottomRight.x + 1);
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
@@ -413,7 +431,8 @@ namespace WM
                     if (snap[0] != SnapCode.None)
                         this.TopLeft = snap[1];
 
-                    this.UpdateSnapRuler((snap[0] & SnapCode.X) != 0, this.TopLeft.x - 3);
+                    this.UpdateSnapRuler(Side.Top, (snap[0] & SnapCode.Y) != 0, this.TopLeft.y - 3);
+                    this.UpdateSnapRuler(Side.Left, (snap[0] & SnapCode.X) != 0, this.TopLeft.x - 3);
                 }
             }
 
@@ -447,7 +466,7 @@ namespace WM
             // Set cursor back to auto
             this.RestoreCursor($(document.body));
 
-            this.RemoveSnapRuler();
+            this.RemoveSnapRulers();
 
             // Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnSizeDelegate);
