@@ -89,11 +89,7 @@ namespace WM
                     out_mask.y = 1;
             }
 
-            // Return the out mask if it says a control will snap
-            if (out_mask.x != 0 || out_mask.y != 0)
-                return out_mask;
-
-            return null;
+            return out_mask;
         }
 
         GetSnapControls(pos: int2, mask: int2, excluding: Control, controls: [Control, int2, number][], offset_scale: number)
@@ -113,7 +109,7 @@ namespace WM
                 var top_left = control.TopLeft;
                 var bottom_right = control.BottomRight;
                 let out_mask = this.WillControlSnap(pos, mask, top_left, bottom_right);
-                if (out_mask != null)
+                if (out_mask.x != 0 || out_mask.y != 0)
                     controls.push([control, out_mask, offset_scale]);
             }
         }
