@@ -1,21 +1,48 @@
 
 namespace WM
 {
-    export enum RulerOrient
+    export const enum RulerOrient
     {
+        Horizontal,
         Vertical,
-        Horizontal
     }
 
     export class Ruler extends Control
     {
         static TemplateHTML = "<div class='Ruler'></div>";
+
+        // Big enough to span entire screen while being clipped by parent
+        static Size = 10000;
+
+        // Current orientation
+        private _Orient: RulerOrient;
         
-        constructor(position: number, orient: RulerOrient)
+        private static Position2D(orient: RulerOrient, position: number) : int2
         {
-            let position_2d = orient == RulerOrient.Vertical ? new int2(position, 0) : new int2(0, position);
-            let size_2d = orient == RulerOrient.Vertical ? new int2(0, 1000) : new int2(1000, 0);
-            super(new DOM.Node(Ruler.TemplateHTML), position_2d, size_2d);
+            return orient == RulerOrient.Horizontal ?
+                new int2(0, position) :
+                new int2(position, 0);
+        }
+
+        private static Size2D(orient: RulerOrient) : int2
+        {
+            return orient == RulerOrient.Horizontal ?
+                new int2(Ruler.Size, 0) :
+                new int2(0, Ruler.Size);
+        }
+
+        constructor(orient: RulerOrient, position: number)
+        {
+            super(new DOM.Node(Ruler.TemplateHTML),
+                Ruler.Position2D(orient, position),
+                Ruler.Size2D(orient));
+
+            this._Orient = orient;
+        }
+
+        SetPosition(position: number) : void
+        {
+            this.Position = Ruler.Position2D(this._Orient, position);
         }
     }
 }

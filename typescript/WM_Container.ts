@@ -1,6 +1,13 @@
 
 namespace WM
 {
+    export const enum SnapCode
+    {
+        None = 0,
+        X    = 1,
+        Y    = 2,
+    }
+
     export class Container extends Control
     {
         static TemplateHTML = "<div class='Container'></div>";
@@ -111,10 +118,10 @@ namespace WM
             }
         }
 
-        SnapControl(pos: int2, snap_pos: int2, mask: int2, p_mask: int2, n_mask: int2, top_left: int2, bottom_right: int2) : boolean
+        SnapControl(pos: int2, snap_pos: int2, mask: int2, p_mask: int2, n_mask: int2, top_left: int2, bottom_right: int2) : SnapCode
         {
             let b = Container.SnapBorderSize;
-            let snapped = false;
+            let snap_code = SnapCode.None;
 
             // Distance from input position to opposing corners of the control
             let d_tl = int2.Abs(int2.Sub(pos, top_left));
@@ -126,12 +133,12 @@ namespace WM
                 if (d_tl.x < b)
                 {
                     snap_pos.x = top_left.x - p_mask.x;
-                    snapped = true;
+                    snap_code |= SnapCode.X;
                 }                    
                 if (d_br.x < b)
                 {
                     snap_pos.x = bottom_right.x + n_mask.x;
-                    snapped = true;
+                    snap_code |= SnapCode.X;
                 }
             }
             if (mask.y != 0)
@@ -139,19 +146,19 @@ namespace WM
                 if (d_tl.y < b)
                 {
                     snap_pos.y = top_left.y - p_mask.y;
-                    snapped = true;
+                    snap_code |= SnapCode.Y;
                 }                    
                 if (d_br.y < b)
                 {
                     snap_pos.y = bottom_right.y + n_mask.y;
-                    snapped = true;
+                    snap_code |= SnapCode.Y;
                 }
             }
 
-            return snapped;
+            return snap_code;
         }
 
-        GetSnapEdge(pos: int2, mask: int2, excluding: Control[]) : int2
+        GetSnapEdge(pos: int2, mask: int2, excluding: Control[]) : [SnapCode, int2]
         {
             // Selects between control edge and a border-distance outside the control edge
             let b = Container.SnapBorderSize;
@@ -162,7 +169,7 @@ namespace WM
             let snap_pos = pos.Copy();
 
             // Snap to sibling container bounds
-            let snapped = false;
+            let snap_code = SnapCode.None;
             for (let control of this.Controls)
             {
                 if (!(control instanceof Container))
@@ -173,28 +180,28 @@ namespace WM
                 var top_left = control.TopLeft;
                 var bottom_right = control.BottomRight;
 
-                snapped = this.SnapControl(
+                snap_code |= this.SnapControl(
                     pos,
                     snap_pos,
                     mask,
                     p_mask,
                     n_mask,
                     control.TopLeft,
-                    control.BottomRight) || snapped;
+                    control.BottomRight);
             }
 
             // Snap to parent container bounds
             let parent_size = this.ControlParentNode.Size;
-            snapped = this.SnapControl(
+            snap_code |= this.SnapControl(
                 pos,
                 snap_pos,
                 mask,
                 p_mask,
                 n_mask,
                 new int2(b),
-                int2.Sub(parent_size, new int2(b))) || snapped;
+                int2.Sub(parent_size, new int2(b)));
 
-            return snapped ? snap_pos : null;
+            return [ snap_code, snap_pos ];
         }
 
         // Returns the node which all controls added to the container are parented to

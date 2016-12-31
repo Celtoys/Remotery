@@ -110,6 +110,24 @@ namespace WM
             this.SizeBottomNode.ZIndex = z_index + 1;
         }
 
+        private SetSnapRuler(position: number)
+        {
+            if (this.SnapRuler == null)
+            {
+                // Create on-demand
+                this.SnapRuler = new Ruler(RulerOrient.Vertical, position);
+                this.SnapRuler.Node.Colour = "#FFF";
+
+                // Add to the same parent container as the window for clipping
+                if (this.ParentContainer)
+                    this.ParentContainer.Add(this.SnapRuler);
+            }
+            else
+            {
+                this.SnapRuler.SetPosition(position);
+            }
+        }
+
         private RemoveSnapRuler()
         {
             if (this.SnapRuler != null)
@@ -119,6 +137,14 @@ namespace WM
                     this.ParentContainer.Remove(this.SnapRuler);
                 this.SnapRuler = null;
             }
+        }
+
+        private UpdateSnapRuler(show: boolean, position: number)
+        {
+            if (show)
+                this.SetSnapRuler(position);
+            else
+                this.RemoveSnapRuler();
         }
 
         // --- Window movement --------------------------------------------------------------------
@@ -147,13 +173,13 @@ namespace WM
             let parent_container = this.ParentContainer;
             if (parent_container != null)
             {
-                let snap_pos_tl = parent_container.GetSnapEdge(this.TopLeft, new int2(-1, -1), [ this ]);
-                if (snap_pos_tl != null)
-                    this.Position = snap_pos_tl;
+                let snap_tl = parent_container.GetSnapEdge(this.TopLeft, new int2(-1, -1), [ this ]);
+                if (snap_tl[0] != SnapCode.None)
+                    this.Position = snap_tl[1];
 
-                let snap_pos_br = parent_container.GetSnapEdge(this.BottomRight, new int2(1, 1), [ this ]);
-                if (snap_pos_br != null)
-                    this.Position = int2.Sub(snap_pos_br, this.Size);
+                let snap_br = parent_container.GetSnapEdge(this.BottomRight, new int2(1, 1), [ this ]);
+                if (snap_br[0] != SnapCode.None)
+                    this.Position = int2.Sub(snap_br[1], this.Size);
             }
             
             // ####
@@ -375,32 +401,19 @@ namespace WM
             {
                 if (mask.x > 0 || mask.y > 0)
                 {
-                    let snap_pos = parent_container.GetSnapEdge(this.BottomRight, mask, exclude_controls);
-                    if (snap_pos != null)
-                    {
-                        if (snap_pos.x != this.BottomRight.x)
-                        {
-                            if (this.SnapRuler == null)
-                            {
-                                this.SnapRuler = new Ruler(snap_pos.x + 1, RulerOrient.Vertical);
-                                this.SnapRuler.Node.Colour = "#FFF";
-                                parent_container.Add(this.SnapRuler);
-                            }
-                            this.SnapRuler.Position = new int2(snap_pos.x + 1, 0);
-                        }
+                    let snap = parent_container.GetSnapEdge(this.BottomRight, mask, exclude_controls);
+                    if (snap[0] != SnapCode.None)
+                        this.BottomRight = snap[1];
 
-                        this.BottomRight = snap_pos;
-                    }
-                    else
-                    {
-                        this.RemoveSnapRuler();
-                    }
+                    this.UpdateSnapRuler((snap[0] & SnapCode.X) != 0, this.BottomRight.x + 1);
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
-                    let snap_pos = parent_container.GetSnapEdge(this.TopLeft, mask, exclude_controls);
-                    if (snap_pos != null)
-                        this.TopLeft = snap_pos;
+                    let snap = parent_container.GetSnapEdge(this.TopLeft, mask, exclude_controls);
+                    if (snap[0] != SnapCode.None)
+                        this.TopLeft = snap[1];
+
+                    this.UpdateSnapRuler((snap[0] & SnapCode.X) != 0, this.TopLeft.x - 3);
                 }
             }
 
