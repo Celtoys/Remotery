@@ -40,6 +40,8 @@ namespace WM
         // List of controls that are auto-anchored to a container edge during sizing
         private AnchorControls: [Control, int2, number][];
 
+        private SnapRuler: Ruler;
+
         // Transient delegates for mouse size events
         private OnSizeDelegate: EventListener;
         private OnEndSizeDelegate: EventListener;
@@ -106,6 +108,17 @@ namespace WM
             this.SizeRightNode.ZIndex = z_index + 1;
             this.SizeTopNode.ZIndex = z_index + 1;
             this.SizeBottomNode.ZIndex = z_index + 1;
+        }
+
+        private RemoveSnapRuler()
+        {
+            if (this.SnapRuler != null)
+            {
+                // Remove from the container and clear the remaining reference
+                if (this.ParentContainer)
+                    this.ParentContainer.Remove(this.SnapRuler);
+                this.SnapRuler = null;
+            }
         }
 
         // --- Window movement --------------------------------------------------------------------
@@ -364,7 +377,24 @@ namespace WM
                 {
                     let snap_pos = parent_container.GetSnapEdge(this.BottomRight, mask, exclude_controls);
                     if (snap_pos != null)
+                    {
+                        if (snap_pos.x != this.BottomRight.x)
+                        {
+                            if (this.SnapRuler == null)
+                            {
+                                this.SnapRuler = new Ruler(snap_pos.x + 1, RulerOrient.Vertical);
+                                this.SnapRuler.Node.Colour = "#FFF";
+                                parent_container.Add(this.SnapRuler);
+                            }
+                            this.SnapRuler.Position = new int2(snap_pos.x + 1, 0);
+                        }
+
                         this.BottomRight = snap_pos;
+                    }
+                    else
+                    {
+                        this.RemoveSnapRuler();
+                    }
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
@@ -403,6 +433,8 @@ namespace WM
 
             // Set cursor back to auto
             this.RestoreCursor($(document.body));
+
+            this.RemoveSnapRuler();
 
             // Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnSizeDelegate);
