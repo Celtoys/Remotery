@@ -100,6 +100,8 @@ namespace WM
             {
                 if (control == excluding)
                     continue;
+                if (!(control instanceof Container))
+                    continue;
 
                 var top_left = control.TopLeft;
                 var bottom_right = control.BottomRight;
@@ -163,6 +165,8 @@ namespace WM
             let snapped = false;
             for (let control of this.Controls)
             {
+                if (!(control instanceof Container))
+                    continue;
                 if (excluding.indexOf(control) != -1)
                     continue;
 
