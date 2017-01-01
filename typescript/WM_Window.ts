@@ -185,6 +185,16 @@ namespace WM
             this.DragMouseStartPosition = mouse_pos;
             this.DragWindowStartPosition = this.Position.Copy();
 
+            let parent_container = this.ParentContainer;
+            if (parent_container)
+            {
+                // Display last snap configuration on initial click
+                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null, 0);
+                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null, 0);
+                this.UpdateTLSnapRulers(snap_tl[0]);
+                this.UpdateBRSnapRulers(snap_br[0]);
+            }
+
             // Dynamically add handlers for movement and release
             $(document).MouseMoveEvent.Subscribe(this.OnMove);
             $(document).MouseUpEvent.Subscribe(this.OnEndMove);
@@ -356,9 +366,15 @@ namespace WM
                 if ((mask.x != 0) != (mask.y != 0))
                 {
                     if (mask.x > 0 || mask.y > 0)
-                        parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls, 1);
+                    {
+                        let snap = parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls, 1);
+                        this.UpdateBRSnapRulers(snap[0]);
+                    }
                     if (mask.x < 0 || mask.y < 0)
-                        parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls, 1);
+                    {
+                        let snap = parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls, 1);
+                        this.UpdateTLSnapRulers(snap[0]);
+                    }
                 }
 
                 // We don't want windows at disjoint locations getting dragged into
