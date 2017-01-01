@@ -395,7 +395,7 @@ namespace WM
                 this.GetSnapControls(this_br, mask, null, this.AnchorControls, -1);
         }
 
-        private OnBeginSize = (event: MouseEvent, in_mask: int2, gather_sibling_anchors: boolean) =>
+        private OnBeginSize = (event: MouseEvent, in_mask: int2, master_control: boolean) =>
         {
             let mouse_pos = DOM.Event.GetMousePosition(event);
 
@@ -407,7 +407,7 @@ namespace WM
             let mask = in_mask || this.GetSizeMask(mouse_pos);
 
             // Start resizing gathered auto-anchors
-            this.GatherAnchorControls(mask, gather_sibling_anchors);
+            this.GatherAnchorControls(mask, master_control);
             for (let control of this.AnchorControls)
             {
                 let window = control[0] as Window;
@@ -415,13 +415,17 @@ namespace WM
                     window.OnBeginSize(event, control[1], false);
             }
 
-            // Dynamically add handlers for movement and release
-            this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1); };
-            this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
-            $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
-            $(document).MouseUpEvent.Subscribe(this.OnEndSizeDelegate);
 
-            DOM.Event.StopDefaultAction(event);
+            if (master_control)
+            {
+                // Dynamically add handlers for movement and release
+                this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1); };
+                this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
+                $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
+                $(document).MouseUpEvent.Subscribe(this.OnEndSizeDelegate);
+
+                DOM.Event.StopDefaultAction(event);
+            }
         }
         private OnSize = (event: MouseEvent, mask: int2, offset_scale: number) =>
         {
@@ -472,7 +476,7 @@ namespace WM
             this.Size = int2.Max(this.Size, min_window_size);
             this.Position = int2.Min(this.Position, int2.Sub(int2.Add(this.DragWindowStartPosition, this.DragWindowStartSize), min_window_size));
 
-            // Resize all 
+            // Resize all anchored controls
             for (let control of this.AnchorControls)
             {
                 let window = control[0] as Window;
@@ -491,6 +495,14 @@ namespace WM
         }
         private OnEndSize = (event: MouseEvent, mask: int2) =>
         {
+            // End all anchored controls
+            for (let control of this.AnchorControls)
+            {
+                let window = control[0] as Window;
+                if (window != null)
+                    window.OnEndSize(event, mask);
+            }
+
             // Clear anchor references so they don't hang around if a window is deleted
             this.AnchorControls = [];
 
@@ -501,7 +513,9 @@ namespace WM
 
             // Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnSizeDelegate);
+            this.OnSizeDelegate = null;
             $(document).MouseUpEvent.Unsubscribe(this.OnEndSizeDelegate);
+            this.OnEndSizeDelegate = null;
             DOM.Event.StopDefaultAction(event);            
         }
     }
