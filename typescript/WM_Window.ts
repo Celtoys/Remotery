@@ -202,11 +202,11 @@ namespace WM
             let parent_container = this.ParentContainer;
             if (parent_container != null)
             {
-                let snap_tl = parent_container.GetSnapEdge(this.TopLeft, new int2(-1, -1), [ this ]);
+                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null, 0);
                 if (snap_tl[0] != SnapCode.None)
                     this.Position = snap_tl[1];
 
-                let snap_br = parent_container.GetSnapEdge(this.BottomRight, new int2(1, 1), [ this ]);
+                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null, 0);
                 if (snap_br[0] != SnapCode.None)
                     this.Position = int2.Sub(snap_br[1], this.Size);
 
@@ -224,7 +224,7 @@ namespace WM
         private OnEndMove = () =>
         {
             this.RemoveSnapRulers();
-            
+
             // Remove handlers added during mouse down
             $(document).MouseMoveEvent.Unsubscribe(this.OnMove);
             $(document).MouseUpEvent.Unsubscribe(this.OnEndMove);
@@ -356,9 +356,9 @@ namespace WM
                 if ((mask.x != 0) != (mask.y != 0))
                 {
                     if (mask.x > 0 || mask.y > 0)
-                        parent_container.GetSnapControls(this.BottomRight, mask, this, this.AnchorControls, 1);
+                        parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls, 1);
                     if (mask.x < 0 || mask.y < 0)
-                        parent_container.GetSnapControls(this.TopLeft, mask, this, this.AnchorControls, 1);
+                        parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls, 1);
                 }
 
                 // We don't want windows at disjoint locations getting dragged into
@@ -370,7 +370,7 @@ namespace WM
             // Gather auto-anchor controls for children on bottom and right resizers
             let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
             if (mask.x > 0 || mask.y > 0)
-                this.GetSnapControls(this_br, mask, null, this.AnchorControls, 1);
+                this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, 1);
             
             // Gather auto-anchor controls for children on top and left resizers, inverting
             // the mouse offset so that child sizing moves away from mouse movement to counter
@@ -435,7 +435,7 @@ namespace WM
             {
                 if (mask.x > 0 || mask.y > 0)
                 {
-                    let snap = parent_container.GetSnapEdge(this.BottomRight, mask, exclude_controls);
+                    let snap = parent_container.GetSnapControls(this.BottomRight, mask, exclude_controls, null, 0);
                     if (snap[0] != SnapCode.None)
                         this.BottomRight = snap[1];
 
@@ -443,7 +443,7 @@ namespace WM
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
-                    let snap = parent_container.GetSnapEdge(this.TopLeft, mask, exclude_controls);
+                    let snap = parent_container.GetSnapControls(this.TopLeft, mask, exclude_controls, null, 0);
                     if (snap[0] != SnapCode.None)
                         this.TopLeft = snap[1];
 

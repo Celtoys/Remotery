@@ -58,59 +58,10 @@ namespace WM
                     if (!control.Visible)
                         continue;
 
-			        // Ensure there's space between each window for the elements inside to be sorted
-			        let z = (i + 1) * 10;
+                    // Ensure there's space between each window for the elements inside to be sorted
+                    let z = (i + 1) * 10;
                     control.ZIndex = z;
                 }
-            }
-        }
-
-        WillControlSnap(pos: int2, mask: int2, top_left: int2, bottom_right: int2) : int2
-        {
-            // Distance from input position to opposing corners of the control
-            let d_tl = int2.Abs(int2.Sub(pos, top_left));
-            let d_br = int2.Abs(int2.Sub(pos, bottom_right));
-
-            // Are any of the distances within the snap border size?
-            let out_mask = new int2(0, 0);
-            let b = Container.SnapBorderSize;
-            if (mask.x != 0)
-            {
-                if (d_tl.x < b)
-                    out_mask.x = -1;
-                if (d_br.x < b)
-                    out_mask.x = 1;
-            }
-            if (mask.y != 0)
-            {
-                if (d_tl.y < b)
-                    out_mask.y = -1;
-                if (d_br.y < b)
-                    out_mask.y = 1;
-            }
-
-            return out_mask;
-        }
-
-        GetSnapControls(pos: int2, mask: int2, excluding: Control, controls: [Control, int2, number][], offset_scale: number)
-        {
-            // Selects between control edge and a border-distance outside the control edge
-            let b = Container.SnapBorderSize;
-
-            // Gather nearby snap controls
-            let snapped = false;
-            for (let control of this.Controls)
-            {
-                if (control == excluding)
-                    continue;
-                if (!(control instanceof Container))
-                    continue;
-
-                var top_left = control.TopLeft;
-                var bottom_right = control.BottomRight;
-                let out_mask = this.WillControlSnap(pos, mask, top_left, bottom_right);
-                if (out_mask.x != 0 || out_mask.y != 0)
-                    controls.push([control, out_mask, offset_scale]);
             }
         }
 
@@ -154,7 +105,7 @@ namespace WM
             return out_mask;
         }
 
-        GetSnapEdge(pos: int2, mask: int2, excluding: Control[]) : [SnapCode, int2]
+        GetSnapControls(pos: int2, mask: int2, excluding: Control[], out_controls: [Control, int2, number][], offset_scale: number) : [SnapCode, int2]
         {
             // Selects between control edge and a border-distance outside the control edge
             let b = Container.SnapBorderSize;
@@ -187,6 +138,10 @@ namespace WM
                 
                 snap_code |= out_mask.x != 0 ? SnapCode.X : 0;
                 snap_code |= out_mask.y != 0 ? SnapCode.Y : 0;
+
+                // Collect sibling controls if asked to
+                if (out_controls && (out_mask.x != 0 || out_mask.y != 0))
+                    out_controls.push([control, out_mask, offset_scale]);
             }
 
             // Snap to parent container bounds
