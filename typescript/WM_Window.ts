@@ -434,7 +434,7 @@ namespace WM
                 }, 1000);
 
                 // Dynamically add handlers for movement and release
-                this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1); };
+                this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1, true); };
                 this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
                 $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
                 $(document).MouseUpEvent.Subscribe(this.OnEndSizeDelegate);
@@ -442,7 +442,7 @@ namespace WM
                 DOM.Event.StopDefaultAction(event);
             }
         }
-        private OnSize = (event: MouseEvent, mask: int2, offset_scale: number) =>
+        private OnSize = (event: MouseEvent, mask: int2, offset_scale: number, master_control: boolean) =>
         {
             this.SizerMoved = true;
 
@@ -476,7 +476,8 @@ namespace WM
                     if (snap[0] != SnapCode.None)
                         this.BottomRight = snap[1];
 
-                    this.UpdateBRSnapRulers(snap[0]);
+                    if (master_control)
+                        this.UpdateBRSnapRulers(snap[0]);
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
@@ -484,7 +485,8 @@ namespace WM
                     if (snap[0] != SnapCode.None)
                         this.TopLeft = snap[1];
 
-                    this.UpdateTLSnapRulers(snap[0]);
+                    if (master_control)
+                        this.UpdateTLSnapRulers(snap[0]);
                 }
             }
 
@@ -498,7 +500,7 @@ namespace WM
             {
                 let window = control[0] as Window;
                 if (window != null)
-                    window.OnSize(event, control[1], control[2]);
+                    window.OnSize(event, control[1], control[2], false);
             }
 
             // The cursor will exceed the bounds of the resize element under sizing so
