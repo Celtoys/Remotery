@@ -50,6 +50,9 @@ namespace WM
 
         private SnapRulers: Ruler[] = [ null, null, null, null ];
 
+        // Used to track whether a sizer is being held as opposed to moved
+        private SizerMoved: boolean = false;
+
         // Transient delegates for mouse size events
         private OnSizeDelegate: EventListener;
         private OnEndSizeDelegate: EventListener;
@@ -415,9 +418,21 @@ namespace WM
                     window.OnBeginSize(event, control[1], false);
             }
 
+            this.SizerMoved = false;
 
             if (master_control)
             {
+                // If the sizer is held and not moved for a period, release all anchored controls
+                // so that it can be independently moved
+                setTimeout( () => 
+                {
+                    if (this.SizerMoved == false)
+                    {
+                        this.AnchorControls = [ ];
+                        this.RemoveSnapRulers();
+                    }
+                }, 1000);
+
                 // Dynamically add handlers for movement and release
                 this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1); };
                 this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
@@ -429,6 +444,8 @@ namespace WM
         }
         private OnSize = (event: MouseEvent, mask: int2, offset_scale: number) =>
         {
+            this.SizerMoved = true;
+
             // Use the offset from the mouse start position to drag the edge around
             let mouse_pos = DOM.Event.GetMousePosition(event);
             let offset = int2.Sub(mouse_pos, this.DragMouseStartPosition);
