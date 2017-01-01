@@ -392,7 +392,7 @@ namespace WM
             // the mouse offset so that child sizing moves away from mouse movement to counter
             // this window increasing in size
             if (mask.x < 0 || mask.y < 0)
-                this.GetSnapControls(this_br, mask, null, this.AnchorControls, -1);
+                this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, -1);
         }
 
         private OnBeginSize = (event: MouseEvent, in_mask: int2, master_control: boolean) =>
