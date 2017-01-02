@@ -434,7 +434,7 @@ namespace WM
                 }, 1000);
 
                 // Dynamically add handlers for movement and release
-                this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1, true); };
+                this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1, null); };
                 this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
                 $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
                 $(document).MouseUpEvent.Subscribe(this.OnEndSizeDelegate);
@@ -442,13 +442,13 @@ namespace WM
                 DOM.Event.StopDefaultAction(event);
             }
         }
-        private OnSize = (event: MouseEvent, mask: int2, offset_scale: number, master_control: boolean) =>
+        private OnSize = (event: MouseEvent, mask: int2, offset_scale: number, master_offset: int2) =>
         {
             this.SizerMoved = true;
 
             // Use the offset from the mouse start position to drag the edge around
             let mouse_pos = DOM.Event.GetMousePosition(event);
-            let offset = int2.Sub(mouse_pos, this.DragMouseStartPosition);
+            let offset = master_offset || int2.Sub(mouse_pos, this.DragMouseStartPosition);
 
             // Scale offset to invert or not
             offset = int2.Mul(offset, new int2(offset_scale));
@@ -474,18 +474,30 @@ namespace WM
                 {
                     let snap = parent_container.GetSnapControls(this.BottomRight, mask, exclude_controls, null, 0);
                     if (snap[0] != SnapCode.None)
-                        this.BottomRight = snap[1];
+                    {
+                        // Adjust offset to allow anchored controls to match the snap motions
+                        offset = int2.Add(offset, int2.Sub(snap[1], this.BottomRight));
 
-                    if (master_control)
+                        this.BottomRight = snap[1];
+                    }
+
+                    // Only display ruler for master control
+                    if (master_offset == null)
                         this.UpdateBRSnapRulers(snap[0]);
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
                     let snap = parent_container.GetSnapControls(this.TopLeft, mask, exclude_controls, null, 0);
                     if (snap[0] != SnapCode.None)
-                        this.TopLeft = snap[1];
+                    {
+                        // Adjust offset to allow anchored controls to match the snap motions
+                        offset = int2.Add(offset, int2.Sub(snap[1], this.TopLeft));
 
-                    if (master_control)
+                        this.TopLeft = snap[1];
+                    }
+
+                    // Only display ruler for master control
+                    if (master_offset == null)
                         this.UpdateTLSnapRulers(snap[0]);
                 }
             }
@@ -500,7 +512,7 @@ namespace WM
             {
                 let window = control[0] as Window;
                 if (window != null)
-                    window.OnSize(event, control[1], control[2], false);
+                    window.OnSize(event, control[1], control[2], offset);
             }
 
             // The cursor will exceed the bounds of the resize element under sizing so
