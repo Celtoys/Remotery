@@ -447,11 +447,18 @@ namespace WM
         }
         private OnSize = (event: MouseEvent, mask: int2, offset_scale: number, master_offset: int2) =>
         {
-            this.SizerMoved = true;
-
             // Use the offset from the mouse start position to drag the edge around
             let mouse_pos = DOM.Event.GetMousePosition(event);
             let offset = master_offset || int2.Sub(mouse_pos, this.DragMouseStartPosition);
+
+            // Chrome issues multiple redundant OnSize events even if the mouse is held still
+            // Ignore those by checking for no initial mouse movement
+            if (this.SizerMoved == false && offset.x == 0 && offset.y == 0)
+            {
+                DOM.Event.StopDefaultAction(event);
+                return;
+            }
+            this.SizerMoved = true;
 
             // Scale offset to invert or not
             offset = int2.Mul(offset, new int2(offset_scale));
