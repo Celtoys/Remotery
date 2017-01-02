@@ -152,10 +152,16 @@ namespace WM
             }
         }
 
-        BringToTop() : void
+        SendToTop() : void
         {
             if (this._ParentContainer)
                 this._ParentContainer.SetTopControl(this);
+        }
+
+        SendToBottom() : void
+        {
+            if (this._ParentContainer)
+                this._ParentContainer.SetBottomControl(this);
         }
 
 
@@ -170,7 +176,7 @@ namespace WM
         private OnMouseDown = (event: MouseEvent) =>
         {
             // Allow bubble-up for this event so that it filters through nested windows
-            this.BringToTop();
+            this.SendToTop();
         }
     }
 }

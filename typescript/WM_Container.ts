@@ -40,28 +40,48 @@ namespace WM
             control.ParentContainer = null;
         }
 
-        SetTopControl(control: Control) : void
+        private UpdateZIndices()
         {
             // ZINDEX needs to be relative to parent!
-            
-            // Bring the control to the top of the control List
-            let top_index = this.Controls.indexOf(control);
-            if (top_index != -1)
+
+            // Set a CSS z-index for each visible control from the bottom-up
+            for (let i = 0; i < this.Controls.length; i++)
             {
-                this.Controls.splice(top_index, 1);
+                let control = this.Controls[i];
+                if (!control.Visible)
+                    continue;
+
+                // Ensure there's space between each window for the elements inside to be sorted
+                let z = (i + 1) * 10;
+                control.ZIndex = z;
+            }
+        }
+
+        SetTopControl(control: Control) : void
+        {
+            // Push the control to the end of the control list
+            let index = this.Controls.indexOf(control);
+            if (index != -1)
+            {
+                this.Controls.splice(index, 1);
                 this.Controls.push(control);
 
-                // Set a CSS z-index for each visible control from the bottom-up
-                for (let i = 0; i < this.Controls.length; i++)
-                {
-                    let control = this.Controls[i];
-                    if (!control.Visible)
-                        continue;
+                // Recalculate z-indices for visible sort
+                this.UpdateZIndices();
+            }
+        }
 
-                    // Ensure there's space between each window for the elements inside to be sorted
-                    let z = (i + 1) * 10;
-                    control.ZIndex = z;
-                }
+        SetBottomControl(control: Control) : void
+        {
+            // Push the control to the start of the control list
+            let index = this.Controls.indexOf(control);
+            if (index != -1)
+            {
+                this.Controls.splice(index, 1);
+                this.Controls.unshift(control);
+
+                // Recalculate z-indices for visible sort
+                this.UpdateZIndices();
             }
         }
 

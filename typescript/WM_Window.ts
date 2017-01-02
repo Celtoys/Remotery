@@ -133,6 +133,9 @@ namespace WM
                 // Add to the same parent container as the window for clipping
                 if (this.ParentContainer)
                     this.ParentContainer.Add(this.SnapRulers[side]);
+                
+                // Display under all siblings
+                this.SnapRulers[side].SendToBottom();
             }
             else
             {
