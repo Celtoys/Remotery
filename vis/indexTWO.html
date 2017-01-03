@@ -40,8 +40,7 @@
 					inp = (c ? document.querySelector(c) : null);
 
 				// Save container and write to text area
-				var output = WM.SaveContainer(Container);
-				inp.innerHTML = output;
+				inp.value = WM.SaveContainer(Container);
 
 				// is element selectable?
 				if (inp && inp.select)
@@ -70,8 +69,7 @@
 					c = t.dataset.copytarget,
 					inp = (c ? document.querySelector(c) : null);
 				
-				var input = inp.innerHTML;
-				WM.LoadContainer(Container, input);
+				WM.LoadContainer(Container, inp.value);
 			}
 
 			// click events
