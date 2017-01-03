@@ -5,6 +5,7 @@ namespace WM
 {
     class SavedControl
     {
+        ID: number;
         Position: int2;
         Size: int2;
     }
@@ -33,6 +34,7 @@ namespace WM
     function BuildSavedContainer(container: Container) : SavedContainer
     {
         let saved_container = new SavedContainer();
+        saved_container.ID = container.ID;
         saved_container.Position = container.Position;
         saved_container.Size = container.Size;
         BuildSavedContainerList(container, saved_container);
@@ -42,6 +44,7 @@ namespace WM
     function BuildSavedWindow(window: Window) : SavedWindow
     {
         let saved_window = new SavedWindow();
+        saved_window.ID = window.ID;
         saved_window.Position = window.Position;
         saved_window.Size = window.Size;
         saved_window.Title = window.Title;
@@ -59,16 +62,22 @@ namespace WM
     {
         for (let i = 0; i < saved_container.Controls.length; i++)
         {
-            if (i == container.Controls.length)
-                break;
-
-            let child_control = container.Controls[i];
             let child_saved_control = saved_container.Controls[i];
 
-            if (child_control instanceof Window)
-                ApplyWindow(child_control as Window, <SavedWindow>child_saved_control);
-            else if (child_control instanceof Container)
-                ApplyContainer(child_control as Container, <SavedContainer>child_saved_control);
+            // Search for control with matching ID
+            for (let j = 0; j < container.Controls.length; j++)
+            {
+                let child_control = container.Controls[j];
+                if (child_control.ID == child_saved_control.ID)
+                {
+                    if (child_control instanceof Window)
+                        ApplyWindow(child_control as Window, <SavedWindow>child_saved_control);
+                    else if (child_control instanceof Container)
+                        ApplyContainer(child_control as Container, <SavedContainer>child_saved_control);
+                    
+                    break;
+                }
+            }
         }
     }
 

@@ -1,8 +1,38 @@
 
 namespace WM
 {
+    function Wang_HashU32(key: number): number
+    {
+        key += ~(key << 15);
+        key ^=  (key >> 10);
+        key +=  (key << 3);
+        key ^=  (key >> 6);
+        key += ~(key << 11);
+        key ^=  (key >> 16);
+        return key;
+    }
+
+    function HashCombine_U32(hash_a: number, hash_b: number) : number
+    {
+        let random_bits = 0x9E3779B9;
+        hash_a ^= hash_b + random_bits + (hash_a << 6) + (hash_a >> 2);
+        return hash_a;
+    }
+
+    function GenerateID(position: int2, size: int2) : number
+    {
+        // Use initial placement of the container as a unique ID generator
+        let a = HashCombine_U32(Wang_HashU32(position.x), Wang_HashU32(position.y));
+        let b = HashCombine_U32(Wang_HashU32(size.x), Wang_HashU32(size.y));
+        return HashCombine_U32(a, b);
+    }
+
+
     export class Control
     {
+        // Unique ID within a container's control list
+        ID: number;
+
         // Main generated HTML node for the control
         Node: DOM.Node;
 
@@ -24,6 +54,7 @@ namespace WM
 
         constructor(node: DOM.Node, position: int2, size: int2)
         {
+            this.ID = GenerateID(position, size);
             this.Node = node;
             this.Position = position;
             this.Size = size;
