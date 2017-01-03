@@ -74,16 +74,16 @@ namespace WM
 
     function ApplyWindow(window: Window, saved_window: SavedWindow)
     {
-        window.Position = saved_window.Position;
-        window.Size = saved_window.Size;
-        window.Title = saved_window.Title;
+        window.Position = new int2(saved_window.Position.x, saved_window.Position.y);
+        window.Size = new int2(saved_window.Size.x, saved_window.Size.y);
+        window.Title = <string>saved_window.Title;
         ApplyContainerList(window, saved_window);
     }
 
     function ApplyContainer(container: Container, saved_container: SavedContainer)
     {
-        container.Position = saved_container.Position;
-        container.Size = saved_container.Size;
+        container.Position = new int2(saved_container.Position.x, saved_container.Position.y);
+        container.Size = new int2(saved_container.Size.x, saved_container.Size.y);
         ApplyContainerList(container, saved_container);
     }
 
