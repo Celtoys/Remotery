@@ -15,7 +15,7 @@ namespace WM
         static SnapBorderSize = 5;
 
         // List of controls contained by the window, in z-order
-        protected Controls: Control[] = [];
+        Controls: Control[] = [];
 
         constructor(position: int2, size: int2, node?: DOM.Node)
         {

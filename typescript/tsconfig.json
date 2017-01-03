@@ -24,6 +24,7 @@
         "WM_Ruler.ts",
         "WM_Container.ts",
         "WM_Window.ts",
+        "WM_Serialisation.ts",
         "Test.ts"
     ]
 }

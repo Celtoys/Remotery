@@ -16,11 +16,67 @@
 
 	<body>
 
+		<div style="width: 100%; height: 10px;"></div>
+		<div style="float: left; width: 1020px; height: 10px;"></div>
+		<textarea id="website" rows="20" cols="24">Window Layout</textarea>
+		<div style="clear: both;"/>
+		<div style="width: 100%; height: 5px;"></div>
+		<div style="float: left; width: 1020px; height: 10px;"></div>
+		<button id="load-button" data-copytarget="#website">Load</button>
+		<button id="save-button" data-copytarget="#website">Save</button>
+
 		<script type="text/javascript">
 
 			//var remotery = new Remotery();
-            TestAll();
+			var Container = TestAll();
 
+			// event handler
+			function copy(e)
+			{
+				// find target element
+				var
+					t = e.target,
+					c = t.dataset.copytarget,
+					inp = (c ? document.querySelector(c) : null);
+
+				// Save container and write to text area
+				var output = WM.SaveContainer(Container);
+				inp.innerHTML = output;
+
+				// is element selectable?
+				if (inp && inp.select)
+				{
+					// select text
+					inp.select();
+
+					try
+					{
+						// copy text
+						document.execCommand('copy');
+						inp.blur();
+					}
+					catch (err)
+					{
+						alert('please press Ctrl/Cmd+C to copy');
+					}
+				}
+			}
+
+			function load(e)
+			{
+				// find target element
+				var
+					t = e.target,
+					c = t.dataset.copytarget,
+					inp = (c ? document.querySelector(c) : null);
+				
+				var input = inp.innerHTML;
+				WM.LoadContainer(Container, input);
+			}
+
+			// click events
+			$("#save-button").Element.addEventListener('click', copy, true);
+			$("#load-button").Element.addEventListener('click', load, true);
 		</script>
 
 	</body>
