@@ -132,6 +132,18 @@ namespace WM
                 let tl_0 = control_0.TopLeft;
                 let br_0 = control_0.BottomRight;
 
+                // Add references to the parent container
+                let b = Container.SnapBorderSize;
+                let s = container.Size;
+                if (tl_0.x <= b)
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Left, container));
+                if (tl_0.y <= b)
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Top, container));
+                if (br_0.x >= s.x - b)
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Right, container));
+                if (br_0.y >= s.y - b)
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Bottom, container));
+
                 // Check candidate controls for auto-anchor intersection
                 for (let control_1 of container.Controls)
                 {
@@ -148,12 +160,8 @@ namespace WM
                     let tl_1 = control_1.TopLeft;
                     let br_1 = control_1.BottomRight;
 
-                    // TODO: <=b?
-
                     let side_0 = Side.None;
                     let side_1 = Side.None;
-
-                    let b = Container.SnapBorderSize;
 
                     // Check for vertical separating axis
                     if (tl_1.y - br_0.y < 0 && tl_0.y - br_1.y < 0)
