@@ -101,6 +101,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #ifndef __MINGW32__
             #include <intrin.h>
         #endif
+        #include <stdlib.h>
         #undef min
         #undef max
     #endif
@@ -1887,7 +1888,6 @@ static rmtError HashTable_Insert(HashTable* table, rmtU32 key, rmtU32 value)
 static rmtError HashTable_Resize(HashTable* table)
 {
     rmtU32 old_max_nb_slots = table->max_nb_slots;
-    rmtU32 new_nb_occupied_slots = 0;
     HashSlot* new_slots = NULL;
     HashSlot* old_slots = table->slots;
 
@@ -5977,7 +5977,14 @@ static void* rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
         // Get OpenGL extension-loading function for each call
         typedef void* (*wglGetProcAddressFn)(LPCSTR);
         {
+            #ifdef _MSC_VER
+                #pragma warning(push)
+                #pragma warning(disable:4055) // C4055: 'type cast': from data pointer 'void *' to function pointer
+            #endif
             wglGetProcAddressFn wglGetProcAddress = (wglGetProcAddressFn)rmtGetProcAddress(opengl->dll_handle, "wglGetProcAddress");
+            #ifdef _MSC_VER
+                #pragma warning(pop)
+            #endif
             if (wglGetProcAddress != NULL)
                 return wglGetProcAddress(symbol);
         }
@@ -6198,6 +6205,10 @@ RMT_API void _rmt_BindOpenGL()
             opengl->dll_handle = rmtLoadLibrary("opengl32.dll");
         #endif
 
+        #ifdef _MSC_VER
+            #pragma warning(push)
+            #pragma warning(disable:4055) // C4055: 'type cast': from data pointer 'void *' to function pointer
+        #endif
         opengl->__glGetError = (PFNGLGETERRORPROC)rmtGetProcAddress(opengl->dll_handle, "glGetError");
         opengl->__glGenQueries = (PFNGLGENQUERIESPROC)rmtglGetProcAddress(opengl, "glGenQueries");
         opengl->__glDeleteQueries = (PFNGLDELETEQUERIESPROC)rmtglGetProcAddress(opengl, "glDeleteQueries");
@@ -6208,6 +6219,9 @@ RMT_API void _rmt_BindOpenGL()
         opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjecti64v");
         opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjectui64v");
         opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtglGetProcAddress(opengl, "glQueryCounter");
+        #ifdef _MSC_VER
+            #pragma warning(pop)
+        #endif
     }
 }
 
