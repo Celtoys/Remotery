@@ -20,12 +20,37 @@ Settings = (function()
 
 Remotery = (function()
 {
+	// crack the url and get the parameter we want
+	var getUrlParameter = function getUrlParameter( search_param) 
+	{
+		var page_url = decodeURIComponent( window.location.search.substring(1) ),
+						url_vars = page_url.split('&'),
+						param_name,
+						i;
+
+		for (i = 0; i < url_vars.length; i++) 
+		{
+			param_name = url_vars[i].split('=');
+
+			if (param_name[0] === search_param) 
+			{
+				return param_name[1] === undefined ? true : param_name[1];
+			}
+		}
+	};
+
 	function Remotery()
 	{
 		this.WindowManager = new WM.WindowManager();
 		this.Settings = new Settings();
 
-		this.ConnectionAddress = LocalStore.Get("App", "Global", "ConnectionAddress", "ws://127.0.0.1:17815/rmt");
+		// "addr" param is ip:port and will override the local store version if passed in the URL
+		var addr = getUrlParameter( "addr" );
+		if ( addr != null )
+			this.ConnectionAddress = "ws://" + addr + "/rmt";
+		else
+			this.ConnectionAddress = LocalStore.Get("App", "Global", "ConnectionAddress", "ws://127.0.0.1:17815/rmt");
+
 		this.Server = new WebSocketConnection();
 		this.Server.AddConnectHandler(Bind(OnConnect, this));
 
