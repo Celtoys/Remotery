@@ -33,6 +33,9 @@ namespace WM
 
     export class ControlRefInfo
     {
+        // Storing this allows the class to query graph properties without the extra parameter
+        ParentGraph: ControlGraph;
+
         // Cached control reference to save needing to lookup in the parent
         Control: Control;
 
@@ -43,12 +46,24 @@ namespace WM
         StartRef: number;
         NbRefs: number;
 
-        constructor(control: Control, side: Side)
+        constructor(parent_graph: ControlGraph, control: Control, side: Side)
         {
+            this.ParentGraph = parent_graph;
             this.Control = control;
             this.Side = side;
             this.StartRef = -1;
             this.NbRefs = 0;
+        }
+
+        References(control: Control) : boolean
+        {
+            for (let i = 0; i < this.NbRefs; i++)
+            {
+                if (this.ParentGraph.Refs[this.StartRef + i].To == control)
+                    return true;
+            }
+
+            return false;
         }
     }
 
@@ -94,7 +109,7 @@ namespace WM
             for (let i = 0; i < container.Controls.length * 4; i++)
             {
                 let control = container.Controls[i >> 2];
-                this.RefInfos.push(new ControlRefInfo(control, i & 3));
+                this.RefInfos.push(new ControlRefInfo(this, control, i & 3));
             }
 
             // Tell each control where its reference list starts and ends
