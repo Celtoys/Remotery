@@ -42,6 +42,10 @@
 				// Save container and write to text area
 				inp.value = WM.SaveContainer(Container);
 
+				// Commit to localstore
+				if (typeof(localStorage) !== "undefined")
+					localStorage.layout = inp.value;
+
 				// is element selectable?
 				if (inp && inp.select)
 				{
@@ -75,6 +79,14 @@
 			// click events
 			$("#save-button").Element.addEventListener('click', copy, true);
 			$("#load-button").Element.addEventListener('click', load, true);
+
+			// Load existing layout from user's local store
+			if (typeof(Storage) !== "undefined" && localStorage.layout)
+			{
+				$("#website").Element.value  = localStorage.layout;
+				WM.LoadContainer(Container, localStorage.layout);
+			}
+
 		</script>
 
 	</body>
