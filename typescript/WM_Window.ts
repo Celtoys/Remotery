@@ -3,12 +3,147 @@
 
 namespace WM
 {
-    const enum Side
+    export enum Side
     {
         Left,
         Right,
         Top,
         Bottom,
+        None,
+    }
+
+    class Rect
+    {
+        // Only for DebugLog
+        Title: string;
+
+        Left: number;
+        Right: number;
+    }
+
+    class SizeConstraint
+    {
+        Rect: Rect;
+        Size: number;
+    }
+
+    class HardConstraint
+    {
+        Rect: Rect;
+        Side: Side;
+        Position: number;
+    }
+
+    class BufferConstraint
+    {
+        Rect0: Rect;
+        Side0: Side;
+        Rect1: Rect;
+        Side1: Side;
+    }
+
+    class Sizer
+    {
+        Rects: Rect[] = [];
+
+        HardConstraints: HardConstraint[] = [];
+        BufferConstraints: BufferConstraint[] = [];
+        SizeConstraints: SizeConstraint[] = [];
+
+        Build(container: Container, control_graph: ControlGraph)
+        {
+            // Build the rect list
+            for (let control of container.Controls)
+            {
+                // Anything that's not a control (e.g. a Ruler) still needs an entry in the array, even if its empty
+                if (!(control instanceof Container))
+                {
+                    this.Rects.push(null);
+                    continue;
+                }
+
+                // Set initial parameters
+                let rect = new Rect();
+                rect.Left = control.TopLeft.x;
+                rect.Right = control.BottomRight.x;
+                this.Rects.push(rect);
+
+                if (control instanceof Window)
+                    rect.Title = (<Window>control).Title;
+
+                // Add a size constraint for each rect
+                let size_constraint = new SizeConstraint();
+                size_constraint.Rect = rect;
+                size_constraint.Size = rect.Right - rect.Left;
+                this.SizeConstraints.push(size_constraint);
+            }
+
+            // Build the hard constraints list
+            for (let i = 0; i < container.Controls.length; i++)
+            {
+                if (control_graph.RefInfos[i * 4 + Side.Left].References(container))
+                {
+                    let constraint = new HardConstraint();
+                    constraint.Rect = this.Rects[i];
+                    constraint.Side = Side.Left;
+                    constraint.Position = 0;
+                    this.HardConstraints.push(constraint);
+                }
+                if (control_graph.RefInfos[i * 4 + Side.Right].References(container))
+                {
+                    let constraint = new HardConstraint();
+                    constraint.Rect = this.Rects[i];
+                    constraint.Side = Side.Right;
+                    constraint.Position = container.ControlParentNode.Size.x;
+                    this.HardConstraints.push(constraint);
+                }
+            }
+
+            // Build the buffer constraints list
+            for (let ref of control_graph.Refs)
+            {
+                // Only want horizontal refs
+                if (ref.Side != Side.Left && ref.Side != Side.Right)
+                    continue;
+
+                // There are two refs for each connection; ensure only one of them is used
+                if (ref.FromIndex < ref.ToIndex)
+                {
+                    let constraint = new BufferConstraint();
+                    constraint.Rect0 = this.Rects[ref.FromIndex];
+                    constraint.Side0 = ref.Side;
+                    constraint.Rect1 = this.Rects[ref.ToIndex];
+                    constraint.Side1 = ref.Side ^ 1;
+                    this.BufferConstraints.push(constraint);
+                }
+            }
+        }
+
+        DebugLog()
+        {
+            for (let rect of this.Rects)
+            {
+                if (rect)
+                    console.log("Rect: ", rect.Title, rect.Left, "->", rect.Right);
+                else
+                    console.log("Null Rect");
+            }
+
+            for (let constraint of this.SizeConstraints)
+            {
+                console.log("Size Constraint: ", constraint.Rect.Title, "@", constraint.Size);
+            }
+
+            for (let constraint of this.HardConstraints)
+            {
+                console.log("Hard Constraint: ", constraint.Rect.Title, Side[constraint.Side], "@", constraint.Position);
+            }
+
+            for (let constraint of this.BufferConstraints)
+            {
+                console.log("Buffer Constraint: ", constraint.Rect0.Title, "->", constraint.Rect1.Title, "on", Side[constraint.Side0], "/", Side[constraint.Side1]);
+            }
+        }
     };
 
     export class Window extends Container
@@ -45,9 +180,13 @@ namespace WM
         private DragWindowStartSize: int2;
         private MouseOffset: int2;
 
+        private SizeGraph: ControlGraph;
+        private Sizer: Sizer;
+
         // List of controls that are auto-anchored to a container edge during sizing
         private AnchorControls: [Control, int2, number][];
 
+        // Transient snap rulers for each side
         private SnapRulers: Ruler[] = [ null, null, null, null ];
 
         // Used to track whether a sizer is being held as opposed to moved
@@ -95,6 +234,39 @@ namespace WM
             this.SizeTopNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
             this.SizeBottomNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
         }
+
+
+        // ----- WM.Control Overrides --------------------------------------------------------
+
+
+        /*Show() : void
+        {
+            super.Show();
+
+            // Auto-anchor to nearby controls on each show
+            // This catches initial adding of controls to a new window and
+            // any size changes while the window is invisible
+            let parent_container = this.ParentContainer;
+            if (parent_container)
+            {
+                console.log("SHOW ", this.Title);
+
+                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null, 0);
+                if (snap_tl[0] != SnapCode.None)
+                {
+                    console.log("Snapped!");
+                    this.Position = snap_tl[1];
+                }
+
+                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null, 0);
+                if (snap_br[0] != SnapCode.None)
+                {
+                    console.log("Snapped!");
+                    this.Position = int2.Sub(snap_br[1], this.Size);
+                }
+            }
+        }*/
+
 
         // Uncached window title text so that any old HTML can be used
         get Title() : string
@@ -347,6 +519,7 @@ namespace WM
 
         private MakeAnchorControlIsland()
         {
+            // TODO: Intersection test doesn't work for overlap test!
             let anchor_controls: [Control, int2, number][] = [ ];
 
             // First find all controls connected to this one
@@ -369,6 +542,7 @@ namespace WM
             // Reset list just in case end event isn't received
             this.AnchorControls = [];
 
+            // TODO: If child handling becomes a separate issue, can remove this boolean
             let parent_container = this.ParentContainer;
             if (gather_sibling_anchors && parent_container)
             {
@@ -393,8 +567,39 @@ namespace WM
                 this.MakeAnchorControlIsland();
             }
 
+            // Identify islands within the window
+            // Maintain size of externally anchored windows?
+            // Except when they come up against each other and need to be shared.
+            // In fact, try and maintain size of everything.
+
+            // What happens if the control is a button?
+            // Don't want to minimise enough to squash the button and not be able to
+            // restore its size by enlarging the container again.
+            //
+            // Don't resize at all unless squashed?
+            //
+            // So if you anchor buttons to the right and stack them next to each other, then resize
+            // the window it won't squash them but push them to the left of the window. That prevents
+            // you having to keep the original sizes around
+            //
+            // So unless there is route from one side to the other, don't resize. And only then resize
+            // the external bits at the last minute.
+            // So that will work for typical docking setup but won't work for an array of buttons.
+
+            // Need to identify strands of connectivity both horizontally and vertically.
+            //
+
+            // Instead of resizing the inner controls, collapse the most inner one to zero?
+
+            // 1. Identify edge snaps on the left.
+            // 2. Identify edge snaps on the right.
+            // 3. Pull all those from a global list of controls.
+
+            // At some point a control reaches minimum size and the control next to it will
+            // become a blocker instead
+
             // Gather auto-anchor controls for children on bottom and right resizers
-            let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
+            /*let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
             if (mask.x > 0 || mask.y > 0)
                 this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, 1);
             
@@ -402,7 +607,13 @@ namespace WM
             // the mouse offset so that child sizing moves away from mouse movement to counter
             // this window increasing in size
             if (mask.x < 0 || mask.y < 0)
-                this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, -1);
+                this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, -1);*/
+        }
+
+        private BeginChildResize(event: MouseEvent)
+        {
+            this.DragWindowStartPosition = this.Position.Copy();
+            this.DragWindowStartSize = this.Size.Copy();
         }
 
         private OnBeginSize = (event: MouseEvent, in_mask: int2, master_control: boolean) =>
@@ -423,6 +634,27 @@ namespace WM
                 let window = control[0] as Window;
                 if (window != null)
                     window.OnBeginSize(event, control[1], false);
+            }
+
+            // Build a control graph for the children
+            // TODO: Do this always; it has to be recursive
+            // TODO: Only Build
+            this.SizeGraph = new ControlGraph();
+            this.SizeGraph.Build(this);
+
+            this.Sizer = new Sizer();
+            this.Sizer.Build(this, this.SizeGraph);
+            this.Sizer.DebugLog();
+
+            for (let control_info of this.SizeGraph.RefInfos)
+            {
+                // Only process the first one
+                if (control_info.Side == Side.Left)
+                {
+                    let window = control_info.Control as Window;
+                    if (window)
+                        window.BeginChildResize(event);
+                }
             }
 
             this.SizerMoved = false;
@@ -449,6 +681,50 @@ namespace WM
                 DOM.Event.StopDefaultAction(event);
             }
         }
+        
+        /*private ChildSize(side: Side, offset: int2, mask: int2, blocked: boolean, oddness: number)
+        {
+            if (this.Size.x <= 20)
+                return;
+
+            if (side == Side.Left)
+            {
+                //if (blocked)
+                //{
+                //    this.Size = new int2(this.DragWindowStartSize.x + offset.x * mask.x / 2, this.Size.y);
+                //}
+            }
+            else if (side == Side.Right)
+            {
+                // Evenly balanced
+                if (blocked
+                // && oddness
+                )
+                {
+                    this.Size = new int2(this.DragWindowStartSize.x + offset.x * mask.x, this.Size.y);
+                }
+                // Single separating control
+                //else if (blocked)
+                //{
+                //    this.Position = new int2(this.DragWindowStartPosition.x + offset.x * mask.x / 2, this.Position.y);
+                //    this.Size = new int2(this.DragWindowStartSize.x + offset.x * mask.x / 2, this.Size.y);
+                //}
+                else
+                {
+                    this.Position = new int2(this.DragWindowStartPosition.x + offset.x * mask.x, this.Position.y);
+                }
+            }
+        }*/
+        private ChildSize(side: Side, offset: int2, mask: int2, blocked: boolean, oddness: number)
+        {
+            if (side == Side.Right)
+            {
+                {
+                    this.Position = new int2(this.DragWindowStartPosition.x + offset.x * mask.x, this.Position.y);
+                }
+            }
+        }
+
         private OnSize = (event: MouseEvent, mask: int2, offset_scale: number, master_offset: int2) =>
         {
             // Use the offset from the mouse start position to drag the edge around
@@ -482,7 +758,7 @@ namespace WM
 
             // Snap edges to neighbouring edges in the parent container
             let parent_container = this.ParentContainer;
-            if (parent_container != null)
+            /*if (parent_container != null)
             {
                 if (mask.x > 0 || mask.y > 0)
                 {
@@ -513,6 +789,212 @@ namespace WM
                     // Only display ruler for master control
                     if (master_offset == null)
                         this.UpdateTLSnapRulers(snap[0]);
+                }
+            }*/
+
+/*           if (this.SizeGraph)
+            {
+                let left_controls: number[] = [];
+                let right_controls: number[] = [];
+
+                let blocking_control: Side[] = [];
+                for (let i = 0; i < this.Controls.length; i++)
+                    blocking_control[i] = Side.None;
+
+                for (let i = 0; i < this.Controls.length; i++)
+                {
+                    if (mask.x != 0)
+                    {
+                        if (this.SizeGraph.RefInfos[i * 4 + Side.Right].References(this))
+                            right_controls.push(i);
+                        else if (this.SizeGraph.RefInfos[i * 4 + Side.Left].References(this))
+                            left_controls.push(i);
+                    }
+                }
+
+                // TODO: Run graph generation only when new anchors are made? This would prevent resizing
+                // of the parent changing the graph.
+
+                let passed_offset = offset;
+
+                let oddness = 0;
+                while (right_controls.length && left_controls.length)
+                {
+                    let next_left_controls: number[] = [];
+                     let next_right_controls: number[] = [];
+
+                    // Mark blockers before resizing
+                    for (let index of left_controls)
+                        blocking_control[index] = Side.Left;
+                    for (let index of right_controls)
+                        blocking_control[index] = Side.Right;
+
+                    for (let index of left_controls)
+                    {
+                        let blocked = false;
+                        let right_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Right];
+                        for (let i = 0; i < right_control_info.NbRefs; i++)
+                        {
+                            let control_ref = right_control_info.GetControlRef(i);
+
+                            // Stop at auto-anchors to the parent container
+                            // (not that you should get here as the blockers should prevent it)
+                            if (control_ref.ToIndex == -1)
+                                continue;
+                            
+                            // Stop at blocking controls coming from the other side
+                            if (blocking_control[control_ref.ToIndex] == Side.Right)
+                            {
+                                blocked = true;
+                                continue;
+                            }
+
+                            if (next_left_controls.indexOf(control_ref.ToIndex) == -1)
+                                next_left_controls.push(control_ref.ToIndex);
+                        }
+
+                        let window = this.Controls[index] as Window;
+                        if (window != null)
+                            window.ChildSize(Side.Left, offset, mask, blocked, oddness);
+                    }
+
+                    for (let index of right_controls)
+                    {
+                        let blocked = false;
+                        let left_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Left];
+                        for (let i = 0; i < left_control_info.NbRefs; i++)
+                        {
+                            let control_ref = left_control_info.GetControlRef(i);
+
+                            // Stop at auto-anchors to the parent container
+                            // (not that you should get here as the blockers should prevent it)
+                            if (control_ref.ToIndex == -1)
+                                continue;
+                            
+                            // Stop at blocking controls coming from the other side
+                            if (blocking_control[control_ref.ToIndex] == Side.Left)
+                            {
+                                blocked = true;
+                                continue;
+                            }
+
+                            if (control_ref.To.Size.x <= 20)
+                            {
+                                blocked = true;
+                                //passed_offset.x = 0;
+                                continue;
+                            }
+
+                            if (next_right_controls.indexOf(control_ref.ToIndex) == -1)
+                                next_right_controls.push(control_ref.ToIndex);
+                        }
+
+                        let window = this.Controls[index] as Window;
+                        if (window != null)
+                            window.ChildSize(Side.Right, passed_offset, mask, blocked, oddness);
+                    }
+
+                    left_controls = next_left_controls;
+                    right_controls = next_right_controls;
+
+                    oddness ^= 1;
+                }
+            }
+*/
+            if (this.SizeGraph)
+            {
+                let left_controls: number[] = [];
+                let right_controls: number[] = [];
+
+                let blocking_control: Side[] = [];
+                for (let i = 0; i < this.Controls.length; i++)
+                    blocking_control[i] = Side.None;
+
+                for (let i = 0; i < this.Controls.length; i++)
+                {
+                    if (mask.x != 0)
+                    {
+                        if (this.SizeGraph.RefInfos[i * 4 + Side.Left].References(this))
+                            left_controls.push(i);
+                        if (this.SizeGraph.RefInfos[i * 4 + Side.Right].References(this))
+                            right_controls.push(i);
+                    }
+                }
+
+                let oddness = 0;
+                while (right_controls.length && left_controls.length)
+                {
+                    let next_left_controls: number[] = [];
+                     let next_right_controls: number[] = [];
+
+                    // Mark blockers before resizing
+                    for (let index of left_controls)
+                        blocking_control[index] = Side.Left;
+                    for (let index of right_controls)
+                        blocking_control[index] = Side.Right;
+
+                    for (let index of left_controls)
+                    {
+                        let blocked = false;
+                        let right_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Right];
+                        for (let i = 0; i < right_control_info.NbRefs; i++)
+                        {
+                            let control_ref = right_control_info.GetControlRef(i);
+
+                            // Stop at auto-anchors to the parent container
+                            // (not that you should get here as the blockers should prevent it)
+                            if (control_ref.ToIndex == -1)
+                                continue;
+                            
+                            // Stop at blocking controls coming from the other side
+                            if (blocking_control[control_ref.ToIndex] == Side.Right)
+                            {
+                                blocked = true;
+                                continue;
+                            }
+
+                            if (next_left_controls.indexOf(control_ref.ToIndex) == -1)
+                                next_left_controls.push(control_ref.ToIndex);
+                        }
+
+                        let window = this.Controls[index] as Window;
+                        if (window != null)
+                            window.ChildSize(Side.Left, offset, mask, blocked, oddness);
+                    }
+
+                    for (let index of right_controls)
+                    {
+                        let blocked = false;
+                        let left_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Left];
+                        for (let i = 0; i < left_control_info.NbRefs; i++)
+                        {
+                            let control_ref = left_control_info.GetControlRef(i);
+
+                            // Stop at auto-anchors to the parent container
+                            // (not that you should get here as the blockers should prevent it)
+                            if (control_ref.ToIndex == -1)
+                                continue;
+                            
+                            // Stop at blocking controls coming from the other side
+                            if (blocking_control[control_ref.ToIndex] == Side.Left)
+                            {
+                                blocked = true;
+                                continue;
+                            }
+
+                            if (next_right_controls.indexOf(control_ref.ToIndex) == -1)
+                                next_right_controls.push(control_ref.ToIndex);
+                        }
+
+                        let window = this.Controls[index] as Window;
+                        if (window != null)
+                            window.ChildSize(Side.Right, offset, mask, blocked, oddness);
+                    }
+
+                    left_controls = next_left_controls;
+                    right_controls = next_right_controls;
+
+                    oddness ^= 1;
                 }
             }
 

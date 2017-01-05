@@ -175,7 +175,7 @@ namespace WM
                 this._Visible = true;
 
                 // Trigger resize event to match anchors
-                this.OnParentResize();
+                //this.OnParentResize();
             }
         }
         Hide() : void

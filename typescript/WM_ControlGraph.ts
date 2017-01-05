@@ -13,14 +13,16 @@ namespace WM
         Side: Side;
 
         // Control this references
+        ToIndex: number;
         To: Control;
 
 
-        constructor(from_index: number, from: Control, side: Side, to: Control)
+        constructor(from_index: number, from: Control, side: Side, to_index: number, to: Control)
         {
             this.FromIndex = from_index;
             this.From = from;
             this.Side = side;
+            this.ToIndex = to_index;
             this.To = to;
         }
 
@@ -64,6 +66,23 @@ namespace WM
             }
 
             return false;
+        }
+
+        GetControlRef(index: number) : ControlRef
+        {
+            if (index < this.NbRefs)
+                return this.ParentGraph.Refs[this.StartRef + index];
+
+            return null;
+        }
+
+        GetSide(side: Side) : ControlRefInfo
+        {
+            if (this.NbRefs == 0)
+                return null;
+            
+            let ref = this.ParentGraph.Refs[this.StartRef];
+            return this.ParentGraph.RefInfos[ref.FromIndex * 4 + side];
         }
     }
 
@@ -151,13 +170,13 @@ namespace WM
                 let b = Container.SnapBorderSize;
                 let s = container.Size;
                 if (tl_0.x <= b)
-                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Left, container));
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Left, -1, container));
                 if (tl_0.y <= b)
-                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Top, container));
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Top, -1, container));
                 if (br_0.x >= s.x - b)
-                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Right, container));
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Right, -1, container));
                 if (br_0.y >= s.y - b)
-                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Bottom, container));
+                    this.Refs.push(new ControlRef(control_0_index, control_0, Side.Bottom, -1, container));
 
                 // Check candidate controls for auto-anchor intersection
                 for (let control_1 of container.Controls)
@@ -213,8 +232,8 @@ namespace WM
                     // Generate references for any intersection
                     if (side_0 != Side.None)
                     {
-                        this.Refs.push(new ControlRef(control_0_index, control_0, side_0, control_1));
-                        this.Refs.push(new ControlRef(control_1_index, control_1, side_1, control_0));
+                        this.Refs.push(new ControlRef(control_0_index, control_0, side_0, control_1_index, control_1));
+                        this.Refs.push(new ControlRef(control_1_index, control_1, side_1, control_0_index, control_0));
                         to_visit_controls.push(control_1);
                     }
                 }
