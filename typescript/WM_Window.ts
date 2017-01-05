@@ -120,6 +120,10 @@ namespace WM
             this.SizeTopNode.ZIndex = z_index + 1;
             this.SizeBottomNode.ZIndex = z_index + 1;
         }
+        get ZIndex() : number
+        {
+            return this.Node.ZIndex;
+        }
 
         private SetSnapRuler(side: Side, position: number)
         {

@@ -126,10 +126,14 @@ namespace WM
         // ----- Internal API Properties ---------------------------------------------------
 
 
-        // Sets control z-index
+        // Set/Get control z-index
         set ZIndex(z_index: number)
         {
             this.Node.ZIndex = z_index;
+        }
+        get ZIndex() : number
+        {
+            return this.Node.ZIndex;
         }
 
         // Set/Get the parent container for this control
