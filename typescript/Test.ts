@@ -26,6 +26,11 @@ function TestAll() : WM.Container
     WindowA.Add(new WM.Window("SubWindow G", new int2(70, 70), new int2(200, 200)));
     WindowA.Add(new WM.Window("SubWindow H", new int2(80, 80), new int2(200, 200)));
     WindowA.Add(new WM.Window("SubWindow I", new int2(90, 90), new int2(200, 200)));
+    WindowA.Add(new WM.Window("SubWindow J", new int2(100, 100), new int2(200, 200)));
+    WindowA.Add(new WM.Window("SubWindow K", new int2(110, 110), new int2(200, 200)));
+    WindowA.Add(new WM.Window("SubWindow L", new int2(120, 120), new int2(200, 200)));
+    WindowA.Add(new WM.Window("SubWindow M", new int2(130, 130), new int2(200, 200)));
+    WindowA.Add(new WM.Window("SubWindow N", new int2(140, 140), new int2(200, 200)));
 
     Container.Add(new WM.Window("Window B", new int2(220, 10), new int2(200, 200)));
     Container.Add(new WM.Window("Window C", new int2(430, 10), new int2(200, 200)));
@@ -37,7 +42,7 @@ function TestAll() : WM.Container
 
     let WindowI = new WM.Window("Window I", new int2(500, 400), new int2(300, 300));
     Container.Add(WindowI);
-    WindowI.Add(new WM.Window("SubWindow J", new int2(10, 10), new int2(289, 289)));
+    WindowI.Add(new WM.Window("SubWindow O", new int2(10, 10), new int2(289, 289)));
 
     return Container;
 }
