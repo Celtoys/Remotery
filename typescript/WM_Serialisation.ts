@@ -8,6 +8,7 @@ namespace WM
         ID: number;
         Position: int2;
         Size: int2;
+        ZIndex: number;
     }
 
     class SavedContainer extends SavedControl
@@ -31,12 +32,18 @@ namespace WM
         }
     }
 
+    function BuildSavedControl(control: Control, saved_control: SavedControl) : void
+    {
+        saved_control.ID = control.ID;
+        saved_control.Position = control.Position;
+        saved_control.Size = control.Size;
+        saved_control.ZIndex = control.ZIndex;
+    }
+
     function BuildSavedContainer(container: Container) : SavedContainer
     {
         let saved_container = new SavedContainer();
-        saved_container.ID = container.ID;
-        saved_container.Position = container.Position;
-        saved_container.Size = container.Size;
+        BuildSavedControl(container, saved_container);
         BuildSavedContainerList(container, saved_container);
         return saved_container;
     }
@@ -44,9 +51,7 @@ namespace WM
     function BuildSavedWindow(window: Window) : SavedWindow
     {
         let saved_window = new SavedWindow();
-        saved_window.ID = window.ID;
-        saved_window.Position = window.Position;
-        saved_window.Size = window.Size;
+        BuildSavedControl(window, saved_window);
         saved_window.Title = window.Title;
         BuildSavedContainerList(window, saved_window);
         return saved_window;
@@ -60,6 +65,9 @@ namespace WM
 
     function ApplyContainerList(container: Container, saved_container: SavedContainer)
     {
+        if (saved_container.Controls === undefined)
+            return;
+
         for (let i = 0; i < saved_container.Controls.length; i++)
         {
             let child_saved_control = saved_container.Controls[i];
@@ -81,18 +89,31 @@ namespace WM
         }
     }
 
+    function ApplyControl(control: Control, saved_control: SavedControl)
+    {
+        if (saved_control.Position !== undefined)
+            control.Position = new int2(saved_control.Position.x, saved_control.Position.y);
+        
+        if (saved_control.Size !== undefined)
+            control.Size = new int2(saved_control.Size.x, saved_control.Size.y);
+
+        if (saved_control.ZIndex !== undefined && saved_control.ZIndex != null)
+            control.ZIndex = saved_control.ZIndex;
+    }
+
     function ApplyWindow(window: Window, saved_window: SavedWindow)
     {
-        window.Position = new int2(saved_window.Position.x, saved_window.Position.y);
-        window.Size = new int2(saved_window.Size.x, saved_window.Size.y);
-        window.Title = <string>saved_window.Title;
+        ApplyControl(window, saved_window);
+
+        if (saved_window.Title !== undefined)
+            window.Title = <string>saved_window.Title;
+
         ApplyContainerList(window, saved_window);
     }
 
     function ApplyContainer(container: Container, saved_container: SavedContainer)
     {
-        container.Position = new int2(saved_container.Position.x, saved_container.Position.y);
-        container.Size = new int2(saved_container.Size.x, saved_container.Size.y);
+        ApplyControl(container, saved_container);
         ApplyContainerList(container, saved_container);
     }
 
