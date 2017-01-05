@@ -143,9 +143,15 @@ namespace WM
                     constraint.Position = right_offset;
             }
 
-            for (let i = 0; i < 5; i++)
+            for (let i = 0; i < 10; i++)
             {
                 this.ApplySizeConstraints();
+
+                this.ApplyMinimumSizeConstraints();
+                this.ApplyContainerConstraints();
+                this.ApplyBufferConstraints();
+                
+                this.ApplyMinimumSizeConstraints();
                 this.ApplyContainerConstraints();
                 this.ApplyBufferConstraints();
             }
@@ -175,11 +181,34 @@ namespace WM
 
             for (let constraint of this.SizeConstraints)
             {
-                let size = constraint.Rect.Right - constraint.Rect.Left;
-                let center = (constraint.Rect.Left + constraint.Rect.Right) * 0.5;
+                let rect = constraint.Rect;
+                let size = rect.Right - rect.Left;
+                let center = (rect.Left + rect.Right) * 0.5;
                 let half_delta_size = (constraint.Size - size) * 0.5;
-                constraint.Rect.Left = center - size * 0.5 - half_delta_size * 0.1;
-                constraint.Rect.Right = center + size * 0.5 + half_delta_size * 0.1;
+                let half_border_size = size * 0.5 + half_delta_size * 0.1;
+                rect.Left = center - half_border_size;
+                rect.Right = center + half_border_size;
+
+                if (rect.Right - rect.Left < 20)
+                {
+                    rect.Left = center - 10;
+                    rect.Right = center + 10;
+                }
+            }
+        }
+
+        private ApplyMinimumSizeConstraints()
+        {
+            for (let constraint of this.SizeConstraints)
+            {
+                let rect = constraint.Rect;
+
+                if (rect.Right - rect.Left < 20)
+                {
+                    let center = (rect.Left + rect.Right) * 0.5;
+                    rect.Left = center - 10;
+                    rect.Right = center + 10;
+                }
             }
         }
 
