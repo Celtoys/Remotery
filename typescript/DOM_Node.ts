@@ -37,6 +37,8 @@ namespace DOM
             }
             else if (typeof parameter === "string")
             {
+                // TODO: querySelector?
+
                 // Global ID search
                 if (parameter[0] == "#")
                     this.Element = document.getElementById(parameter.slice(1));
@@ -87,7 +89,9 @@ namespace DOM
         // Rendering z-index, applied through CSS
         get ZIndex() : number
         {
-            return parseInt(this.Element.style.zIndex);
+            if (this.Element.style.zIndex.length)
+                return parseInt(this.Element.style.zIndex);
+            return null;
         }
         set ZIndex(z_index: number)
         {
