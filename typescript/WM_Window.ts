@@ -17,6 +17,9 @@ namespace WM
         // Only for DebugLog
         Title: string;
 
+        // Source control for copying simulation back
+        Control: Control;
+
         Left: number;
         Right: number;
     }
@@ -27,7 +30,7 @@ namespace WM
         Size: number;
     }
 
-    class HardConstraint
+    class ContainerConstraint
     {
         Rect: Rect;
         Side: Side;
@@ -44,18 +47,23 @@ namespace WM
 
     class Sizer
     {
+        ContainerRestSize: number;
+        ContainerSize: number;
+
         Rects: Rect[] = [];
 
-        HardConstraints: HardConstraint[] = [];
+        ContainerConstraints: ContainerConstraint[] = [];
         BufferConstraints: BufferConstraint[] = [];
         SizeConstraints: SizeConstraint[] = [];
 
         Build(container: Container, control_graph: ControlGraph)
         {
+            this.ContainerRestSize = container.ControlParentNode.Size.x;
+
             // Build the rect list
             for (let control of container.Controls)
             {
-                // Anything that's not a control (e.g. a Ruler) still needs an entry in the array, even if its empty
+                // Anything that's not a control (e.g. a Ruler) still needs an entry in the array, even if it's empty
                 if (!(control instanceof Container))
                 {
                     this.Rects.push(null);
@@ -64,6 +72,7 @@ namespace WM
 
                 // Set initial parameters
                 let rect = new Rect();
+                rect.Control = control;
                 rect.Left = control.TopLeft.x;
                 rect.Right = control.BottomRight.x;
                 this.Rects.push(rect);
@@ -78,24 +87,24 @@ namespace WM
                 this.SizeConstraints.push(size_constraint);
             }
 
-            // Build the hard constraints list
+            // Build the container constraints list
             for (let i = 0; i < container.Controls.length; i++)
             {
                 if (control_graph.RefInfos[i * 4 + Side.Left].References(container))
                 {
-                    let constraint = new HardConstraint();
+                    let constraint = new ContainerConstraint();
                     constraint.Rect = this.Rects[i];
                     constraint.Side = Side.Left;
                     constraint.Position = 0;
-                    this.HardConstraints.push(constraint);
+                    this.ContainerConstraints.push(constraint);
                 }
                 if (control_graph.RefInfos[i * 4 + Side.Right].References(container))
                 {
-                    let constraint = new HardConstraint();
+                    let constraint = new ContainerConstraint();
                     constraint.Rect = this.Rects[i];
                     constraint.Side = Side.Right;
-                    constraint.Position = container.ControlParentNode.Size.x;
-                    this.HardConstraints.push(constraint);
+                    constraint.Position = this.ContainerRestSize;
+                    this.ContainerConstraints.push(constraint);
                 }
             }
 
@@ -119,6 +128,80 @@ namespace WM
             }
         }
 
+        ChangeSize(new_size: number)
+        {
+            // Update container constraints with new size
+            this.ContainerSize = new_size;
+            let half_delta_size = (this.ContainerRestSize - new_size) / 2;
+            let left_offset = half_delta_size + Container.SnapBorderSize;
+            let right_offset = this.ContainerRestSize - left_offset;
+            for (let constraint of this.ContainerConstraints)
+            {
+                if (constraint.Side == Side.Left)
+                    constraint.Position = left_offset;
+                else
+                    constraint.Position = right_offset;
+            }
+
+            for (let i = 0; i < 5; i++)
+            {
+                this.ApplySizeConstraints();
+                this.ApplyContainerConstraints();
+                this.ApplyBufferConstraints();
+            }
+
+            // Copy simulation back to the controls
+            for (let rect of this.Rects)
+            {
+                rect.Control.Position = new int2(rect.Left - half_delta_size, rect.Control.Position.y);
+                rect.Control.Size = new int2(rect.Right - rect.Left, rect.Control.Size.y);
+            }
+        }
+
+        private ApplyContainerConstraints()
+        {
+            for (let constraint of this.ContainerConstraints)
+            {
+                if (constraint.Side == Side.Left)
+                    constraint.Rect.Left = constraint.Position;
+                else
+                    constraint.Rect.Right = constraint.Position;
+            }
+        }
+
+        private ApplySizeConstraints()
+        {
+            // TODO: Grow left/right away from the container constraints?
+
+            for (let constraint of this.SizeConstraints)
+            {
+                let size = constraint.Rect.Right - constraint.Rect.Left;
+                let center = (constraint.Rect.Left + constraint.Rect.Right) * 0.5;
+                let half_delta_size = (constraint.Size - size) * 0.5;
+                constraint.Rect.Left = center - size * 0.5 - half_delta_size * 0.1;
+                constraint.Rect.Right = center + size * 0.5 + half_delta_size * 0.1;
+            }
+        }
+
+        private ApplyBufferConstraints()
+        {
+            for (let constraint of this.BufferConstraints)
+            {
+                if (constraint.Side0 == Side.Left)
+                {
+                    let center = (constraint.Rect1.Right + constraint.Rect0.Left) * 0.5;
+                    constraint.Rect0.Left = center + Container.SnapBorderSize * 0.5;
+                    constraint.Rect1.Right = center - Container.SnapBorderSize * 0.5;
+                }
+                else
+                {
+                    let center = (constraint.Rect0.Right + constraint.Rect1.Left) * 0.5;
+                    constraint.Rect0.Right = center - Container.SnapBorderSize * 0.5;
+                    constraint.Rect1.Left = center + Container.SnapBorderSize * 0.5;
+                }
+            }
+        }
+
         DebugLog()
         {
             for (let rect of this.Rects)
@@ -134,9 +217,9 @@ namespace WM
                 console.log("Size Constraint: ", constraint.Rect.Title, "@", constraint.Size);
             }
 
-            for (let constraint of this.HardConstraints)
+            for (let constraint of this.ContainerConstraints)
             {
-                console.log("Hard Constraint: ", constraint.Rect.Title, Side[constraint.Side], "@", constraint.Position);
+                console.log("Container Constraint: ", constraint.Rect.Title, Side[constraint.Side], "@", constraint.Position);
             }
 
             for (let constraint of this.BufferConstraints)
@@ -758,7 +841,7 @@ namespace WM
 
             // Snap edges to neighbouring edges in the parent container
             let parent_container = this.ParentContainer;
-            /*if (parent_container != null)
+            if (parent_container != null)
             {
                 if (mask.x > 0 || mask.y > 0)
                 {
@@ -790,7 +873,7 @@ namespace WM
                     if (master_offset == null)
                         this.UpdateTLSnapRulers(snap[0]);
                 }
-            }*/
+            }
 
 /*           if (this.SizeGraph)
             {
@@ -903,99 +986,7 @@ namespace WM
 */
             if (this.SizeGraph)
             {
-                let left_controls: number[] = [];
-                let right_controls: number[] = [];
-
-                let blocking_control: Side[] = [];
-                for (let i = 0; i < this.Controls.length; i++)
-                    blocking_control[i] = Side.None;
-
-                for (let i = 0; i < this.Controls.length; i++)
-                {
-                    if (mask.x != 0)
-                    {
-                        if (this.SizeGraph.RefInfos[i * 4 + Side.Left].References(this))
-                            left_controls.push(i);
-                        if (this.SizeGraph.RefInfos[i * 4 + Side.Right].References(this))
-                            right_controls.push(i);
-                    }
-                }
-
-                let oddness = 0;
-                while (right_controls.length && left_controls.length)
-                {
-                    let next_left_controls: number[] = [];
-                     let next_right_controls: number[] = [];
-
-                    // Mark blockers before resizing
-                    for (let index of left_controls)
-                        blocking_control[index] = Side.Left;
-                    for (let index of right_controls)
-                        blocking_control[index] = Side.Right;
-
-                    for (let index of left_controls)
-                    {
-                        let blocked = false;
-                        let right_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Right];
-                        for (let i = 0; i < right_control_info.NbRefs; i++)
-                        {
-                            let control_ref = right_control_info.GetControlRef(i);
-
-                            // Stop at auto-anchors to the parent container
-                            // (not that you should get here as the blockers should prevent it)
-                            if (control_ref.ToIndex == -1)
-                                continue;
-                            
-                            // Stop at blocking controls coming from the other side
-                            if (blocking_control[control_ref.ToIndex] == Side.Right)
-                            {
-                                blocked = true;
-                                continue;
-                            }
-
-                            if (next_left_controls.indexOf(control_ref.ToIndex) == -1)
-                                next_left_controls.push(control_ref.ToIndex);
-                        }
-
-                        let window = this.Controls[index] as Window;
-                        if (window != null)
-                            window.ChildSize(Side.Left, offset, mask, blocked, oddness);
-                    }
-
-                    for (let index of right_controls)
-                    {
-                        let blocked = false;
-                        let left_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Left];
-                        for (let i = 0; i < left_control_info.NbRefs; i++)
-                        {
-                            let control_ref = left_control_info.GetControlRef(i);
-
-                            // Stop at auto-anchors to the parent container
-                            // (not that you should get here as the blockers should prevent it)
-                            if (control_ref.ToIndex == -1)
-                                continue;
-                            
-                            // Stop at blocking controls coming from the other side
-                            if (blocking_control[control_ref.ToIndex] == Side.Left)
-                            {
-                                blocked = true;
-                                continue;
-                            }
-
-                            if (next_right_controls.indexOf(control_ref.ToIndex) == -1)
-                                next_right_controls.push(control_ref.ToIndex);
-                        }
-
-                        let window = this.Controls[index] as Window;
-                        if (window != null)
-                            window.ChildSize(Side.Right, offset, mask, blocked, oddness);
-                    }
-
-                    left_controls = next_left_controls;
-                    right_controls = next_right_controls;
-
-                    oddness ^= 1;
-                }
+                this.Sizer.ChangeSize(this.ControlParentNode.Size.x);
             }
 
             // Clamp window size to a minimum
