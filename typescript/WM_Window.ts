@@ -150,7 +150,7 @@ namespace WM
                 this.ApplyMinimumSizeConstraints();
                 this.ApplyContainerConstraints();
                 this.ApplyBufferConstraints();
-                
+
                 this.ApplyMinimumSizeConstraints();
                 this.ApplyContainerConstraints();
                 this.ApplyBufferConstraints();
@@ -178,6 +178,7 @@ namespace WM
         private ApplySizeConstraints()
         {
             // TODO: Grow left/right away from the container constraints?
+            //       Instead of using a left/right index, do it based on distance from center of container
 
             for (let constraint of this.SizeConstraints)
             {
@@ -188,12 +189,6 @@ namespace WM
                 let half_border_size = size * 0.5 + half_delta_size * 0.1;
                 rect.Left = center - half_border_size;
                 rect.Right = center + half_border_size;
-
-                if (rect.Right - rect.Left < 20)
-                {
-                    rect.Left = center - 10;
-                    rect.Right = center + 10;
-                }
             }
         }
 
