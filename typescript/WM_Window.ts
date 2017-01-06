@@ -23,7 +23,10 @@ namespace WM
         Left: number;
         Right: number;
 
-        external: boolean;
+        SizeStrength: number;
+
+        // Number of controls between this one and the side of the container
+        SideDistance: number;
     }
 
     class SizeConstraint
@@ -85,9 +88,13 @@ namespace WM
             this.BuildRects(container);
 
             // Build constraints
-            this.BuildContainerConstraints(container, control_graph);
+            let left_controls: number[] = [];
+            let right_controls: number[] = [];
+            this.BuildContainerConstraints(container, control_graph, left_controls, right_controls);
             this.BuildBufferConstraints(container, control_graph);
             this.BuildSnapConstraints(container, control_graph);
+
+            this.SetInitialSizeStrengths(container, control_graph, left_controls, right_controls);
         }
 
         ChangeSize(new_size: number)
@@ -105,27 +112,14 @@ namespace WM
                     constraint.Position = right_offset;
             }
 
+            // Relax
             for (let i = 0; i < 50; i++)
             {
                 this.ApplySizeConstraints();
-
                 this.ApplyMinimumSizeConstraints();
                 this.ApplyBufferConstraints();
                 this.ApplyContainerConstraints();
-
-                //this.ApplyMinimumSizeConstraints();
-                //this.ApplyBufferConstraints();
-                //this.ApplyContainerConstraints();
-
-                //this.ApplySnapConstraints();
             }
-
-            // Give each rect its own size stength
-            // Mark every center window with very little strength
-            // Mark other windows with high strength
-            // It must be less than container/buffer constraints
-            // On each update, check rects to your left and right
-            // If they are minimum strength, make your strength low
 
             // TODO: Finish with a snap! Can that be made into a constraint?
             // Problem is that multiple controls may be out of line
@@ -155,6 +149,8 @@ namespace WM
                 rect.Control = control;
                 rect.Left = control.TopLeft.x;
                 rect.Right = control.BottomRight.x;
+                rect.SizeStrength = 1;
+                rect.SideDistance = 10000;  // Set to a high number so a single < can be used to both compare and test for validity
                 this.Rects.push(rect);
 
                 if (control instanceof Window)
@@ -176,12 +172,10 @@ namespace WM
             for (let constraint of this.SizeConstraints)
             {
                 let rect = constraint.Rect;
-                let strength = rect.external ? 0.2 : 0.01;
-                strength = 0.01;
                 let size = rect.Right - rect.Left;
                 let center = (rect.Left + rect.Right) * 0.5;
                 let half_delta_size = (constraint.Size - size) * 0.5;
-                let half_border_size = size * 0.5 + half_delta_size * strength;
+                let half_border_size = size * 0.5 + half_delta_size * rect.SizeStrength;
                 rect.Left = center - half_border_size;
                 rect.Right = center + half_border_size;
             }
@@ -202,11 +196,14 @@ namespace WM
             }
         }
 
-        private BuildContainerConstraints(container: Container, control_graph: ControlGraph)
+        private BuildContainerConstraints(container: Container, control_graph: ControlGraph, left_controls: number[], right_controls: number[])
         {
             for (let i = 0; i < container.Controls.length; i++)
             {
                 let left_ref_info = control_graph.RefInfos[i * 4 + Side.Left];
+                let right_ref_info = control_graph.RefInfos[i * 4 + Side.Right];
+
+                // Looking for controls that reference the external container on left/right sides
                 if (left_ref_info.References(container))
                 {
                     let constraint = new ContainerConstraint();
@@ -214,10 +211,10 @@ namespace WM
                     constraint.Side = Side.Left;
                     constraint.Position = 0;
                     this.ContainerConstraints.push(constraint);
-                    
-                    this.Rects[i].external = true;
+
+                    // Track left controls for strength setting
+                    left_controls.push(i);
                 }
-                let right_ref_info = control_graph.RefInfos[i * 4 + Side.Right];
                 if (right_ref_info.References(container))
                 {
                     let constraint = new ContainerConstraint();
@@ -226,7 +223,8 @@ namespace WM
                     constraint.Position = this.ContainerRestSize;
                     this.ContainerConstraints.push(constraint);
 
-                    this.Rects[i].external = true;
+                    // Track right controls for strength setting
+                    right_controls.push(i);
                 }
             }
         }
@@ -318,12 +316,105 @@ namespace WM
             }
         }
 
+        private SetInitialSizeStrengths(container: Container, control_graph: ControlGraph, left_controls: number[], right_controls: number[])
+        {
+            let weak_strength = 0.01;
+            let strong_strength = 0.1;
+
+            let side_distance = 0;
+            while (left_controls.length && right_controls.length)
+            {
+                // Mark side distances and set strong strengths before walking further
+                for (let index of left_controls)
+                {
+                    let rect = this.Rects[index];
+                    rect.SideDistance = side_distance;
+                    rect.SizeStrength = strong_strength;
+                }
+                for (let index of right_controls)
+                {
+                    let rect = this.Rects[index];
+                    rect.SideDistance = side_distance;
+                    rect.SizeStrength = strong_strength;
+                }
+
+                let next_left_controls: number[] = [];
+                let next_right_controls: number[] = [];
+
+                // Make one graph step right for the left controls, setting strengths
+                for (let index of left_controls)
+                {
+                    let rect = this.Rects[index];
+                    let ref_info = control_graph.RefInfos[index * 4 + Side.Right];
+
+                    for (let i = 0; i < ref_info.NbRefs; i++)
+                    {
+                        let ref = ref_info.GetControlRef(i);
+                        let rect_to = this.Rects[ref.ToIndex];
+
+                        // If we've hit the container this is a control that is anchored on both sides
+                        if (ref.To == container)
+                        {
+                            // Set it to weak so that it's always collapsable
+                            rect.SizeStrength = weak_strength;
+                            continue;
+                        }
+
+                        // If we bump up against a rect of equal distance, their anchor point is the graph's middle
+                        if (rect.SideDistance == rect_to.SideDistance)
+                        {
+                            // Mark both sides as weak to make the equally collapsable
+                            rect.SizeStrength = weak_strength;
+                            rect_to.SizeStrength = weak_strength;
+                            continue;
+                        }
+
+                        // If the other side has a smaller distance then this is a center control
+                        if (rect.SideDistance > rect_to.SideDistance)
+                        {
+                            // Only the control should be marked for collapse
+                            rect.SizeStrength = weak_strength;
+                            continue;
+                        }
+
+                        // Walk to the right
+                        if (next_left_controls.indexOf(ref.ToIndex) == -1)
+                            next_left_controls.push(ref.ToIndex);
+                    }
+                }
+
+                // Make on graph step left for the right controls, not setting strengths
+                for (let index of right_controls)
+                {
+                    let ref_info = control_graph.RefInfos[index * 4 + Side.Left];
+                    for (let i = 0; i < ref_info.NbRefs; i++)
+                    {
+                        let ref = ref_info.GetControlRef(i);
+                        let rect_to = this.Rects[ref.ToIndex];
+
+                        // Strengths are already set from the left controls so abort walk when coming up
+                        // against a left control
+                        if (ref.To == container || rect_to.SideDistance != 10000)
+                            continue;
+                        
+                        // Walk to the left
+                        if (next_right_controls.indexOf(ref.ToIndex) == -1)
+                            next_right_controls.push(ref.ToIndex);
+                    }
+                }
+
+                left_controls = next_left_controls;
+                right_controls = next_right_controls;
+                side_distance++;
+            }
+        }
+
         DebugLog()
         {
             for (let rect of this.Rects)
             {
                 if (rect)
-                    console.log("Rect: ", rect.Title, rect.Left, "->", rect.Right);
+                    console.log("Rect: ", rect.Title, rect.Left, "->", rect.Right, "...", rect.SideDistance, "/", rect.SizeStrength);
                 else
                     console.log("Null Rect");
             }

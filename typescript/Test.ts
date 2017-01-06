@@ -31,6 +31,7 @@ function TestAll() : WM.Container
     WindowA.Add(new WM.Window("SubWindow 0 L", new int2(120, 120), new int2(200, 200)));
     WindowA.Add(new WM.Window("SubWindow 0 M", new int2(130, 130), new int2(200, 200)));
     WindowA.Add(new WM.Window("SubWindow 0 N", new int2(140, 140), new int2(200, 200)));
+    WindowA.Add(new WM.Window("SubWindow 0 O", new int2(150, 150), new int2(200, 200)));
 
     Container.Add(new WM.Window("Window B", new int2(220, 10), new int2(200, 200)));
     Container.Add(new WM.Window("Window C", new int2(430, 10), new int2(200, 200)));
