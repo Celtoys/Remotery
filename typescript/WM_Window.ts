@@ -272,9 +272,6 @@ namespace WM
                 this.UpdateBRSnapRulers(snap_br[0]);
             }
             
-            // ####
-            this.ParentContainer.UpdateControlSizes();
-
             // TODO: OnMove handler
 
             DOM.Event.StopDefaultAction(event);
@@ -468,6 +465,7 @@ namespace WM
             // Build a control graph for the children
             // TODO: Do this always; it has to be recursive
             // TODO: Only Build
+            // TODO: Move all this into Container
             this.SizeGraph = new ControlGraph();
             this.SizeGraph.Build(this);
 
@@ -588,9 +586,6 @@ namespace WM
             // The cursor will exceed the bounds of the resize element under sizing so
             // force it to whatever it needs to be here
             this.SetResizeCursor($(document.body), mask);
-
-            // ####
-            this.ParentContainer.UpdateControlSizes();
 
             DOM.Event.StopDefaultAction(event);
         }

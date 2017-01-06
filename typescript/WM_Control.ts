@@ -173,9 +173,6 @@ namespace WM
             {
                 this.ParentNode.Append(this.Node);
                 this._Visible = true;
-
-                // Trigger resize event to match anchors
-                //this.OnParentResize();
             }
         }
         Hide() : void

@@ -191,18 +191,6 @@ namespace WM
         {
             // Set size on super and notify child controls
             super.SetSize(size);
-            this.UpdateControlSizes();
-        }
-
-        public UpdateControlSizes()
-        {
-            // This gets called from the super call in the constructor!
-            // ...which is to be expected from the overridden Size property.
-            if (this.Controls)
-            {
-                for (let control of this.Controls)
-                    control.OnParentResize();
-            }
         }
     }
 }
