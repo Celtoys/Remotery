@@ -35,9 +35,8 @@ namespace WM
     class BufferConstraint
     {
         Span0: Span;
-        Side0: Side;
         Span1: Span;
-        Side1: Side;    // TODO: Remove
+        Side: Side;
     }
 
     class SnapConstraint
@@ -248,9 +247,8 @@ namespace WM
                 {
                     let constraint = new BufferConstraint();
                     constraint.Span0 = this.Spans[ref.FromIndex];
-                    constraint.Side0 = ref.Side;
+                    constraint.Side = ref.Side;
                     constraint.Span1 = this.Spans[ref.ToIndex];
-                    constraint.Side1 = ref.Side ^ 1;
                     this.BufferConstraints.push(constraint);
                 }
             }
@@ -260,7 +258,7 @@ namespace WM
         {
             for (let constraint of this.BufferConstraints)
             {
-                if (constraint.Side0 == Side.Left)
+                if (constraint.Side == Side.Left)
                 {
                     let span0 = constraint.Span0;
                     let span1 = constraint.Span1;
@@ -471,7 +469,7 @@ namespace WM
 
             for (let constraint of this.BufferConstraints)
             {
-                console.log("Buffer Constraint: ", constraint.Span0.Title, "->", constraint.Span1.Title, "on", Side[constraint.Side0], "/", Side[constraint.Side1]);
+                console.log("Buffer Constraint: ", constraint.Span0.Title, "->", constraint.Span1.Title, "on", Side[constraint.Side]);
             }
         }
     };
