@@ -22,6 +22,8 @@ namespace WM
 
         Left: number;
         Right: number;
+
+        external: boolean;
     }
 
     class SizeConstraint
@@ -42,7 +44,13 @@ namespace WM
         Rect0: Rect;
         Side0: Side;
         Rect1: Rect;
-        Side1: Side;
+        Side1: Side;    // TODO: Remove
+    }
+
+    class SnapConstraint
+    {
+        LeftRect: Rect;
+        RightRect: Rect;
     }
 
     class Sizer
@@ -55,18 +63,84 @@ namespace WM
         ContainerConstraints: ContainerConstraint[] = [];
         BufferConstraints: BufferConstraint[] = [];
         SizeConstraints: SizeConstraint[] = [];
+        SnapConstraints: SnapConstraint[] = [];
+
+        Clear()
+        {
+            this.Rects = [];
+            this.ContainerConstraints = [];
+            this.BufferConstraints = [];
+            this.SizeConstraints = [];
+            this.SnapConstraints = [];
+        }
 
         Build(container: Container, control_graph: ControlGraph)
         {
             this.ContainerRestSize = container.ControlParentNode.Size.x;
 
             // Clear previous constraints
-            this.Rects = [];
-            this.ContainerConstraints = [];
-            this.BufferConstraints = [];
-            this.SizeConstraints = [];
+            this.Clear();
 
             // Build the rect list
+            this.BuildRects(container);
+
+            // Build constraints
+            this.BuildContainerConstraints(container, control_graph);
+            this.BuildBufferConstraints(container, control_graph);
+            this.BuildSnapConstraints(container, control_graph);
+        }
+
+        ChangeSize(new_size: number)
+        {
+            // Update container constraints with new size
+            this.ContainerSize = new_size;
+            let half_delta_size = (this.ContainerRestSize - new_size) / 2;
+            let left_offset = half_delta_size + Container.SnapBorderSize;
+            let right_offset = this.ContainerRestSize - left_offset;
+            for (let constraint of this.ContainerConstraints)
+            {
+                if (constraint.Side == Side.Left)
+                    constraint.Position = left_offset;
+                else
+                    constraint.Position = right_offset;
+            }
+
+            for (let i = 0; i < 50; i++)
+            {
+                this.ApplySizeConstraints();
+
+                this.ApplyMinimumSizeConstraints();
+                this.ApplyBufferConstraints();
+                this.ApplyContainerConstraints();
+
+                //this.ApplyMinimumSizeConstraints();
+                //this.ApplyBufferConstraints();
+                //this.ApplyContainerConstraints();
+
+                //this.ApplySnapConstraints();
+            }
+
+            // Give each rect its own size stength
+            // Mark every center window with very little strength
+            // Mark other windows with high strength
+            // It must be less than container/buffer constraints
+            // On each update, check rects to your left and right
+            // If they are minimum strength, make your strength low
+
+            // TODO: Finish with a snap! Can that be made into a constraint?
+            // Problem is that multiple controls may be out of line
+            this.ApplySnapConstraints();
+
+            // Copy simulation back to the controls
+            for (let rect of this.Rects)
+            {
+                rect.Control.Position = new int2(rect.Left - half_delta_size, rect.Control.Position.y);
+                rect.Control.Size = new int2(rect.Right - rect.Left, rect.Control.Size.y);
+            }
+        }
+
+        private BuildRects(container: Container)
+        {
             for (let control of container.Controls)
             {
                 // Anything that's not a control (e.g. a Ruler) still needs an entry in the array, even if it's empty
@@ -92,93 +166,6 @@ namespace WM
                 size_constraint.Size = rect.Right - rect.Left;
                 this.SizeConstraints.push(size_constraint);
             }
-
-            // Build the container constraints list
-            for (let i = 0; i < container.Controls.length; i++)
-            {
-                if (control_graph.RefInfos[i * 4 + Side.Left].References(container))
-                {
-                    let constraint = new ContainerConstraint();
-                    constraint.Rect = this.Rects[i];
-                    constraint.Side = Side.Left;
-                    constraint.Position = 0;
-                    this.ContainerConstraints.push(constraint);
-                }
-                if (control_graph.RefInfos[i * 4 + Side.Right].References(container))
-                {
-                    let constraint = new ContainerConstraint();
-                    constraint.Rect = this.Rects[i];
-                    constraint.Side = Side.Right;
-                    constraint.Position = this.ContainerRestSize;
-                    this.ContainerConstraints.push(constraint);
-                }
-            }
-
-            // Build the buffer constraints list
-            for (let ref of control_graph.Refs)
-            {
-                // Only want horizontal refs
-                if (ref.Side != Side.Left && ref.Side != Side.Right)
-                    continue;
-
-                // There are two refs for each connection; ensure only one of them is used
-                if (ref.FromIndex < ref.ToIndex)
-                {
-                    let constraint = new BufferConstraint();
-                    constraint.Rect0 = this.Rects[ref.FromIndex];
-                    constraint.Side0 = ref.Side;
-                    constraint.Rect1 = this.Rects[ref.ToIndex];
-                    constraint.Side1 = ref.Side ^ 1;
-                    this.BufferConstraints.push(constraint);
-                }
-            }
-        }
-
-        ChangeSize(new_size: number)
-        {
-            // Update container constraints with new size
-            this.ContainerSize = new_size;
-            let half_delta_size = (this.ContainerRestSize - new_size) / 2;
-            let left_offset = half_delta_size + Container.SnapBorderSize;
-            let right_offset = this.ContainerRestSize - left_offset;
-            for (let constraint of this.ContainerConstraints)
-            {
-                if (constraint.Side == Side.Left)
-                    constraint.Position = left_offset;
-                else
-                    constraint.Position = right_offset;
-            }
-
-            for (let i = 0; i < 10; i++)
-            {
-                this.ApplySizeConstraints();
-
-                this.ApplyMinimumSizeConstraints();
-                this.ApplyContainerConstraints();
-                this.ApplyBufferConstraints();
-
-                this.ApplyMinimumSizeConstraints();
-                this.ApplyContainerConstraints();
-                this.ApplyBufferConstraints();
-            }
-
-            // Copy simulation back to the controls
-            for (let rect of this.Rects)
-            {
-                rect.Control.Position = new int2(rect.Left - half_delta_size, rect.Control.Position.y);
-                rect.Control.Size = new int2(rect.Right - rect.Left, rect.Control.Size.y);
-            }
-        }
-
-        private ApplyContainerConstraints()
-        {
-            for (let constraint of this.ContainerConstraints)
-            {
-                if (constraint.Side == Side.Left)
-                    constraint.Rect.Left = constraint.Position;
-                else
-                    constraint.Rect.Right = constraint.Position;
-            }
         }
 
         private ApplySizeConstraints()
@@ -189,10 +176,12 @@ namespace WM
             for (let constraint of this.SizeConstraints)
             {
                 let rect = constraint.Rect;
+                let strength = rect.external ? 0.2 : 0.01;
+                strength = 0.01;
                 let size = rect.Right - rect.Left;
                 let center = (rect.Left + rect.Right) * 0.5;
                 let half_delta_size = (constraint.Size - size) * 0.5;
-                let half_border_size = size * 0.5 + half_delta_size * 0.1;
+                let half_border_size = size * 0.5 + half_delta_size * strength;
                 rect.Left = center - half_border_size;
                 rect.Right = center + half_border_size;
             }
@@ -213,22 +202,119 @@ namespace WM
             }
         }
 
+        private BuildContainerConstraints(container: Container, control_graph: ControlGraph)
+        {
+            for (let i = 0; i < container.Controls.length; i++)
+            {
+                let left_ref_info = control_graph.RefInfos[i * 4 + Side.Left];
+                if (left_ref_info.References(container))
+                {
+                    let constraint = new ContainerConstraint();
+                    constraint.Rect = this.Rects[i];
+                    constraint.Side = Side.Left;
+                    constraint.Position = 0;
+                    this.ContainerConstraints.push(constraint);
+                    
+                    this.Rects[i].external = true;
+                }
+                let right_ref_info = control_graph.RefInfos[i * 4 + Side.Right];
+                if (right_ref_info.References(container))
+                {
+                    let constraint = new ContainerConstraint();
+                    constraint.Rect = this.Rects[i];
+                    constraint.Side = Side.Right;
+                    constraint.Position = this.ContainerRestSize;
+                    this.ContainerConstraints.push(constraint);
+
+                    this.Rects[i].external = true;
+                }
+            }
+        }
+
+        private ApplyContainerConstraints()
+        {
+            for (let constraint of this.ContainerConstraints)
+            {
+                if (constraint.Side == Side.Left)
+                    constraint.Rect.Left = constraint.Position;
+                else
+                    constraint.Rect.Right = constraint.Position;
+            }
+        }
+
+        private BuildBufferConstraints(container: Container, control_graph: ControlGraph)
+        {
+            for (let ref of control_graph.Refs)
+            {
+                // Only want horizontal refs
+                if (ref.Side != Side.Left && ref.Side != Side.Right)
+                    continue;
+
+                // There are two refs for each connection; ensure only one of them is used
+                if (ref.FromIndex < ref.ToIndex)
+                {
+                    let constraint = new BufferConstraint();
+                    constraint.Rect0 = this.Rects[ref.FromIndex];
+                    constraint.Side0 = ref.Side;
+                    constraint.Rect1 = this.Rects[ref.ToIndex];
+                    constraint.Side1 = ref.Side ^ 1;
+                    this.BufferConstraints.push(constraint);
+                }
+            }
+        }
+
         private ApplyBufferConstraints()
         {
             for (let constraint of this.BufferConstraints)
             {
                 if (constraint.Side0 == Side.Left)
                 {
-                    let center = (constraint.Rect1.Right + constraint.Rect0.Left) * 0.5;
-                    constraint.Rect0.Left = center + Container.SnapBorderSize * 0.5;
-                    constraint.Rect1.Right = center - Container.SnapBorderSize * 0.5;
+                    let rect0 = constraint.Rect0;
+                    let rect1 = constraint.Rect1;
+                    let left = rect1.Right;
+                    let right = rect0.Left;
+                    let center = (left + right) * 0.5;
+                    let size = right - left;
+                    let half_delta_size = (Container.SnapBorderSize - size) * 0.5;
+                    let half_new_size = size * 0.5 + half_delta_size * 0.5;
+                    rect0.Left = center + half_new_size;
+                    rect1.Right = center - half_new_size;
                 }
                 else
                 {
-                    let center = (constraint.Rect0.Right + constraint.Rect1.Left) * 0.5;
-                    constraint.Rect0.Right = center - Container.SnapBorderSize * 0.5;
-                    constraint.Rect1.Left = center + Container.SnapBorderSize * 0.5;
+                    let rect0 = constraint.Rect0;
+                    let rect1 = constraint.Rect1;
+                    let left = rect0.Right;
+                    let right = rect1.Left;
+                    let center = (left + right) * 0.5;
+                    let size = right - left;
+                    let half_delta_size = (Container.SnapBorderSize - size) * 0.5;
+                    let half_new_size = size * 0.5 + half_delta_size * 0.5;
+                    rect1.Left = center + half_new_size;
+                    rect0.Right = center - half_new_size;
                 }
+            }
+        }
+
+        private BuildSnapConstraints(container: Container, control_graph: ControlGraph)
+        {
+            for (let ref of control_graph.Refs)
+            {
+                if (ref.Side == Side.Right && ref.To != container)
+                {
+                    let constraint = new SnapConstraint();
+                    constraint.LeftRect = this.Rects[ref.FromIndex];
+                    constraint.RightRect = this.Rects[ref.ToIndex];
+                    this.SnapConstraints.push(constraint);
+                }
+            }
+        }
+
+        private ApplySnapConstraints()
+        {
+            for (let constraint of this.SnapConstraints)
+            {
+                constraint.RightRect.Left = constraint.LeftRect.Right + Container.SnapBorderSize;
             }
         }
 
