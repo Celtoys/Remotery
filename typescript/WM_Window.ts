@@ -23,6 +23,7 @@ namespace WM
         Left: number;
         Right: number;
 
+        RestSizeStrength: number;
         SizeStrength: number;
 
         // Number of controls between this one and the side of the container
@@ -56,6 +57,7 @@ namespace WM
         RightRect: Rect;
     }
 
+    // TODO: Need to unify snapped controls into one constraint instead of multiple
     class Sizer
     {
         ContainerRestSize: number;
@@ -97,7 +99,7 @@ namespace WM
             this.SetInitialSizeStrengths(container, control_graph, left_controls, right_controls);
         }
 
-        ChangeSize(new_size: number)
+        ChangeSize(new_size: number, control_graph: ControlGraph)
         {
             // Update container constraints with new size
             this.ContainerSize = new_size;
@@ -119,6 +121,9 @@ namespace WM
                 this.ApplyMinimumSizeConstraints();
                 this.ApplyBufferConstraints();
                 this.ApplyContainerConstraints();
+
+                // HERE
+                this.ReevaluateSizeStrengths(control_graph);
             }
 
             // TODO: Finish with a snap! Can that be made into a constraint?
@@ -150,6 +155,7 @@ namespace WM
                 rect.Left = control.TopLeft.x;
                 rect.Right = control.BottomRight.x;
                 rect.SizeStrength = 1;
+                rect.RestSizeStrength = 1;
                 rect.SideDistance = 10000;  // Set to a high number so a single < can be used to both compare and test for validity
                 this.Rects.push(rect);
 
@@ -406,6 +412,51 @@ namespace WM
                 left_controls = next_left_controls;
                 right_controls = next_right_controls;
                 side_distance++;
+            }
+
+            // Record initial size strength for restoration
+            for (let rect of this.Rects)
+                rect.RestSizeStrength = rect.SizeStrength;
+        }
+
+        ReevaluateSizeStrengths(control_graph: ControlGraph)
+        {
+            for (let index = 0; index < this.Rects.length; index++)
+            {
+                let rect = this.Rects[index];
+                rect.SizeStrength = rect.RestSizeStrength;
+
+                let left_ref_info = control_graph.RefInfos[index * 4 + Side.Left];
+                for (let i = 0; i < left_ref_info.NbRefs; i++)
+                {
+                    let ref = left_ref_info.GetControlRef(i);
+                    if (ref.ToIndex != -1)
+                    {
+                        let rect_to = this.Rects[ref.ToIndex];
+                        let size = rect_to.Right - rect_to.Left;
+                        if (size <= 20)
+                        {
+                            rect.SizeStrength = 0.01;
+                            break;
+                        }
+                    }
+                }
+
+                let right_ref_info = control_graph.RefInfos[index * 4 + Side.Right];
+                for (let i = 0; i < right_ref_info.NbRefs; i++)
+                {
+                    let ref = right_ref_info.GetControlRef(i);
+                    if (ref.ToIndex != -1)
+                    {
+                        let rect_to = this.Rects[ref.ToIndex];
+                        let size = rect_to.Right - rect_to.Left;
+                        if (size <= 20)
+                        {
+                            rect.SizeStrength = 0.01;
+                            break;
+                        }
+                    }
+                }
             }
         }
 
@@ -1193,7 +1244,7 @@ namespace WM
 */
             if (this.SizeGraph)
             {
-                this.Sizer.ChangeSize(this.ControlParentNode.Size.x);
+                this.Sizer.ChangeSize(this.ControlParentNode.Size.x, this.SizeGraph);
             }
 
             // Clamp window size to a minimum
