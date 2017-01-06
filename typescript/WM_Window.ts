@@ -470,7 +470,7 @@ namespace WM
             this.SizeGraph.Build(this);
 
             this.ControlSizer = new ControlSizer();
-            this.ControlSizer.Build(this, this.SizeGraph);
+            this.ControlSizer.Build(Side.Left, this, this.SizeGraph);
             this.ControlSizer.DebugLog();
 
             this.SizerMoved = false;

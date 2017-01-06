@@ -48,6 +48,10 @@ namespace WM
     // TODO: Need to unify snapped controls into one constraint instead of multiple
     export class ControlSizer
     {
+        // Allow the sizer to work independently on horizontal/vertical axes
+        MinSide: Side;
+        MaxSide: Side;
+
         ContainerRestSize: number;
         ContainerSize: number;
 
@@ -67,9 +71,15 @@ namespace WM
             this.SnapConstraints = [];
         }
 
-        Build(container: Container, control_graph: ControlGraph)
+        Build(base_side: Side, container: Container, control_graph: ControlGraph)
         {
-            this.ContainerRestSize = container.ControlParentNode.Size.x;
+            this.MinSide = base_side;
+            this.MaxSide = base_side + 1;
+
+            if (base_side == Side.Left)
+                this.ContainerRestSize = container.ControlParentNode.Size.x;
+            else
+                this.ContainerRestSize = container.ControlParentNode.Size.y;
 
             // Clear previous constraints
             this.Clear();
@@ -96,7 +106,7 @@ namespace WM
             let max_offset = this.ContainerRestSize - min_offset;
             for (let constraint of this.ContainerConstraints)
             {
-                if (constraint.Side == Side.Left)
+                if (constraint.Side == this.MinSide)
                     constraint.Position = min_offset;
                 else
                     constraint.Position = max_offset;
@@ -121,8 +131,16 @@ namespace WM
             // Copy simulation back to the controls
             for (let span of this.Spans)
             {
-                span.Control.Position = new int2(span.Min - half_delta_size, span.Control.Position.y);
-                span.Control.Size = new int2(span.Max - span.Min, span.Control.Size.y);
+                if (this.MinSide == this.MinSide)
+                {
+                    span.Control.Position = new int2(span.Min - half_delta_size, span.Control.Position.y);
+                    span.Control.Size = new int2(span.Max - span.Min, span.Control.Size.y);
+                }
+                else
+                {
+                    span.Control.Position = new int2(span.Control.Position.x, span.Min - half_delta_size);
+                    span.Control.Size = new int2(span.Control.Size.x, span.Max - span.Min);
+                }
             }
         }
 
@@ -140,8 +158,16 @@ namespace WM
                 // Set initial parameters
                 let span = new Span();
                 span.Control = control;
-                span.Min = control.TopLeft.x;
-                span.Max = control.BottomRight.x;
+                if (this.MinSide == this.MinSide)
+                {
+                    span.Min = control.TopLeft.x;
+                    span.Max = control.BottomRight.x;
+                }
+                else
+                {
+                    span.Min = control.TopLeft.y;
+                    span.Max = control.BottomRight.y;
+                }
                 span.SizeStrength = 1;
                 span.RestSizeStrength = 1;
                 span.SideDistance = 10000;  // Set to a high number so a single < can be used to both compare and test for validity
@@ -191,15 +217,15 @@ namespace WM
         {
             for (let i = 0; i < container.Controls.length; i++)
             {
-                let min_ref_info = control_graph.RefInfos[i * 4 + Side.Left];
-                let max_ref_info = control_graph.RefInfos[i * 4 + Side.Right];
+                let min_ref_info = control_graph.RefInfos[i * 4 + this.MinSide];
+                let max_ref_info = control_graph.RefInfos[i * 4 + this.MaxSide];
 
                 // Looking for controls that reference the external container on min/max sides
                 if (min_ref_info.References(container))
                 {
                     let constraint = new ContainerConstraint();
                     constraint.Span = this.Spans[i];
-                    constraint.Side = Side.Left;
+                    constraint.Side = this.MinSide;
                     constraint.Position = 0;
                     this.ContainerConstraints.push(constraint);
 
@@ -210,7 +236,7 @@ namespace WM
                 {
                     let constraint = new ContainerConstraint();
                     constraint.Span = this.Spans[i];
-                    constraint.Side = Side.Right;
+                    constraint.Side = this.MaxSide;
                     constraint.Position = this.ContainerRestSize;
                     this.ContainerConstraints.push(constraint);
 
@@ -224,7 +250,7 @@ namespace WM
         {
             for (let constraint of this.ContainerConstraints)
             {
-                if (constraint.Side == Side.Left)
+                if (constraint.Side == this.MinSide)
                     constraint.Span.Min = constraint.Position;
                 else
                     constraint.Span.Max = constraint.Position;
@@ -235,8 +261,8 @@ namespace WM
         {
             for (let ref of control_graph.Refs)
             {
-                // Only want horizontal refs
-                if (ref.Side != Side.Left && ref.Side != Side.Right)
+                // Only want sides on the configured axis
+                if (ref.Side != this.MinSide && ref.Side != this.MaxSide)
                     continue;
 
                 // There are two refs for each connection; ensure only one of them is used
@@ -255,7 +281,7 @@ namespace WM
         {
             for (let constraint of this.BufferConstraints)
             {
-                if (constraint.Side == Side.Left)
+                if (constraint.Side == this.MinSide)
                 {
                     let span0 = constraint.Span0;
                     let span1 = constraint.Span1;
@@ -288,7 +314,7 @@ namespace WM
         {
             for (let ref of control_graph.Refs)
             {
-                if (ref.Side == Side.Right && ref.To != container)
+                if (ref.Side == this.MaxSide && ref.To != container)
                 {
                     let constraint = new SnapConstraint();
                     constraint.MinSpan = this.Spans[ref.FromIndex];
@@ -335,7 +361,7 @@ namespace WM
                 for (let index of min_controls)
                 {
                     let span = this.Spans[index];
-                    let ref_info = control_graph.RefInfos[index * 4 + Side.Right];
+                    let ref_info = control_graph.RefInfos[index * 4 + this.MaxSide];
 
                     for (let i = 0; i < ref_info.NbRefs; i++)
                     {
@@ -376,7 +402,7 @@ namespace WM
                 // Make one graph step towards min for the max controls, not setting strengths
                 for (let index of max_controls)
                 {
-                    let ref_info = control_graph.RefInfos[index * 4 + Side.Left];
+                    let ref_info = control_graph.RefInfos[index * 4 + this.MinSide];
                     for (let i = 0; i < ref_info.NbRefs; i++)
                     {
                         let ref = ref_info.GetControlRef(i);
@@ -410,7 +436,7 @@ namespace WM
                 let span = this.Spans[index];
                 span.SizeStrength = span.RestSizeStrength;
 
-                let min_ref_info = control_graph.RefInfos[index * 4 + Side.Left];
+                let min_ref_info = control_graph.RefInfos[index * 4 + this.MinSide];
                 for (let i = 0; i < min_ref_info.NbRefs; i++)
                 {
                     let ref = min_ref_info.GetControlRef(i);
@@ -426,7 +452,7 @@ namespace WM
                     }
                 }
 
-                let max_ref_info = control_graph.RefInfos[index * 4 + Side.Right];
+                let max_ref_info = control_graph.RefInfos[index * 4 + this.MaxSide];
                 for (let i = 0; i < max_ref_info.NbRefs; i++)
                 {
                     let ref = max_ref_info.GetControlRef(i);
