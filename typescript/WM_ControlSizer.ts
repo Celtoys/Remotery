@@ -9,8 +9,8 @@ namespace WM
         // Source control for copying simulation back
         Control: Control;
 
-        Left: number;
-        Right: number;
+        Min: number;
+        Max: number;
 
         RestSizeStrength: number;
         SizeStrength: number;
@@ -41,8 +41,8 @@ namespace WM
 
     class SnapConstraint
     {
-        LeftSpan: Span;
-        RightSpan: Span;
+        MinSpan: Span;
+        MaxSpan: Span;
     }
 
     // TODO: Need to unify snapped controls into one constraint instead of multiple
@@ -78,13 +78,13 @@ namespace WM
             this.BuildSpans(container);
 
             // Build constraints
-            let left_controls: number[] = [];
-            let right_controls: number[] = [];
-            this.BuildContainerConstraints(container, control_graph, left_controls, right_controls);
+            let min_controls: number[] = [];
+            let max_controls: number[] = [];
+            this.BuildContainerConstraints(container, control_graph, min_controls, max_controls);
             this.BuildBufferConstraints(container, control_graph);
             this.BuildSnapConstraints(container, control_graph);
 
-            this.SetInitialSizeStrengths(container, control_graph, left_controls, right_controls);
+            this.SetInitialSizeStrengths(container, control_graph, min_controls, max_controls);
         }
 
         ChangeSize(new_size: number, control_graph: ControlGraph)
@@ -92,14 +92,14 @@ namespace WM
             // Update container constraints with new size
             this.ContainerSize = new_size;
             let half_delta_size = (this.ContainerRestSize - new_size) / 2;
-            let left_offset = half_delta_size + Container.SnapBorderSize;
-            let right_offset = this.ContainerRestSize - left_offset;
+            let min_offset = half_delta_size + Container.SnapBorderSize;
+            let max_offset = this.ContainerRestSize - min_offset;
             for (let constraint of this.ContainerConstraints)
             {
                 if (constraint.Side == Side.Left)
-                    constraint.Position = left_offset;
+                    constraint.Position = min_offset;
                 else
-                    constraint.Position = right_offset;
+                    constraint.Position = max_offset;
             }
 
             // Relax
@@ -121,8 +121,8 @@ namespace WM
             // Copy simulation back to the controls
             for (let span of this.Spans)
             {
-                span.Control.Position = new int2(span.Left - half_delta_size, span.Control.Position.y);
-                span.Control.Size = new int2(span.Right - span.Left, span.Control.Size.y);
+                span.Control.Position = new int2(span.Min - half_delta_size, span.Control.Position.y);
+                span.Control.Size = new int2(span.Max - span.Min, span.Control.Size.y);
             }
         }
 
@@ -140,8 +140,8 @@ namespace WM
                 // Set initial parameters
                 let span = new Span();
                 span.Control = control;
-                span.Left = control.TopLeft.x;
-                span.Right = control.BottomRight.x;
+                span.Min = control.TopLeft.x;
+                span.Max = control.BottomRight.x;
                 span.SizeStrength = 1;
                 span.RestSizeStrength = 1;
                 span.SideDistance = 10000;  // Set to a high number so a single < can be used to both compare and test for validity
@@ -153,25 +153,22 @@ namespace WM
                 // Add a size constraint for each span
                 let size_constraint = new SizeConstraint();
                 size_constraint.Span = span;
-                size_constraint.Size = span.Right - span.Left;
+                size_constraint.Size = span.Max - span.Min;
                 this.SizeConstraints.push(size_constraint);
             }
         }
 
         private ApplySizeConstraints()
         {
-            // TODO: Grow left/right away from the container constraints?
-            //       Instead of using a left/right index, do it based on distance from center of container
-
             for (let constraint of this.SizeConstraints)
             {
                 let span = constraint.Span;
-                let size = span.Right - span.Left;
-                let center = (span.Left + span.Right) * 0.5;
+                let size = span.Max - span.Min;
+                let center = (span.Min + span.Max) * 0.5;
                 let half_delta_size = (constraint.Size - size) * 0.5;
                 let half_border_size = size * 0.5 + half_delta_size * span.SizeStrength;
-                span.Left = center - half_border_size;
-                span.Right = center + half_border_size;
+                span.Min = center - half_border_size;
+                span.Max = center + half_border_size;
             }
         }
 
@@ -181,24 +178,24 @@ namespace WM
             {
                 let span = constraint.Span;
 
-                if (span.Right - span.Left < 20)
+                if (span.Max - span.Min < 20)
                 {
-                    let center = (span.Left + span.Right) * 0.5;
-                    span.Left = center - 10;
-                    span.Right = center + 10;
+                    let center = (span.Min + span.Max) * 0.5;
+                    span.Min = center - 10;
+                    span.Max = center + 10;
                 }
             }
         }
 
-        private BuildContainerConstraints(container: Container, control_graph: ControlGraph, left_controls: number[], right_controls: number[])
+        private BuildContainerConstraints(container: Container, control_graph: ControlGraph, min_controls: number[], max_controls: number[])
         {
             for (let i = 0; i < container.Controls.length; i++)
             {
-                let left_ref_info = control_graph.RefInfos[i * 4 + Side.Left];
-                let right_ref_info = control_graph.RefInfos[i * 4 + Side.Right];
+                let min_ref_info = control_graph.RefInfos[i * 4 + Side.Left];
+                let max_ref_info = control_graph.RefInfos[i * 4 + Side.Right];
 
-                // Looking for controls that reference the external container on left/right sides
-                if (left_ref_info.References(container))
+                // Looking for controls that reference the external container on min/max sides
+                if (min_ref_info.References(container))
                 {
                     let constraint = new ContainerConstraint();
                     constraint.Span = this.Spans[i];
@@ -206,10 +203,10 @@ namespace WM
                     constraint.Position = 0;
                     this.ContainerConstraints.push(constraint);
 
-                    // Track left controls for strength setting
-                    left_controls.push(i);
+                    // Track min controls for strength setting
+                    min_controls.push(i);
                 }
-                if (right_ref_info.References(container))
+                if (max_ref_info.References(container))
                 {
                     let constraint = new ContainerConstraint();
                     constraint.Span = this.Spans[i];
@@ -217,8 +214,8 @@ namespace WM
                     constraint.Position = this.ContainerRestSize;
                     this.ContainerConstraints.push(constraint);
 
-                    // Track right controls for strength setting
-                    right_controls.push(i);
+                    // Track max controls for strength setting
+                    max_controls.push(i);
                 }
             }
         }
@@ -228,9 +225,9 @@ namespace WM
             for (let constraint of this.ContainerConstraints)
             {
                 if (constraint.Side == Side.Left)
-                    constraint.Span.Left = constraint.Position;
+                    constraint.Span.Min = constraint.Position;
                 else
-                    constraint.Span.Right = constraint.Position;
+                    constraint.Span.Max = constraint.Position;
             }
         }
 
@@ -262,27 +259,27 @@ namespace WM
                 {
                     let span0 = constraint.Span0;
                     let span1 = constraint.Span1;
-                    let left = span1.Right;
-                    let right = span0.Left;
-                    let center = (left + right) * 0.5;
-                    let size = right - left;
+                    let min = span1.Max;
+                    let max = span0.Min;
+                    let center = (min + max) * 0.5;
+                    let size = max - min;
                     let half_delta_size = (Container.SnapBorderSize - size) * 0.5;
                     let half_new_size = size * 0.5 + half_delta_size * 0.5;
-                    span0.Left = center + half_new_size;
-                    span1.Right = center - half_new_size;
+                    span0.Min = center + half_new_size;
+                    span1.Max = center - half_new_size;
                 }
                 else
                 {
                     let span0 = constraint.Span0;
                     let span1 = constraint.Span1;
-                    let left = span0.Right;
-                    let right = span1.Left;
-                    let center = (left + right) * 0.5;
-                    let size = right - left;
+                    let min = span0.Max;
+                    let max = span1.Min;
+                    let center = (min + max) * 0.5;
+                    let size = max - min;
                     let half_delta_size = (Container.SnapBorderSize - size) * 0.5;
                     let half_new_size = size * 0.5 + half_delta_size * 0.5;
-                    span1.Left = center + half_new_size;
-                    span0.Right = center - half_new_size;
+                    span1.Min = center + half_new_size;
+                    span0.Max = center - half_new_size;
                 }
             }
         }
@@ -294,8 +291,8 @@ namespace WM
                 if (ref.Side == Side.Right && ref.To != container)
                 {
                     let constraint = new SnapConstraint();
-                    constraint.LeftSpan = this.Spans[ref.FromIndex];
-                    constraint.RightSpan = this.Spans[ref.ToIndex];
+                    constraint.MinSpan = this.Spans[ref.FromIndex];
+                    constraint.MaxSpan = this.Spans[ref.ToIndex];
                     this.SnapConstraints.push(constraint);
                 }
             }
@@ -305,37 +302,37 @@ namespace WM
         {
             for (let constraint of this.SnapConstraints)
             {
-                constraint.RightSpan.Left = constraint.LeftSpan.Right + Container.SnapBorderSize;
+                constraint.MaxSpan.Min = constraint.MinSpan.Max + Container.SnapBorderSize;
             }
         }
 
-        private SetInitialSizeStrengths(container: Container, control_graph: ControlGraph, left_controls: number[], right_controls: number[])
+        private SetInitialSizeStrengths(container: Container, control_graph: ControlGraph, min_controls: number[], max_controls: number[])
         {
             let weak_strength = 0.01;
             let strong_strength = 0.1;
 
             let side_distance = 0;
-            while (left_controls.length && right_controls.length)
+            while (min_controls.length && max_controls.length)
             {
                 // Mark side distances and set strong strengths before walking further
-                for (let index of left_controls)
+                for (let index of min_controls)
                 {
                     let span = this.Spans[index];
                     span.SideDistance = side_distance;
                     span.SizeStrength = strong_strength;
                 }
-                for (let index of right_controls)
+                for (let index of max_controls)
                 {
                     let span = this.Spans[index];
                     span.SideDistance = side_distance;
                     span.SizeStrength = strong_strength;
                 }
 
-                let next_left_controls: number[] = [];
-                let next_right_controls: number[] = [];
+                let next_min_controls: number[] = [];
+                let next_max_controls: number[] = [];
 
-                // Make one graph step right for the left controls, setting strengths
-                for (let index of left_controls)
+                // Make one graph step towards max for the min controls, setting strengths
+                for (let index of min_controls)
                 {
                     let span = this.Spans[index];
                     let ref_info = control_graph.RefInfos[index * 4 + Side.Right];
@@ -370,14 +367,14 @@ namespace WM
                             continue;
                         }
 
-                        // Walk to the right
-                        if (next_left_controls.indexOf(ref.ToIndex) == -1)
-                            next_left_controls.push(ref.ToIndex);
+                        // Walk toward the max
+                        if (next_min_controls.indexOf(ref.ToIndex) == -1)
+                            next_min_controls.push(ref.ToIndex);
                     }
                 }
 
-                // Make on graph step left for the right controls, not setting strengths
-                for (let index of right_controls)
+                // Make one graph step towards min for the max controls, not setting strengths
+                for (let index of max_controls)
                 {
                     let ref_info = control_graph.RefInfos[index * 4 + Side.Left];
                     for (let i = 0; i < ref_info.NbRefs; i++)
@@ -385,19 +382,19 @@ namespace WM
                         let ref = ref_info.GetControlRef(i);
                         let span_to = this.Spans[ref.ToIndex];
 
-                        // Strengths are already set from the left controls so abort walk when coming up
-                        // against a left control
+                        // Strengths are already set from the min controls so abort walk when coming up
+                        // against a min control
                         if (ref.To == container || span_to.SideDistance != 10000)
                             continue;
                         
-                        // Walk to the left
-                        if (next_right_controls.indexOf(ref.ToIndex) == -1)
-                            next_right_controls.push(ref.ToIndex);
+                        // Walk toward the min
+                        if (next_max_controls.indexOf(ref.ToIndex) == -1)
+                            next_max_controls.push(ref.ToIndex);
                     }
                 }
 
-                left_controls = next_left_controls;
-                right_controls = next_right_controls;
+                min_controls = next_min_controls;
+                max_controls = next_max_controls;
                 side_distance++;
             }
 
@@ -413,14 +410,14 @@ namespace WM
                 let span = this.Spans[index];
                 span.SizeStrength = span.RestSizeStrength;
 
-                let left_ref_info = control_graph.RefInfos[index * 4 + Side.Left];
-                for (let i = 0; i < left_ref_info.NbRefs; i++)
+                let min_ref_info = control_graph.RefInfos[index * 4 + Side.Left];
+                for (let i = 0; i < min_ref_info.NbRefs; i++)
                 {
-                    let ref = left_ref_info.GetControlRef(i);
+                    let ref = min_ref_info.GetControlRef(i);
                     if (ref.ToIndex != -1)
                     {
                         let span_to = this.Spans[ref.ToIndex];
-                        let size = span_to.Right - span_to.Left;
+                        let size = span_to.Max - span_to.Min;
                         if (size <= 20)
                         {
                             span.SizeStrength = 0.01;
@@ -429,14 +426,14 @@ namespace WM
                     }
                 }
 
-                let right_ref_info = control_graph.RefInfos[index * 4 + Side.Right];
-                for (let i = 0; i < right_ref_info.NbRefs; i++)
+                let max_ref_info = control_graph.RefInfos[index * 4 + Side.Right];
+                for (let i = 0; i < max_ref_info.NbRefs; i++)
                 {
-                    let ref = right_ref_info.GetControlRef(i);
+                    let ref = max_ref_info.GetControlRef(i);
                     if (ref.ToIndex != -1)
                     {
                         let span_to = this.Spans[ref.ToIndex];
-                        let size = span_to.Right - span_to.Left;
+                        let size = span_to.Max - span_to.Min;
                         if (size <= 20)
                         {
                             span.SizeStrength = 0.01;
@@ -452,7 +449,7 @@ namespace WM
             for (let span of this.Spans)
             {
                 if (span)
-                    console.log("Span: ", span.Title, span.Left, "->", span.Right, "...", span.SideDistance, "/", span.SizeStrength);
+                    console.log("Span: ", span.Title, span.Min, "->", span.Max, "...", span.SideDistance, "/", span.SizeStrength);
                 else
                     console.log("Null Span");
             }
