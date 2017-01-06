@@ -908,37 +908,6 @@ namespace WM
                 this.MakeAnchorControlIsland();
             }
 
-            // Identify islands within the window
-            // Maintain size of externally anchored windows?
-            // Except when they come up against each other and need to be shared.
-            // In fact, try and maintain size of everything.
-
-            // What happens if the control is a button?
-            // Don't want to minimise enough to squash the button and not be able to
-            // restore its size by enlarging the container again.
-            //
-            // Don't resize at all unless squashed?
-            //
-            // So if you anchor buttons to the right and stack them next to each other, then resize
-            // the window it won't squash them but push them to the left of the window. That prevents
-            // you having to keep the original sizes around
-            //
-            // So unless there is route from one side to the other, don't resize. And only then resize
-            // the external bits at the last minute.
-            // So that will work for typical docking setup but won't work for an array of buttons.
-
-            // Need to identify strands of connectivity both horizontally and vertically.
-            //
-
-            // Instead of resizing the inner controls, collapse the most inner one to zero?
-
-            // 1. Identify edge snaps on the left.
-            // 2. Identify edge snaps on the right.
-            // 3. Pull all those from a global list of controls.
-
-            // At some point a control reaches minimum size and the control next to it will
-            // become a blocker instead
-
             // Gather auto-anchor controls for children on bottom and right resizers
             /*let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
             if (mask.x > 0 || mask.y > 0)
@@ -949,12 +918,6 @@ namespace WM
             // this window increasing in size
             if (mask.x < 0 || mask.y < 0)
                 this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, -1);*/
-        }
-
-        private BeginChildResize(event: MouseEvent)
-        {
-            this.DragWindowStartPosition = this.Position.Copy();
-            this.DragWindowStartSize = this.Size.Copy();
         }
 
         private OnBeginSize = (event: MouseEvent, in_mask: int2, master_control: boolean) =>
@@ -987,17 +950,6 @@ namespace WM
             this.Sizer.Build(this, this.SizeGraph);
             this.Sizer.DebugLog();
 
-            for (let control_info of this.SizeGraph.RefInfos)
-            {
-                // Only process the first one
-                if (control_info.Side == Side.Left)
-                {
-                    let window = control_info.Control as Window;
-                    if (window)
-                        window.BeginChildResize(event);
-                }
-            }
-
             this.SizerMoved = false;
 
             if (master_control)
@@ -1023,49 +975,6 @@ namespace WM
             }
         }
         
-        /*private ChildSize(side: Side, offset: int2, mask: int2, blocked: boolean, oddness: number)
-        {
-            if (this.Size.x <= 20)
-                return;
-
-            if (side == Side.Left)
-            {
-                //if (blocked)
-                //{
-                //    this.Size = new int2(this.DragWindowStartSize.x + offset.x * mask.x / 2, this.Size.y);
-                //}
-            }
-            else if (side == Side.Right)
-            {
-                // Evenly balanced
-                if (blocked
-                // && oddness
-                )
-                {
-                    this.Size = new int2(this.DragWindowStartSize.x + offset.x * mask.x, this.Size.y);
-                }
-                // Single separating control
-                //else if (blocked)
-                //{
-                //    this.Position = new int2(this.DragWindowStartPosition.x + offset.x * mask.x / 2, this.Position.y);
-                //    this.Size = new int2(this.DragWindowStartSize.x + offset.x * mask.x / 2, this.Size.y);
-                //}
-                else
-                {
-                    this.Position = new int2(this.DragWindowStartPosition.x + offset.x * mask.x, this.Position.y);
-                }
-            }
-        }*/
-        private ChildSize(side: Side, offset: int2, mask: int2, blocked: boolean, oddness: number)
-        {
-            if (side == Side.Right)
-            {
-                {
-                    this.Position = new int2(this.DragWindowStartPosition.x + offset.x * mask.x, this.Position.y);
-                }
-            }
-        }
-
         private OnSize = (event: MouseEvent, mask: int2, offset_scale: number, master_offset: int2) =>
         {
             // Use the offset from the mouse start position to drag the edge around
@@ -1133,115 +1042,6 @@ namespace WM
                 }
             }
 
-/*           if (this.SizeGraph)
-            {
-                let left_controls: number[] = [];
-                let right_controls: number[] = [];
-
-                let blocking_control: Side[] = [];
-                for (let i = 0; i < this.Controls.length; i++)
-                    blocking_control[i] = Side.None;
-
-                for (let i = 0; i < this.Controls.length; i++)
-                {
-                    if (mask.x != 0)
-                    {
-                        if (this.SizeGraph.RefInfos[i * 4 + Side.Right].References(this))
-                            right_controls.push(i);
-                        else if (this.SizeGraph.RefInfos[i * 4 + Side.Left].References(this))
-                            left_controls.push(i);
-                    }
-                }
-
-                // TODO: Run graph generation only when new anchors are made? This would prevent resizing
-                // of the parent changing the graph.
-
-                let passed_offset = offset;
-
-                let oddness = 0;
-                while (right_controls.length && left_controls.length)
-                {
-                    let next_left_controls: number[] = [];
-                     let next_right_controls: number[] = [];
-
-                    // Mark blockers before resizing
-                    for (let index of left_controls)
-                        blocking_control[index] = Side.Left;
-                    for (let index of right_controls)
-                        blocking_control[index] = Side.Right;
-
-                    for (let index of left_controls)
-                    {
-                        let blocked = false;
-                        let right_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Right];
-                        for (let i = 0; i < right_control_info.NbRefs; i++)
-                        {
-                            let control_ref = right_control_info.GetControlRef(i);
-
-                            // Stop at auto-anchors to the parent container
-                            // (not that you should get here as the blockers should prevent it)
-                            if (control_ref.ToIndex == -1)
-                                continue;
-                            
-                            // Stop at blocking controls coming from the other side
-                            if (blocking_control[control_ref.ToIndex] == Side.Right)
-                            {
-                                blocked = true;
-                                continue;
-                            }
-
-                            if (next_left_controls.indexOf(control_ref.ToIndex) == -1)
-                                next_left_controls.push(control_ref.ToIndex);
-                        }
-
-                        let window = this.Controls[index] as Window;
-                        if (window != null)
-                            window.ChildSize(Side.Left, offset, mask, blocked, oddness);
-                    }
-
-                    for (let index of right_controls)
-                    {
-                        let blocked = false;
-                        let left_control_info = this.SizeGraph.RefInfos[index * 4 + Side.Left];
-                        for (let i = 0; i < left_control_info.NbRefs; i++)
-                        {
-                            let control_ref = left_control_info.GetControlRef(i);
-
-                            // Stop at auto-anchors to the parent container
-                            // (not that you should get here as the blockers should prevent it)
-                            if (control_ref.ToIndex == -1)
-                                continue;
-                            
-                            // Stop at blocking controls coming from the other side
-                            if (blocking_control[control_ref.ToIndex] == Side.Left)
-                            {
-                                blocked = true;
-                                continue;
-                            }
-
-                            if (control_ref.To.Size.x <= 20)
-                            {
-                                blocked = true;
-                                //passed_offset.x = 0;
-                                continue;
-                            }
-
-                            if (next_right_controls.indexOf(control_ref.ToIndex) == -1)
-                                next_right_controls.push(control_ref.ToIndex);
-                        }
-
-                        let window = this.Controls[index] as Window;
-                        if (window != null)
-                            window.ChildSize(Side.Right, passed_offset, mask, blocked, oddness);
-                    }
-
-                    left_controls = next_left_controls;
-                    right_controls = next_right_controls;
-
-                    oddness ^= 1;
-                }
-            }
-*/
             if (this.SizeGraph)
             {
                 this.Sizer.ChangeSize(this.ControlParentNode.Size.x, this.SizeGraph);
