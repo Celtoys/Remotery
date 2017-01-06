@@ -60,6 +60,12 @@ namespace WM
         {
             this.ContainerRestSize = container.ControlParentNode.Size.x;
 
+            // Clear previous constraints
+            this.Rects = [];
+            this.ContainerConstraints = [];
+            this.BufferConstraints = [];
+            this.SizeConstraints = [];
+
             // Build the rect list
             for (let control of container.Controls)
             {
