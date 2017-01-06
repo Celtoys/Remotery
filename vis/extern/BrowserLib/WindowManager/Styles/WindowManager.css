@@ -119,6 +119,7 @@ body
 {
 	height: 17px;
 	cursor: move;
+	overflow: hidden;
 
 	border-bottom: 1px solid #303030;
 	border-radius: 5px;
