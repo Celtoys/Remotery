@@ -131,7 +131,7 @@ namespace WM
             // Copy simulation back to the controls
             for (let span of this.Spans)
             {
-                if (this.MinSide == this.MinSide)
+                if (this.MinSide == Side.Left)
                 {
                     span.Control.Position = new int2(span.Min - half_delta_size, span.Control.Position.y);
                     span.Control.Size = new int2(span.Max - span.Min, span.Control.Size.y);
@@ -158,7 +158,7 @@ namespace WM
                 // Set initial parameters
                 let span = new Span();
                 span.Control = control;
-                if (this.MinSide == this.MinSide)
+                if (this.MinSide == Side.Left)
                 {
                     span.Min = control.TopLeft.x;
                     span.Max = control.BottomRight.x;
