@@ -47,7 +47,8 @@ namespace WM
         private MouseOffset: int2;
 
         private SizeGraph: ControlGraph;
-        private ControlSizer: ControlSizer;
+        private ControlSizerX: ControlSizer;
+        private ControlSizerY: ControlSizer;
 
         // List of controls that are auto-anchored to a container edge during sizing
         private AnchorControls: [Control, int2, number][];
@@ -469,9 +470,11 @@ namespace WM
             this.SizeGraph = new ControlGraph();
             this.SizeGraph.Build(this);
 
-            this.ControlSizer = new ControlSizer();
-            this.ControlSizer.Build(Side.Left, this, this.SizeGraph);
-            this.ControlSizer.DebugLog();
+            this.ControlSizerX = new ControlSizer();
+            this.ControlSizerX.Build(Side.Left, this, this.SizeGraph);
+
+            this.ControlSizerY = new ControlSizer();
+            this.ControlSizerY.Build(Side.Top, this, this.SizeGraph);
 
             this.SizerMoved = false;
 
@@ -567,7 +570,8 @@ namespace WM
 
             if (this.SizeGraph)
             {
-                this.ControlSizer.ChangeSize(this.ControlParentNode.Size.x, this.SizeGraph);
+                this.ControlSizerX.ChangeSize(this.ControlParentNode.Size.x, this.SizeGraph);
+                this.ControlSizerY.ChangeSize(this.ControlParentNode.Size.y, this.SizeGraph);
             }
 
             // Clamp window size to a minimum
