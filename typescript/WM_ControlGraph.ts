@@ -168,7 +168,7 @@ namespace WM
 
                 // Add references to the parent container
                 let b = Container.SnapBorderSize;
-                let s = container.Size;
+                let s = container.ControlParentNode.Size;
                 if (tl_0.x <= b)
                     this.Refs.push(new ControlRef(control_0_index, control_0, Side.Left, -1, container));
                 if (tl_0.y <= b)
