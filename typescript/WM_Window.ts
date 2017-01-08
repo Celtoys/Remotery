@@ -46,7 +46,7 @@ namespace WM
         private DragWindowStartSize: int2;
         private MouseOffset: int2;
 
-        private SizeGraph: ControlGraph;
+        private ControlGraph: ControlGraph;
         private ControlSizerX: ControlSizer;
         private ControlSizerY: ControlSizer;
 
@@ -449,14 +449,14 @@ namespace WM
             // TODO: Do this always; it has to be recursive
             // TODO: Only Build
             // TODO: Move all this into Container
-            this.SizeGraph = new ControlGraph();
-            this.SizeGraph.Build(this);
+            this.ControlGraph = new ControlGraph();
+            this.ControlGraph.Build(this);
 
             this.ControlSizerX = new ControlSizer();
-            this.ControlSizerX.Build(Side.Left, this, this.SizeGraph);
+            this.ControlSizerX.Build(Side.Left, this, this.ControlGraph);
 
             this.ControlSizerY = new ControlSizer();
-            this.ControlSizerY.Build(Side.Top, this, this.SizeGraph);
+            this.ControlSizerY.Build(Side.Top, this, this.ControlGraph);
 
             this.SizerMoved = false;
 
@@ -559,10 +559,10 @@ namespace WM
                 }
             }
 
-            if (this.SizeGraph)
+            if (this.ControlGraph)
             {
-                this.ControlSizerX.ChangeSize(this.ControlParentNode.Size.x, this.SizeGraph);
-                this.ControlSizerY.ChangeSize(this.ControlParentNode.Size.y, this.SizeGraph);
+                this.ControlSizerX.ChangeSize(this.ControlParentNode.Size.x, this.ControlGraph);
+                this.ControlSizerY.ChangeSize(this.ControlParentNode.Size.y, this.ControlGraph);
             }
 
             // Clamp window size to a minimum
