@@ -401,13 +401,13 @@ namespace WM
             this.AnchorControls = anchor_controls;
         }
 
-        private GatherAnchorControls(mask: int2)
+        private GatherAnchorControls(mask: int2, gather_sibling_controls: boolean)
         {
             // Reset list just in case end event isn't received
             this.AnchorControls = [];
 
             let parent_container = this.ParentContainer;
-            if (parent_container)
+            if (parent_container && gather_sibling_controls)
             {
                 // Gather auto-anchor controls from siblings on side resizers only
                 if ((mask.x != 0) != (mask.y != 0))
