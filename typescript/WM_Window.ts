@@ -401,14 +401,13 @@ namespace WM
             this.AnchorControls = anchor_controls;
         }
 
-        private GatherAnchorControls(mask: int2, gather_sibling_anchors: boolean)
+        private GatherAnchorControls(mask: int2)
         {
             // Reset list just in case end event isn't received
             this.AnchorControls = [];
 
-            // TODO: If child handling becomes a separate issue, can remove this boolean
             let parent_container = this.ParentContainer;
-            if (gather_sibling_anchors && parent_container)
+            if (parent_container)
             {
                 // Gather auto-anchor controls from siblings on side resizers only
                 if ((mask.x != 0) != (mask.y != 0))
@@ -430,17 +429,6 @@ namespace WM
                 // boundaries
                 this.MakeAnchorControlIsland();
             }
-
-            // Gather auto-anchor controls for children on bottom and right resizers
-            /*let this_br = int2.Sub(this.ControlParentNode.Size, int2.One);
-            if (mask.x > 0 || mask.y > 0)
-                this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, 1);
-            
-            // Gather auto-anchor controls for children on top and left resizers, inverting
-            // the mouse offset so that child sizing moves away from mouse movement to counter
-            // this window increasing in size
-            if (mask.x < 0 || mask.y < 0)
-                this.GetSnapControls(this_br, mask, [ ], this.AnchorControls, -1);*/
         }
 
         private OnBeginSize = (event: MouseEvent, in_mask: int2, master_control: boolean) =>
@@ -455,7 +443,7 @@ namespace WM
             let mask = in_mask || this.GetSizeMask(mouse_pos);
 
             // Start resizing gathered auto-anchors
-            this.GatherAnchorControls(mask, master_control);
+            this.GatherAnchorControls(mask);
             for (let control of this.AnchorControls)
             {
                 let window = control[0] as Window;
