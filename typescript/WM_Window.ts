@@ -46,9 +46,9 @@ namespace WM
         private DragWindowStartSize: int2;
         private MouseOffset: int2;
 
-        private ControlGraph: ControlGraph;
-        private ControlSizerX: ControlSizer;
-        private ControlSizerY: ControlSizer;
+        private ControlGraph: ControlGraph = new ControlGraph();
+        private ControlSizerX: ControlSizer = new ControlSizer();
+        private ControlSizerY: ControlSizer = new ControlSizer();
 
         // List of controls that are auto-anchored to a container edge during sizing
         private AnchorControls: [Control, int2][];
@@ -449,13 +449,8 @@ namespace WM
             // TODO: Do this always; it has to be recursive
             // TODO: Only Build
             // TODO: Move all this into Container
-            this.ControlGraph = new ControlGraph();
             this.ControlGraph.Build(this);
-
-            this.ControlSizerX = new ControlSizer();
             this.ControlSizerX.Build(Side.Left, this, this.ControlGraph);
-
-            this.ControlSizerY = new ControlSizer();
             this.ControlSizerY.Build(Side.Top, this, this.ControlGraph);
 
             this.SizerMoved = false;
