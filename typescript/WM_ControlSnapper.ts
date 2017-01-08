@@ -8,10 +8,10 @@ namespace WM
         Y    = 2,
     }
 
-    function SnapControl(pos: int2, snap_pos: int2, mask: int2, p_mask: int2, n_mask: int2, top_left: int2, bottom_right: int2) : int2
+    function SnapControl(pos: int2, snap_pos: int2, mask: int2, p_mask: int2, n_mask: int2, top_left: int2, bottom_right: int2) : SnapCode
     {
         let b = Container.SnapBorderSize;
-        let out_mask = new int2(0);
+        let snap_code = SnapCode.None;
 
         // Distance from input position to opposing corners of the control
         let d_tl = int2.Abs(int2.Sub(pos, top_left));
@@ -23,12 +23,12 @@ namespace WM
             if (d_tl.x < b)
             {
                 snap_pos.x = top_left.x - p_mask.x;
-                out_mask.x = -1;
+                snap_code |= SnapCode.X;
             }                    
             if (d_br.x < b)
             {
                 snap_pos.x = bottom_right.x + n_mask.x;
-                out_mask.x = 1;
+                snap_code |= SnapCode.X;
             }
         }
         if (mask.y != 0)
@@ -36,16 +36,16 @@ namespace WM
             if (d_tl.y < b)
             {
                 snap_pos.y = top_left.y - p_mask.y;
-                out_mask.y = -1;
+                snap_code |= SnapCode.Y;
             }                    
             if (d_br.y < b)
             {
                 snap_pos.y = bottom_right.y + n_mask.y;
-                out_mask.y = 1;
+                snap_code |= SnapCode.Y;
             }
         }
 
-        return out_mask;
+        return snap_code;
     }
         
     export function FindSnapControls(container: Container, pos: int2, mask: int2, excluding: Control[]) : [SnapCode, int2]
@@ -70,7 +70,7 @@ namespace WM
             var top_left = control.TopLeft;
             var bottom_right = control.BottomRight;
 
-            let out_mask = SnapControl(
+            snap_code |= SnapControl(
                 pos,
                 snap_pos,
                 mask,
@@ -78,14 +78,11 @@ namespace WM
                 n_mask,
                 control.TopLeft,
                 control.BottomRight);
-            
-            snap_code |= out_mask.x != 0 ? SnapCode.X : 0;
-            snap_code |= out_mask.y != 0 ? SnapCode.Y : 0;
         }
 
         // Snap to parent container bounds
         let parent_size = container.ControlParentNode.Size;
-        let out_mask = SnapControl(
+        snap_code |= SnapControl(
             pos,
             snap_pos,
             mask,
@@ -93,9 +90,6 @@ namespace WM
             n_mask,
             new int2(b),
             int2.Sub(parent_size, new int2(b)));
-
-        snap_code |= out_mask.x != 0 ? SnapCode.X : 0;
-        snap_code |= out_mask.y != 0 ? SnapCode.Y : 0;
 
         return [ snap_code, snap_pos ];
     }
