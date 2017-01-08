@@ -46,10 +46,6 @@ namespace WM
         private DragWindowStartSize: int2;
         private MouseOffset: int2;
 
-        private ControlGraph: ControlGraph = new ControlGraph();
-        private ControlSizerX: ControlSizer = new ControlSizer();
-        private ControlSizerY: ControlSizer = new ControlSizer();
-
         // List of controls that are auto-anchored to a container edge during sizing
         private AnchorControls: [Control, int2][];
 

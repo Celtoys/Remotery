@@ -10,6 +10,13 @@ namespace WM
         // List of controls contained by the window, in z-order
         Controls: Control[] = [];
 
+        // Connectivity graph for all controls in the container, allowing auto-anchor
+        protected ControlGraph: ControlGraph = new ControlGraph();
+
+        // Sizing simulation for controls on each axis
+        protected ControlSizerX: ControlSizer = new ControlSizer();
+        protected ControlSizerY: ControlSizer = new ControlSizer();
+
         constructor(position: int2, size: int2, node?: DOM.Node)
         {
             super(node ? node : new DOM.Node(Container.TemplateHTML), position, size);
