@@ -238,8 +238,8 @@ namespace WM
             if (parent_container)
             {
                 // Display last snap configuration on initial click
-                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null);
-                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null);
+                let snap_tl = FindSnapControls(parent_container, this.TopLeft, new int2(-1, -1), [ this ]);
+                let snap_br = FindSnapControls(parent_container, this.BottomRight, new int2(1, 1), [ this ]);
                 this.UpdateTLSnapRulers(snap_tl[0]);
                 this.UpdateBRSnapRulers(snap_br[0]);
             }
@@ -261,11 +261,11 @@ namespace WM
             let parent_container = this.ParentContainer;
             if (parent_container != null)
             {
-                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null);
+                let snap_tl = FindSnapControls(parent_container, this.TopLeft, new int2(-1, -1), [ this ]);
                 if (snap_tl[0] != SnapCode.None)
                     this.Position = snap_tl[1];
 
-                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null);
+                let snap_br = FindSnapControls(parent_container, this.BottomRight, new int2(1, 1), [ this ]);
                 if (snap_br[0] != SnapCode.None)
                     this.Position = int2.Sub(snap_br[1], this.Size);
 
@@ -523,7 +523,7 @@ namespace WM
             {
                 if (mask.x > 0 || mask.y > 0)
                 {
-                    let snap = parent_container.GetSnapControls(this.BottomRight, mask, exclude_controls, null);
+                    let snap = FindSnapControls(parent_container, this.BottomRight, mask, exclude_controls);
                     if (snap[0] != SnapCode.None)
                     {
                         // Adjust offset to allow anchored controls to match the snap motions
@@ -538,7 +538,7 @@ namespace WM
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
-                    let snap = parent_container.GetSnapControls(this.TopLeft, mask, exclude_controls, null);
+                    let snap = FindSnapControls(parent_container, this.TopLeft, mask, exclude_controls);
                     if (snap[0] != SnapCode.None)
                     {
                         // Adjust offset to allow anchored controls to match the snap motions

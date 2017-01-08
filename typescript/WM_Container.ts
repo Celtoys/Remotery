@@ -1,13 +1,6 @@
 
 namespace WM
 {
-    export const enum SnapCode
-    {
-        None = 0,
-        X    = 1,
-        Y    = 2,
-    }
-
     export class Container extends Control
     {
         static TemplateHTML = "<div class='Container'></div>";
