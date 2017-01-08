@@ -51,7 +51,7 @@ namespace WM
         private ControlSizerY: ControlSizer;
 
         // List of controls that are auto-anchored to a container edge during sizing
-        private AnchorControls: [Control, int2, number][];
+        private AnchorControls: [Control, int2][];
 
         // Transient snap rulers for each side
         private SnapRulers: Ruler[] = [ null, null, null, null ];
@@ -238,8 +238,8 @@ namespace WM
             if (parent_container)
             {
                 // Display last snap configuration on initial click
-                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null, 0);
-                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null, 0);
+                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null);
+                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null);
                 this.UpdateTLSnapRulers(snap_tl[0]);
                 this.UpdateBRSnapRulers(snap_br[0]);
             }
@@ -261,11 +261,11 @@ namespace WM
             let parent_container = this.ParentContainer;
             if (parent_container != null)
             {
-                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null, 0);
+                let snap_tl = parent_container.GetSnapControls(this.TopLeft, new int2(-1, -1), [ this ], null);
                 if (snap_tl[0] != SnapCode.None)
                     this.Position = snap_tl[1];
 
-                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null, 0);
+                let snap_br = parent_container.GetSnapControls(this.BottomRight, new int2(1, 1), [ this ], null);
                 if (snap_br[0] != SnapCode.None)
                     this.Position = int2.Sub(snap_br[1], this.Size);
 
@@ -354,7 +354,7 @@ namespace WM
             return aabb;
         }
 
-        private TakeConnectedAnchorControls(aabb_0: AABB, anchor_controls: [Control, int2, number][])
+        private TakeConnectedAnchorControls(aabb_0: AABB, anchor_controls: [Control, int2][])
         {
             // Search what's left of the anchor controls list for intersecting controls
             for (let i = 0; i < this.AnchorControls.length; )
@@ -384,7 +384,7 @@ namespace WM
         private MakeAnchorControlIsland()
         {
             // TODO: Intersection test doesn't work for overlap test!
-            let anchor_controls: [Control, int2, number][] = [ ];
+            let anchor_controls: [Control, int2][] = [ ];
 
             // First find all controls connected to this one
             let aabb_0 = this.MakeControlAABB(this);
@@ -414,12 +414,12 @@ namespace WM
                 {
                     if (mask.x > 0 || mask.y > 0)
                     {
-                        let snap = parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls, 1);
+                        let snap = parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls);
                         this.UpdateBRSnapRulers(snap[0]);
                     }
                     if (mask.x < 0 || mask.y < 0)
                     {
-                        let snap = parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls, 1);
+                        let snap = parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls);
                         this.UpdateTLSnapRulers(snap[0]);
                     }
                 }
@@ -443,7 +443,7 @@ namespace WM
             let mask = in_mask || this.GetSizeMask(mouse_pos);
 
             // Start resizing gathered auto-anchors
-            this.GatherAnchorControls(mask);
+            this.GatherAnchorControls(mask, master_control);
             for (let control of this.AnchorControls)
             {
                 let window = control[0] as Window;
@@ -480,7 +480,7 @@ namespace WM
                 }, 1000);
 
                 // Dynamically add handlers for movement and release
-                this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, 1, null); };
+                this.OnSizeDelegate = (event: MouseEvent) => { this.OnSize(event, mask, null); };
                 this.OnEndSizeDelegate = (event: MouseEvent) => { this.OnEndSize(event, mask); };
                 $(document).MouseMoveEvent.Subscribe(this.OnSizeDelegate);
                 $(document).MouseUpEvent.Subscribe(this.OnEndSizeDelegate);
@@ -489,7 +489,7 @@ namespace WM
             }
         }
         
-        private OnSize = (event: MouseEvent, mask: int2, offset_scale: number, master_offset: int2) =>
+        private OnSize = (event: MouseEvent, mask: int2, master_offset: int2) =>
         {
             // Use the offset from the mouse start position to drag the edge around
             let mouse_pos = DOM.Event.GetMousePosition(event);
@@ -503,9 +503,6 @@ namespace WM
                 return;
             }
             this.SizerMoved = true;
-
-            // Scale offset to invert or not
-            offset = int2.Mul(offset, new int2(offset_scale));
 
             // Size goes left/right with mask
             this.Size = int2.Add(this.DragWindowStartSize, int2.Mul(offset, mask));
@@ -526,7 +523,7 @@ namespace WM
             {
                 if (mask.x > 0 || mask.y > 0)
                 {
-                    let snap = parent_container.GetSnapControls(this.BottomRight, mask, exclude_controls, null, 0);
+                    let snap = parent_container.GetSnapControls(this.BottomRight, mask, exclude_controls, null);
                     if (snap[0] != SnapCode.None)
                     {
                         // Adjust offset to allow anchored controls to match the snap motions
@@ -541,7 +538,7 @@ namespace WM
                 }
                 if (mask.x < 0 || mask.y < 0)
                 {
-                    let snap = parent_container.GetSnapControls(this.TopLeft, mask, exclude_controls, null, 0);
+                    let snap = parent_container.GetSnapControls(this.TopLeft, mask, exclude_controls, null);
                     if (snap[0] != SnapCode.None)
                     {
                         // Adjust offset to allow anchored controls to match the snap motions
@@ -572,7 +569,7 @@ namespace WM
             {
                 let window = control[0] as Window;
                 if (window != null)
-                    window.OnSize(event, control[1], control[2], offset);
+                    window.OnSize(event, control[1], offset);
             }
 
             // The cursor will exceed the bounds of the resize element under sizing so

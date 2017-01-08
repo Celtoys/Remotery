@@ -125,7 +125,7 @@ namespace WM
             return out_mask;
         }
 
-        GetSnapControls(pos: int2, mask: int2, excluding: Control[], out_controls: [Control, int2, number][], offset_scale: number) : [SnapCode, int2]
+        GetSnapControls(pos: int2, mask: int2, excluding: Control[], out_controls: [Control, int2][]) : [SnapCode, int2]
         {
             // Selects between control edge and a border-distance outside the control edge
             let b = Container.SnapBorderSize;
@@ -161,7 +161,7 @@ namespace WM
 
                 // Collect sibling controls if asked to
                 if (out_controls && (out_mask.x != 0 || out_mask.y != 0))
-                    out_controls.push([control, out_mask, offset_scale]);
+                    out_controls.push([control, out_mask]);
             }
 
             // Snap to parent container bounds
