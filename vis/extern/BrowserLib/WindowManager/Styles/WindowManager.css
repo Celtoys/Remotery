@@ -133,6 +133,7 @@ body
 {
 	color: #BBB;
 	font: 9px Verdana;
+	white-space: nowrap;
 
 	padding: 3px;
 	cursor: move;
