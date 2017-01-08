@@ -413,15 +413,9 @@ namespace WM
                 if ((mask.x != 0) != (mask.y != 0))
                 {
                     if (mask.x > 0 || mask.y > 0)
-                    {
-                        let snap = parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls);
-                        this.UpdateBRSnapRulers(snap[0]);
-                    }
+                        parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls);
                     if (mask.x < 0 || mask.y < 0)
-                    {
-                        let snap = parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls);
-                        this.UpdateTLSnapRulers(snap[0]);
-                    }
+                        parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls);
                 }
 
                 // We don't want windows at disjoint locations getting dragged into
@@ -468,6 +462,18 @@ namespace WM
 
             if (master_control)
             {
+                // Display initial snap rulers
+                if (mask.x > 0 || mask.y > 0)
+                {
+                    let snap = FindSnapControls(this.ParentContainer, this.BottomRight, mask, [ this ]);
+                    this.UpdateBRSnapRulers(snap[0]);
+                }
+                if (mask.x < 0 || mask.y < 0)
+                {
+                    let snap = FindSnapControls(this.ParentContainer, this.TopLeft, mask, [ this ]);
+                    this.UpdateTLSnapRulers(snap[0]);
+                }
+
                 // If the sizer is held and not moved for a period, release all anchored controls
                 // so that it can be independently moved
                 setTimeout( () => 
