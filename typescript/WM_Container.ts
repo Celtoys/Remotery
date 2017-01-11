@@ -11,7 +11,7 @@ namespace WM
         Controls: Control[] = [];
 
         // Connectivity graph for all controls in the container, allowing auto-anchor
-        protected ControlGraph: ControlGraph = new ControlGraph();
+        ControlGraph: ControlGraph = new ControlGraph();
 
         // Sizing simulation for controls on each axis
         protected ControlSizerX: ControlSizer = new ControlSizer();

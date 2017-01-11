@@ -106,6 +106,9 @@ namespace WM
         {
             super.Show();
 
+            // Build control graph for all controls in this container
+            this.ControlGraph.Build(this);
+
             // Auto-anchor to nearby controls on each show
             // This catches initial adding of controls to a new window and
             // any size changes while the window is invisible
@@ -403,6 +406,26 @@ namespace WM
             this.AnchorControls = [];
 
             let parent_container = this.ParentContainer;
+            if (parent_container)
+            {
+                // Rebuild the connectivity graph for the parent
+                let control_graph = parent_container.ControlGraph;
+                control_graph.Build(parent_container);
+
+                // Iterate all references on all sides
+                let control_index = parent_container.Controls.indexOf(this);
+                for (let side = 0; side < 4; side++)
+                {
+                    let ref_info = control_graph.RefInfos[control_index * 4 + side];
+                    for (let ref_index = 0; ref_index < ref_info.NbRefs; ref_index++)
+                    {
+                        let ref = ref_info.GetControlRef(ref_index);
+                    }
+                }
+            }
+
+            //this.ControlGraph.RefInfos
+
             if (parent_container && gather_sibling_controls)
             {
                 // Gather auto-anchor controls from siblings on side resizers only
