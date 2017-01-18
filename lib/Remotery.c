@@ -43,6 +43,7 @@
     @CUDA:          CUDA event sampling
     @D3D11:         Direct3D 11 event sampling
     @OPENGL:        OpenGL event sampling
+    @METAL:         Metal event sampling
 */
 
 #define RMT_IMPL
@@ -141,6 +142,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 #endif
 
 
+
 rmtU8 minU8(rmtU8 a, rmtU8 b)
 {
     return a < b ? a : b;
@@ -180,7 +182,6 @@ static void rmtFree( void* ptr )
 #if RMT_USE_OPENGL
 // DLL/Shared Library functions
 
-#if defined (RMT_PLATFORM_WINDOWS)
 static void* rmtLoadLibrary(const char* path)
 {
     #if defined(RMT_PLATFORM_WINDOWS)
@@ -191,7 +192,6 @@ static void* rmtLoadLibrary(const char* path)
         return NULL;
     #endif
 }
-#endif
 
 static void rmtFreeLibrary(void* handle)
 {
@@ -484,6 +484,8 @@ static void WriteFence()
 {
 #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     _WriteBarrier();
+#elif defined (__clang__)
+	__asm__ volatile("" : : : "memory");
 #else
     asm volatile ("" : : : "memory");
 #endif
@@ -870,11 +872,11 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
 */
 
 
-struct Thread;
-typedef rmtError(*ThreadProc)(struct Thread* thread);
+typedef struct Thread_t rmtThread;
+typedef rmtError(*ThreadProc)(rmtThread* thread);
 
 
-typedef struct Thread
+struct Thread_t
 {
     // OS-specific data
     #if defined(RMT_PLATFORM_WINDOWS)
@@ -895,14 +897,14 @@ typedef struct Thread
     // External threads can set this to request an exit
     volatile rmtBool request_exit;
 
-} Thread;
+};
 
 
 #if defined(RMT_PLATFORM_WINDOWS)
 
     static DWORD WINAPI ThreadProcWindows(LPVOID lpParameter)
     {
-        Thread* thread = (Thread*)lpParameter;
+        rmtThread* thread = (rmtThread*)lpParameter;
         assert(thread != NULL);
         thread->error = thread->callback(thread);
         return thread->error == RMT_ERROR_NONE ? 1 : 0;
@@ -911,7 +913,7 @@ typedef struct Thread
 #else
     static void* StartFunc( void* pArgs )
     {
-        Thread* thread = (Thread*)pArgs;
+        rmtThread* thread = (rmtThread*)pArgs;
         assert(thread != NULL);
         thread->error = thread->callback(thread);
         return NULL; // returned error not use, check thread->error.
@@ -919,7 +921,7 @@ typedef struct Thread
 #endif
 
 
-static int Thread_Valid(Thread* thread)
+static int rmtThread_Valid(rmtThread* thread)
 {
     assert(thread != NULL);
 
@@ -931,7 +933,7 @@ static int Thread_Valid(Thread* thread)
 }
 
 
-static rmtError Thread_Constructor(Thread* thread, ThreadProc callback, void* param)
+static rmtError rmtThread_Constructor(rmtThread* thread, ThreadProc callback, void* param)
 {
     assert(thread != NULL);
 
@@ -972,7 +974,7 @@ static rmtError Thread_Constructor(Thread* thread, ThreadProc callback, void* pa
 }
 
 
-static void Thread_RequestExit(Thread* thread)
+static void rmtThread_RequestExit(rmtThread* thread)
 {
     // Not really worried about memory barriers or delayed visibility to the target thread
     assert(thread != NULL);
@@ -980,9 +982,9 @@ static void Thread_RequestExit(Thread* thread)
 }
 
 
-static void Thread_Join(Thread* thread)
+static void rmtThread_Join(rmtThread* thread)
 {
-    assert(Thread_Valid(thread));
+    assert(rmtThread_Valid(thread));
 
     #if defined(RMT_PLATFORM_WINDOWS)
     WaitForSingleObject(thread->handle, INFINITE);
@@ -992,15 +994,15 @@ static void Thread_Join(Thread* thread)
 }
 
 
-static void Thread_Destructor(Thread* thread)
+static void rmtThread_Destructor(rmtThread* thread)
 {
     assert(thread != NULL);
 
-    if (Thread_Valid(thread))
+    if (rmtThread_Valid(thread))
     {
         // Shutdown the thread
-        Thread_RequestExit(thread);
-        Thread_Join(thread);
+        rmtThread_RequestExit(thread);
+        rmtThread_Join(thread);
 
         // OS-specific release of thread resources
 
@@ -1806,10 +1808,10 @@ typedef struct
 
     // Data
     HashSlot* slots;
-} HashTable;
+} rmtHashTable;
 
 
-static rmtError HashTable_Constructor(HashTable* table, rmtU32 max_nb_slots)
+static rmtError rmtHashTable_Constructor(rmtHashTable* table, rmtU32 max_nb_slots)
 {
     // Default initialise
     assert(table != NULL);
@@ -1826,7 +1828,7 @@ static rmtError HashTable_Constructor(HashTable* table, rmtU32 max_nb_slots)
 }
 
 
-static void HashTable_Destructor(HashTable* table)
+static void rmtHashTable_Destructor(rmtHashTable* table)
 {
     assert(table != NULL);
 
@@ -1838,10 +1840,10 @@ static void HashTable_Destructor(HashTable* table)
 }
 
 
-static rmtError HashTable_Resize(HashTable* table);
+static rmtError rmtHashTable_Resize(rmtHashTable* table);
 
 
-static rmtError HashTable_Insert(HashTable* table, rmtU32 key, rmtU32 value)
+static rmtError rmtHashTable_Insert(rmtHashTable* table, rmtU32 key, rmtU32 value)
 {
     HashSlot* slot = NULL;
     rmtError error = RMT_ERROR_NONE;
@@ -1878,16 +1880,15 @@ static rmtError HashTable_Insert(HashTable* table, rmtU32 key, rmtU32 value)
 
     // Resize when load factor is greater than 2/3
     if (table->nb_slots > (table->max_nb_slots * 2) / 3)
-        error = HashTable_Resize(table);
+        error = rmtHashTable_Resize(table);
 
     return error;
 }
 
 
-static rmtError HashTable_Resize(HashTable* table)
+static rmtError rmtHashTable_Resize(rmtHashTable* table)
 {
     rmtU32 old_max_nb_slots = table->max_nb_slots;
-    rmtU32 new_nb_occupied_slots = 0;
     HashSlot* new_slots = NULL;
     HashSlot* old_slots = table->slots;
 
@@ -1914,7 +1915,7 @@ static rmtError HashTable_Resize(HashTable* table)
     {
         HashSlot* slot = old_slots + i;
         if (slot->key != 0)
-            HashTable_Insert(table, slot->key, slot->key);
+            rmtHashTable_Insert(table, slot->key, slot->key);
     }
 
     free(old_slots);
@@ -1923,7 +1924,7 @@ static rmtError HashTable_Resize(HashTable* table)
 }
 
 
-static rmtU32 HashTable_Find(HashTable* table, rmtU32 key)
+static rmtU32 rmtHashTable_Find(rmtHashTable* table, rmtU32 key)
 {
     // Calculate initial slot location for this key
     rmtU32 index_mask = table->max_nb_slots - 1;
@@ -1961,7 +1962,7 @@ typedef struct
     Buffer* text;
 
     // Map from text hash to text location in the buffer
-    HashTable* text_map;
+    rmtHashTable* text_map;
 } StringTable;
 
 
@@ -1980,7 +1981,7 @@ static rmtError StringTable_Constructor(StringTable* table)
     if (error != RMT_ERROR_NONE)
         return error;
 
-    New_1(HashTable, table->text_map, 1 * 1024);
+    New_1(rmtHashTable, table->text_map, 1 * 1024);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -1992,14 +1993,14 @@ static void StringTable_Destructor(StringTable* table)
 {
     assert(table != NULL);
 
-    Delete(HashTable, table->text_map);
+    Delete(rmtHashTable, table->text_map);
     Delete(Buffer, table->text);
 }
 
 
 static rmtPStr StringTable_Find(StringTable* table, rmtU32 name_hash)
 {
-    rmtU32 text_offset = HashTable_Find(table->text_map, name_hash);
+    rmtU32 text_offset = rmtHashTable_Find(table->text_map, name_hash);
     if (text_offset != RMT_NOT_FOUND)
         return (rmtPStr)(table->text->data + text_offset);
     return NULL;
@@ -2009,13 +2010,13 @@ static rmtPStr StringTable_Find(StringTable* table, rmtU32 name_hash)
 static void StringTable_Insert(StringTable* table, rmtU32 name_hash, rmtPStr name)
 {
     // Only add to the buffer if the string isn't already there
-    rmtU32 text_offset = HashTable_Find(table->text_map, name_hash);
+    rmtU32 text_offset = rmtHashTable_Find(table->text_map, name_hash);
     if (text_offset == RMT_NOT_FOUND)
     {
         // TODO: Allocation errors aren't being passed on to the caller
         text_offset = table->text->bytes_used;
         Buffer_WriteStringZ(table->text, name);
-        HashTable_Insert(table->text_map, name_hash, text_offset);
+        rmtHashTable_Insert(table->text_map, name_hash, text_offset);
     }
 }
 
@@ -3298,7 +3299,7 @@ typedef struct Message
 
 // Multiple producer, single consumer message queue that uses its own data buffer
 // to store the message data.
-typedef struct MessageQueue
+typedef struct rmtMessageQueue
 {
     rmtU32 size;
 
@@ -3312,10 +3313,10 @@ typedef struct MessageQueue
     rmtU32 read_pos;
     rmtU32 write_pos;
 
-} MessageQueue;
+} rmtMessageQueue;
 
 
-static rmtError MessageQueue_Constructor(MessageQueue* queue, rmtU32 size)
+static rmtError rmtMessageQueue_Constructor(rmtMessageQueue* queue, rmtU32 size)
 {
     rmtError error;
 
@@ -3342,14 +3343,14 @@ static rmtError MessageQueue_Constructor(MessageQueue* queue, rmtU32 size)
 }
 
 
-static void MessageQueue_Destructor(MessageQueue* queue)
+static void rmtMessageQueue_Destructor(rmtMessageQueue* queue)
 {
     assert(queue != NULL);
     Delete(VirtualMirrorBuffer, queue->data);
 }
 
 
-static rmtU32 MessageQueue_SizeForPayload(rmtU32 payload_size)
+static rmtU32 rmtMessageQueue_SizeForPayload(rmtU32 payload_size)
 {
     // Add message header and align for ARM platforms
     rmtU32 size = sizeof(Message) + payload_size;
@@ -3358,11 +3359,11 @@ static rmtU32 MessageQueue_SizeForPayload(rmtU32 payload_size)
 }
 
 
-static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_size, struct ThreadSampler* thread_sampler)
+static Message* rmtMessageQueue_AllocMessage(rmtMessageQueue* queue, rmtU32 payload_size, struct ThreadSampler* thread_sampler)
 {
     Message* msg;
 
-    rmtU32 write_size = MessageQueue_SizeForPayload(payload_size);
+    rmtU32 write_size = rmtMessageQueue_SizeForPayload(payload_size);
 
     assert(queue != NULL);
 
@@ -3392,7 +3393,7 @@ static Message* MessageQueue_AllocMessage(MessageQueue* queue, rmtU32 payload_si
 }
 
 
-static void MessageQueue_CommitMessage(Message* message, MessageID id)
+static void rmtMessageQueue_CommitMessage(Message* message, MessageID id)
 {
     assert(message != NULL);
 
@@ -3405,7 +3406,7 @@ static void MessageQueue_CommitMessage(Message* message, MessageID id)
 }
 
 
-Message* MessageQueue_PeekNextMessage(MessageQueue* queue)
+Message* rmtMessageQueue_PeekNextMessage(rmtMessageQueue* queue)
 {
     Message* ptr;
     rmtU32 r;
@@ -3428,7 +3429,7 @@ Message* MessageQueue_PeekNextMessage(MessageQueue* queue)
 }
 
 
-static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* message)
+static void rmtMessageQueue_ConsumeNextMessage(rmtMessageQueue* queue, Message* message)
 {
     rmtU32 message_size;
 
@@ -3444,7 +3445,7 @@ static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* messag
     // the read position so that a winning thread's allocation will inherit the "not ready" state.
     //
     // This costs some write bandwidth and has the potential to flush cache to other cores.
-    message_size = MessageQueue_SizeForPayload(message->payload_size);
+    message_size = rmtMessageQueue_SizeForPayload(message->payload_size);
     memset(message, MsgID_NotReady, message_size);
 
     // Ensure clear completes before advancing the read position
@@ -3453,7 +3454,7 @@ static void MessageQueue_ConsumeNextMessage(MessageQueue* queue, Message* messag
 }
 
 
-static rmtBool MessageQueue_IsEmpty(MessageQueue* queue)
+static rmtBool rmtMessageQueue_IsEmpty(rmtMessageQueue* queue)
 {
     assert(queue != NULL);
     return queue->write_pos - queue->read_pos == 0;
@@ -3469,7 +3470,7 @@ static rmtBool MessageQueue_IsEmpty(MessageQueue* queue)
 */
 
 
-typedef void(*Server_ReceiveHandler)(void*, char*, rmtU32);
+typedef rmtError (*Server_ReceiveHandler)(void*, char*, rmtU32);
 
 
 typedef struct
@@ -3587,9 +3588,9 @@ static rmtError Server_ReceiveMessage(Server* server, char message_first_byte, r
 
     // Dispatch to handler
     if (server->receive_handler)
-        server->receive_handler(server->receive_handler_context, message_data, message_length);
+        error = server->receive_handler(server->receive_handler_context, message_data, message_length);
 
-    return RMT_ERROR_NONE;
+    return error;
 }
 
 
@@ -3693,6 +3694,7 @@ enum SampleType
     SampleType_CUDA,
     SampleType_D3D11,
     SampleType_OpenGL,
+    SampleType_Metal,
     SampleType_Count,
 };
 
@@ -4019,12 +4021,12 @@ typedef struct Msg_SampleTree
 } Msg_SampleTree;
 
 
-static void AddSampleTreeMessage(MessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name, struct ThreadSampler* thread_sampler)
+static void AddSampleTreeMessage(rmtMessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name, struct ThreadSampler* thread_sampler)
 {
     Msg_SampleTree* payload;
 
     // Attempt to allocate a message for sending the tree to the viewer
-    Message* message = MessageQueue_AllocMessage(queue, sizeof(Msg_SampleTree), thread_sampler);
+    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_SampleTree), thread_sampler);
     if (message == NULL)
     {
         // Discard the tree on failure
@@ -4037,7 +4039,7 @@ static void AddSampleTreeMessage(MessageQueue* queue, Sample* sample, ObjectAllo
     payload->root_sample = sample;
     payload->allocator = allocator;
     payload->thread_name = thread_name;
-    MessageQueue_CommitMessage(message, MsgID_SampleTree);
+    rmtMessageQueue_CommitMessage(message, MsgID_SampleTree);
 }
 
 
@@ -4128,7 +4130,7 @@ static rmtError ThreadSampler_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 fl
 }
 
 
-static rmtBool ThreadSampler_Pop(ThreadSampler* ts, MessageQueue* queue, Sample* sample)
+static rmtBool ThreadSampler_Pop(ThreadSampler* ts, rmtMessageQueue* queue, Sample* sample)
 {
     SampleTree* tree = ts->sample_trees[sample->type];
     SampleTree_Pop(tree, sample);
@@ -4197,9 +4199,16 @@ static void D3D11_Destructor(D3D11* d3d11);
 
 
 #if RMT_USE_OPENGL
-typedef struct OpenGL OpenGL;
+typedef struct OpenGL_t OpenGL;
 static rmtError OpenGL_Create(OpenGL** opengl);
 static void OpenGL_Destructor(OpenGL* opengl);
+#endif
+
+
+#if RMT_USE_METAL
+typedef struct Metal_t Metal;
+static rmtError Metal_Create(Metal** metal);
+static void Metal_Destructor(Metal* metal);
 #endif
 
 
@@ -4216,13 +4225,13 @@ struct Remotery
     ThreadSampler* volatile first_thread_sampler;
 
     // Queue between clients and main remotery thread
-    MessageQueue* mq_to_rmt_thread;
+    rmtMessageQueue* mq_to_rmt_thread;
 
     // A dynamically-sized buffer used for binary-encoding the sample tree and sending to the client
     Buffer* bin_buf;
 
     // The main server thread
-    Thread* thread;
+    rmtThread* thread;
 
 #if RMT_USE_CUDA
     rmtCUDABind cuda;
@@ -4234,6 +4243,10 @@ struct Remotery
 
 #if RMT_USE_OPENGL
     OpenGL* opengl;
+#endif
+
+#if RMT_USE_METAL
+    Metal* metal;
 #endif
 };
 
@@ -4339,6 +4352,8 @@ static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
         strncat_s(thread_name, sizeof(thread_name), " (D3D11)", 8);
     if (root_sample->type == SampleType_OpenGL)
         strncat_s(thread_name, sizeof(thread_name), " (OpenGL)", 9);
+    if (root_sample->type == SampleType_Metal)
+        strncat_s(thread_name, sizeof(thread_name), " (Metal)", 8);
 
     // Get digest hash of samples so that viewer can efficiently rebuild its tables
     rmt_BeginCPUSample(GetSampleDigest, RMTSF_Aggregate);
@@ -4346,7 +4361,7 @@ static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
     rmt_EndCPUSample();
 
     // Write global message header
-    BIN_ERROR_CHECK(Buffer_Write(buffer, "SMPL    ", 8));
+    BIN_ERROR_CHECK(Buffer_Write(buffer, (void*)"SMPL    ", 8));
 
     // Write sample message header
     BIN_ERROR_CHECK(Buffer_WriteStringWithLength(buffer, thread_name));
@@ -4439,7 +4454,7 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
     while( nb_messages_sent++ < maxNbMessagesPerUpdate )
     {
         rmtError error = RMT_ERROR_NONE;
-        Message* message = MessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
+        Message* message = rmtMessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
         if (message == NULL)
             break;
 
@@ -4462,7 +4477,7 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
         }
 
         // Consume the message before reacting to any errors
-        MessageQueue_ConsumeNextMessage(rmt->mq_to_rmt_thread, message);
+        rmtMessageQueue_ConsumeNextMessage(rmt->mq_to_rmt_thread, message);
         if (error != RMT_ERROR_NONE)
             return error;
     }
@@ -4478,7 +4493,7 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
     // Loop reading all remaining messages
     for (;;)
     {
-        Message* message = MessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
+        Message* message = rmtMessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
         if (message == NULL)
             break;
 
@@ -4498,12 +4513,12 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
             }
         }
 
-        MessageQueue_ConsumeNextMessage(rmt->mq_to_rmt_thread, message);
+        rmtMessageQueue_ConsumeNextMessage(rmt->mq_to_rmt_thread, message);
     }
 }
 
 
-static rmtError Remotery_ThreadMain(Thread* thread)
+static rmtError Remotery_ThreadMain(rmtThread* thread)
 {
     Remotery* rmt = (Remotery*)thread->param;
     assert(rmt != NULL);
@@ -4545,7 +4560,7 @@ static rmtError Remotery_ThreadMain(Thread* thread)
 }
 
 
-static void Remotery_ReceiveMessage(void* context, char* message_data, rmtU32 message_length)
+static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU32 message_length)
 {
     Remotery* rmt = (Remotery*)context;
 
@@ -4594,8 +4609,7 @@ static void Remotery_ReceiveMessage(void* context, char* message_data, rmtU32 me
                     memcpy(response + 12, name, name_length);
 
                     // Send back immediately as we're on the server thread
-                    Server_Send(rmt->server, response, 12 + name_length, 10);
-                    break;
+                    return Server_Send(rmt->server, response, 12 + name_length, 10);
                 }
             }
 
@@ -4604,6 +4618,8 @@ static void Remotery_ReceiveMessage(void* context, char* message_data, rmtU32 me
     }
 
     #undef FOURCC
+
+    return RMT_ERROR_NONE;
 }
 
 
@@ -4638,6 +4654,10 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         rmt->opengl = NULL;
     #endif
 
+    #if RMT_USE_METAL
+        rmt->metal = NULL;
+    #endif
+
     // Kick-off the timer
     usTimer_Init(&rmt->timer);
 
@@ -4656,7 +4676,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->server->receive_handler_context = rmt;
 
     // Create the main message thread with only one page
-    New_1(MessageQueue, rmt->mq_to_rmt_thread, g_Settings.messageQueueSizeInBytes);
+    New_1(rmtMessageQueue, rmt->mq_to_rmt_thread, g_Settings.messageQueueSizeInBytes);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -4677,6 +4697,13 @@ static rmtError Remotery_Constructor(Remotery* rmt)
             return error;
     #endif
 
+    #if RMT_USE_METAL
+        error = Metal_Create(&rmt->metal);
+        if (error != RMT_ERROR_NONE)
+            return error;
+    #endif
+
+
     // Set as the global instance before creating any threads that uses it for sampling itself
     assert(g_Remotery == NULL);
     g_Remotery = rmt;
@@ -4686,7 +4713,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     WriteFence();
 
     // Create the main update thread once everything has been defined for the global remotery object
-    New_2(Thread, rmt->thread, Remotery_ThreadMain, rmt);
+    New_2(rmtThread, rmt->thread, Remotery_ThreadMain, rmt);
     return error;
 }
 
@@ -4696,7 +4723,7 @@ static void Remotery_Destructor(Remotery* rmt)
     assert(rmt != NULL);
 
     // Join the remotery thread before clearing the global object as the thread is profiling itself
-    Delete(Thread, rmt->thread);
+    Delete(rmtThread, rmt->thread);
 
     if (g_RemoteryCreated)
     {
@@ -4712,8 +4739,12 @@ static void Remotery_Destructor(Remotery* rmt)
         Delete(OpenGL, rmt->opengl);
     #endif
 
+    #if RMT_USE_METAL
+        Delete(Metal, rmt->metal);
+    #endif
+
     Delete(Buffer, rmt->bin_buf);
-    Delete(MessageQueue, rmt->mq_to_rmt_thread);
+    Delete(rmtMessageQueue, rmt->mq_to_rmt_thread);
 
     Remotery_DestroyThreadSamplers(rmt);
 
@@ -4966,7 +4997,7 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 }
 
 
-static rmtBool QueueLine(MessageQueue* queue, unsigned char* text, rmtU32 size, struct ThreadSampler* thread_sampler)
+static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 size, struct ThreadSampler* thread_sampler)
 {
     Message* message;
 
@@ -4977,13 +5008,13 @@ static rmtBool QueueLine(MessageQueue* queue, unsigned char* text, rmtU32 size, 
     U32ToByteArray(text + 4, text_size);
 
     // Allocate some space for the line
-    message = MessageQueue_AllocMessage(queue, size, thread_sampler);
+    message = rmtMessageQueue_AllocMessage(queue, size, thread_sampler);
     if (message == NULL)
         return RMT_FALSE;
 
     // Copy the text and commit the message
     memcpy(message->payload, text, size);
-    MessageQueue_CommitMessage(message, MsgID_LogText);
+    rmtMessageQueue_CommitMessage(message, MsgID_LogText);
 
     return RMT_TRUE;
 }
@@ -5437,7 +5468,7 @@ typedef struct D3D11
     // Queue to the D3D 11 main update thread
     // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
     // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
-    MessageQueue* mq_to_d3d11_main;
+    rmtMessageQueue* mq_to_d3d11_main;
 
     // Mark the first time so that remaining timestamps are offset from this
     rmtU64 first_timestamp;
@@ -5462,7 +5493,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
     (*d3d11)->mq_to_d3d11_main = NULL;
     (*d3d11)->first_timestamp = 0;
 
-    New_1(MessageQueue, (*d3d11)->mq_to_d3d11_main, g_Settings.messageQueueSizeInBytes);
+    New_1(rmtMessageQueue, (*d3d11)->mq_to_d3d11_main, g_Settings.messageQueueSizeInBytes);
     if (error != RMT_ERROR_NONE)
     {
         Delete(D3D11, *d3d11);
@@ -5476,7 +5507,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
 static void D3D11_Destructor(D3D11* d3d11)
 {
     assert(d3d11 != NULL);
-    Delete(MessageQueue, d3d11->mq_to_d3d11_main);
+    Delete(rmtMessageQueue, d3d11->mq_to_d3d11_main);
 }
 
 
@@ -5675,7 +5706,7 @@ RMT_API void _rmt_UnbindD3D11(void)
         assert(d3d11 != NULL);
 
         // Stall waiting for the D3D queue to empty into the Remotery queue
-        while (!MessageQueue_IsEmpty(d3d11->mq_to_d3d11_main))
+        while (!rmtMessageQueue_IsEmpty(d3d11->mq_to_d3d11_main))
             UpdateD3D11Frame();
 
         // Inform sampler to not add any more samples
@@ -5788,7 +5819,7 @@ static void UpdateD3D11Frame(void)
         Msg_SampleTree* sample_tree;
         Sample* sample;
 
-        Message* message = MessageQueue_PeekNextMessage(d3d11->mq_to_d3d11_main);
+        Message* message = rmtMessageQueue_PeekNextMessage(d3d11->mq_to_d3d11_main);
         if (message == NULL)
             break;
 
@@ -5805,7 +5836,7 @@ static void UpdateD3D11Frame(void)
 
         // Pass samples onto the remotery thread for sending to the viewer
         AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
-        MessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
+        rmtMessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
     }
 
     rmt_EndCPUSample();
@@ -5909,18 +5940,18 @@ typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
 
 #define RMT_GL_GET_FUN(x) assert(g_Remotery->opengl->x != NULL); g_Remotery->opengl->x
 
-#define glGenQueries RMT_GL_GET_FUN(__glGenQueries)
-#define glDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
-#define glBeginQuery RMT_GL_GET_FUN(__glBeginQuery)
-#define glEndQuery RMT_GL_GET_FUN(__glEndQuery)
-#define glGetQueryObjectiv RMT_GL_GET_FUN(__glGetQueryObjectiv)
-#define glGetQueryObjectuiv RMT_GL_GET_FUN(__glGetQueryObjectuiv)
-#define glGetQueryObjecti64v RMT_GL_GET_FUN(__glGetQueryObjecti64v)
-#define glGetQueryObjectui64v RMT_GL_GET_FUN(__glGetQueryObjectui64v)
-#define glQueryCounter RMT_GL_GET_FUN(__glQueryCounter)
+#define rmtglGenQueries RMT_GL_GET_FUN(__glGenQueries)
+#define rmtglDeleteQueries RMT_GL_GET_FUN(__glDeleteQueries)
+#define rmtglBeginQuery RMT_GL_GET_FUN(__glBeginQuery)
+#define rmtglEndQuery RMT_GL_GET_FUN(__glEndQuery)
+#define rmtglGetQueryObjectiv RMT_GL_GET_FUN(__glGetQueryObjectiv)
+#define rmtglGetQueryObjectuiv RMT_GL_GET_FUN(__glGetQueryObjectuiv)
+#define rmtglGetQueryObjecti64v RMT_GL_GET_FUN(__glGetQueryObjecti64v)
+#define rmtglGetQueryObjectui64v RMT_GL_GET_FUN(__glGetQueryObjectui64v)
+#define rmtglQueryCounter RMT_GL_GET_FUN(__glQueryCounter)
 
 
-typedef struct OpenGL
+struct OpenGL_t
 {
     // Handle to the OS OpenGL DLL
     void* dll_handle;
@@ -5939,11 +5970,11 @@ typedef struct OpenGL
     // Queue to the OpenGL main update thread
     // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
     // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
-    MessageQueue* mq_to_opengl_main;
+    rmtMessageQueue* mq_to_opengl_main;
 
     // Mark the first time so that remaining timestamps are offset from this
     rmtU64 first_timestamp;
-} OpenGL;
+};
 
 
 static GLenum rmtglGetError(void)
@@ -5970,22 +6001,21 @@ static GLenum rmtglGetError(void)
 
 static void* rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
 {
-    assert(opengl != NULL);
-
     #if defined(RMT_PLATFORM_WINDOWS)
     {
         // Get OpenGL extension-loading function for each call
         typedef void* (*wglGetProcAddressFn)(LPCSTR);
         {
+            assert(opengl != NULL);
             wglGetProcAddressFn wglGetProcAddress = (wglGetProcAddressFn)rmtGetProcAddress(opengl->dll_handle, "wglGetProcAddress");
             if (wglGetProcAddress != NULL)
                 return wglGetProcAddress(symbol);
         }
     }
 
-    #elif defined(__APPLE__) && !defined(GLEW_APPLE_GLX)
+    #elif defined(RMT_PLATFORM_MACOS) && !defined(GLEW_APPLE_GLX)
 
-        return NSGLGetProcAddress((const GLubyte*)symbol);
+        return rmtGetProcAddress(opengl->dll_handle, symbol);
 
     #elif defined(RMT_PLATFORM_LINUX)
 
@@ -6023,7 +6053,7 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     (*opengl)->mq_to_opengl_main = NULL;
     (*opengl)->first_timestamp = 0;
 
-    New_1(MessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
+    New_1(rmtMessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
     return error;
 }
 
@@ -6031,7 +6061,7 @@ static rmtError OpenGL_Create(OpenGL** opengl)
 static void OpenGL_Destructor(OpenGL* opengl)
 {
     assert(opengl != NULL);
-    Delete(MessageQueue, opengl->mq_to_opengl_main);
+    Delete(rmtMessageQueue, opengl->mq_to_opengl_main);
 }
 
 
@@ -6058,7 +6088,7 @@ static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
 
     // Create start/end timestamp queries
     assert(g_Remotery != NULL);
-    glGenQueries(2, stamp->queries);
+    rmtglGenQueries(2, stamp->queries);
     error = rmtglGetError();
     if (error != GL_NO_ERROR)
         return RMT_ERROR_OPENGL_ERROR;
@@ -6075,7 +6105,7 @@ static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
     if (stamp->queries[0] != 0)
     {
         int error;
-        glDeleteQueries(2, stamp->queries);
+        rmtglDeleteQueries(2, stamp->queries);
         error = rmtglGetError();
         assert(error == GL_NO_ERROR);
     }
@@ -6084,29 +6114,21 @@ static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
 
 static void OpenGLTimestamp_Begin(OpenGLTimestamp* stamp)
 {
-    int error;
-
     assert(stamp != NULL);
 
-    // Start of disjoint and first query
+    // First query
     assert(g_Remotery != NULL);
-    glQueryCounter(stamp->queries[0], GL_TIMESTAMP);
-    error = rmtglGetError();
-    assert(error == GL_NO_ERROR);
+    rmtglQueryCounter(stamp->queries[0], GL_TIMESTAMP);
 }
 
 
 static void OpenGLTimestamp_End(OpenGLTimestamp* stamp)
 {
-    int error;
-
     assert(stamp != NULL);
 
-    // End of disjoint and second query
+    // Second query
     assert(g_Remotery != NULL);
-    glQueryCounter(stamp->queries[1], GL_TIMESTAMP);
-    error = rmtglGetError();
-    assert(error == GL_NO_ERROR);
+    rmtglQueryCounter(stamp->queries[1], GL_TIMESTAMP);
 }
 
 
@@ -6123,21 +6145,21 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
 
     // Check to see if all queries are ready
     // If any fail to arrive, wait until later
-    glGetQueryObjectiv(stamp->queries[0], GL_QUERY_RESULT_AVAILABLE, &startAvailable);
+    rmtglGetQueryObjectiv(stamp->queries[0], GL_QUERY_RESULT_AVAILABLE, &startAvailable);
     error = rmtglGetError();
     assert(error == GL_NO_ERROR);
     if (!startAvailable)
         return RMT_FALSE;
-    glGetQueryObjectiv(stamp->queries[1], GL_QUERY_RESULT_AVAILABLE, &endAvailable);
+    rmtglGetQueryObjectiv(stamp->queries[1], GL_QUERY_RESULT_AVAILABLE, &endAvailable);
     error = rmtglGetError();
     assert(error == GL_NO_ERROR);
     if (!endAvailable)
         return RMT_FALSE;
 
-    glGetQueryObjectui64v(stamp->queries[0], GL_QUERY_RESULT, &start);
+    rmtglGetQueryObjectui64v(stamp->queries[0], GL_QUERY_RESULT, &start);
     error = rmtglGetError();
     assert(error == GL_NO_ERROR);
-    glGetQueryObjectui64v(stamp->queries[1], GL_QUERY_RESULT, &end);
+    rmtglGetQueryObjectui64v(stamp->queries[1], GL_QUERY_RESULT, &end);
     error = rmtglGetError();
     assert(error == GL_NO_ERROR);
 
@@ -6196,6 +6218,8 @@ RMT_API void _rmt_BindOpenGL()
 
         #if defined (RMT_PLATFORM_WINDOWS)
             opengl->dll_handle = rmtLoadLibrary("opengl32.dll");
+        #elif defined (RMT_PLATFORM_MACOS)
+            opengl->dll_handle = rmtLoadLibrary("/System/Library/Frameworks/OpenGL.framework/Versions/Current/OpenGL");
         #endif
 
         opengl->__glGetError = (PFNGLGETERRORPROC)rmtGetProcAddress(opengl->dll_handle, "glGetError");
@@ -6223,7 +6247,7 @@ RMT_API void _rmt_UnbindOpenGL(void)
         assert(opengl != NULL);
 
 		// Stall waiting for the OpenGL queue to empty into the Remotery queue
-		while (!MessageQueue_IsEmpty(opengl->mq_to_opengl_main))
+		while (!rmtMessageQueue_IsEmpty(opengl->mq_to_opengl_main))
 			UpdateOpenGLFrame();
 
 		// Forcefully delete sample tree on this thread to release time stamps from
@@ -6251,8 +6275,6 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
     {
         Sample* sample;
         rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
-
-        OpenGL* opengl = g_Remotery->opengl;
 
         // Create the OpenGL tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a OpenGL binding is not yet available.
@@ -6319,7 +6341,7 @@ static void UpdateOpenGLFrame(void)
         Msg_SampleTree* sample_tree;
         Sample* sample;
 
-        Message* message = MessageQueue_PeekNextMessage(opengl->mq_to_opengl_main);
+        Message* message = rmtMessageQueue_PeekNextMessage(opengl->mq_to_opengl_main);
         if (message == NULL)
             break;
 
@@ -6336,7 +6358,7 @@ static void UpdateOpenGLFrame(void)
 
         // Pass samples onto the remotery thread for sending to the viewer
         AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
-        MessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
+        rmtMessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
     }
 
     rmt_EndCPUSample();
@@ -6367,6 +6389,315 @@ RMT_API void _rmt_EndOpenGLSample(void)
 
 
 #endif  // RMT_USE_OPENGL
+
+
+
+/*
+ ------------------------------------------------------------------------------------------------------------------------
+ ------------------------------------------------------------------------------------------------------------------------
+ @Metal: Metal event sampling
+ ------------------------------------------------------------------------------------------------------------------------
+ ------------------------------------------------------------------------------------------------------------------------
+ */
+
+
+
+#if RMT_USE_METAL
+
+
+
+struct Metal_t
+{
+    // Queue to the Metal main update thread
+    // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
+    // is really no need for this to be a thread-safe queue. I'm using it for its convenience.
+    rmtMessageQueue* mq_to_metal_main;
+};
+
+
+static rmtError Metal_Create(Metal** metal)
+{
+    rmtError error;
+
+    assert(metal != NULL);
+
+    *metal = (Metal*)rmtMalloc(sizeof(Metal));
+    if (*metal == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    (*metal)->mq_to_metal_main = NULL;
+
+    New_1(rmtMessageQueue, (*metal)->mq_to_metal_main, g_Settings.messageQueueSizeInBytes);
+    return error;
+}
+
+
+static void Metal_Destructor(Metal* metal)
+{
+    assert(metal != NULL);
+    Delete(rmtMessageQueue, metal->mq_to_metal_main);
+}
+
+
+typedef struct MetalTimestamp
+{
+    // Inherit so that timestamps can be quickly allocated
+    ObjectLink Link;
+
+    // Output from GPU callbacks
+    rmtU64 start;
+    rmtU64 end;
+    rmtBool ready;
+} MetalTimestamp;
+
+
+static rmtError MetalTimestamp_Constructor(MetalTimestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    ObjectLink_Constructor((ObjectLink*)stamp);
+
+    // Set defaults
+    stamp->start = 0;
+    stamp->end = 0;
+    stamp->ready = RMT_FALSE;
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void MetalTimestamp_Destructor(MetalTimestamp* stamp)
+{
+    assert(stamp != NULL);
+}
+
+
+rmtU64 rmtMetal_usGetTime()
+{
+    // Share the CPU timer for auto-sync
+    assert(g_Remotery != NULL);
+    return usTimer_Get(&g_Remotery->timer);
+}
+
+
+void rmtMetal_MeasureCommandBuffer(unsigned long long* out_start, unsigned long long* out_end, unsigned int* out_ready);
+
+
+static void MetalTimestamp_Begin(MetalTimestamp* stamp)
+{
+    assert(stamp != NULL);
+    stamp->ready = RMT_FALSE;
+
+    // Metal can currently only issue callbacks at the command buffer level
+    // So for now measure execution of the entire command buffer
+    rmtMetal_MeasureCommandBuffer(&stamp->start, &stamp->end, &stamp->ready);
+}
+
+
+static void MetalTimestamp_End(MetalTimestamp* stamp)
+{
+    assert(stamp != NULL);
+
+    // As Metal can currently only measure entire command buffers, this function is a no-op
+    // as the completed handler was already issued in Begin
+}
+
+
+static rmtBool MetalTimestamp_GetData(MetalTimestamp* stamp, rmtU64* out_start, rmtU64* out_end)
+{
+    assert(g_Remotery != NULL);
+    assert(stamp != NULL);
+
+    // GPU writes ready flag when complete handler is called
+    if (stamp->ready == RMT_FALSE)
+        return RMT_FALSE;
+
+    *out_start = stamp->start;
+    *out_end = stamp->end;
+
+    return RMT_TRUE;
+}
+
+
+typedef struct MetalSample
+{
+    // IS-A inheritance relationship
+    Sample m_sample;
+
+    MetalTimestamp* timestamp;
+
+} MetalSample;
+
+
+static rmtError MetalSample_Constructor(MetalSample* sample)
+{
+    rmtError error;
+
+    assert(sample != NULL);
+
+    // Chain to sample constructor
+    Sample_Constructor((Sample*)sample);
+    sample->m_sample.type = SampleType_Metal;
+    sample->m_sample.size_bytes = sizeof(MetalSample);
+    New_0(MetalTimestamp, sample->timestamp);
+
+    return RMT_ERROR_NONE;
+}
+
+
+static void MetalSample_Destructor(MetalSample* sample)
+{
+    Delete(MetalTimestamp, sample->timestamp);
+    Sample_Destructor((Sample*)sample);
+}
+
+
+static void UpdateOpenGLFrame(void);
+
+
+/*RMT_API void _rmt_UnbindMetal(void)
+{
+    if (g_Remotery != NULL)
+    {
+        Metal* metal = g_Remotery->metal;
+        assert(metal != NULL);
+
+        // Stall waiting for the Metal queue to empty into the Remotery queue
+        while (!rmtMessageQueue_IsEmpty(metal->mq_to_metal_main))
+            UpdateMetalFrame();
+
+        // Forcefully delete sample tree on this thread to release time stamps from
+        // the same thread that created them
+        Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_Metal);
+    }
+}*/
+
+
+RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        Sample* sample;
+        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
+
+        // Create the Metal tree on-demand as the tree needs an up-front-created root.
+        // This is not possible to create on initialisation as a Metal binding is not yet available.
+        SampleTree** metal_tree = &ts->sample_trees[SampleType_Metal];
+        if (*metal_tree == NULL)
+        {
+            rmtError error;
+            New_3(SampleTree, *metal_tree, sizeof(MetalSample), (ObjConstructor)MetalSample_Constructor, (ObjDestructor)MetalSample_Destructor);
+            if (error != RMT_ERROR_NONE)
+                return;
+        }
+
+        // Push the sample and activate the timestamp
+        if (ThreadSampler_Push(*metal_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        {
+            MetalSample* metal_sample = (MetalSample*)sample;
+            MetalTimestamp_Begin(metal_sample->timestamp);
+        }
+    }
+}
+
+
+static rmtBool GetMetalSampleTimes(Sample* sample)
+{
+    Sample* child;
+
+    MetalSample* metal_sample = (MetalSample*)sample;
+
+    assert(sample != NULL);
+    if (metal_sample->timestamp != NULL)
+    {
+        if (!MetalTimestamp_GetData(metal_sample->timestamp, &sample->us_start, &sample->us_end))
+            return RMT_FALSE;
+
+        sample->us_length = sample->us_end - sample->us_start;
+    }
+
+    // Get child sample times
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+    {
+        if (!GetMetalSampleTimes(child))
+            return RMT_FALSE;
+    }
+
+    return RMT_TRUE;
+}
+
+
+static void UpdateMetalFrame(void)
+{
+    Metal* metal;
+
+    if (g_Remotery == NULL)
+        return;
+
+    metal = g_Remotery->metal;
+    assert(metal != NULL);
+
+    rmt_BeginCPUSample(rmt_UpdateMetalFrame, 0);
+
+    // Process all messages in the Metal queue
+    while (1)
+    {
+        Msg_SampleTree* sample_tree;
+        Sample* sample;
+
+        Message* message = rmtMessageQueue_PeekNextMessage(metal->mq_to_metal_main);
+        if (message == NULL)
+            break;
+
+        // There's only one valid message type in this queue
+        assert(message->id == MsgID_SampleTree);
+        sample_tree = (Msg_SampleTree*)message->payload;
+        sample = sample_tree->root_sample;
+        assert(sample->type == SampleType_Metal);
+
+        // Retrieve timing of all Metal samples
+        // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
+        if (!GetMetalSampleTimes(sample))
+            break;
+
+        // Pass samples onto the remotery thread for sending to the viewer
+        AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name, message->thread_sampler);
+        rmtMessageQueue_ConsumeNextMessage(metal->mq_to_metal_main, message);
+    }
+
+    rmt_EndCPUSample();
+}
+
+
+RMT_API void _rmt_EndMetalSample(void)
+{
+    ThreadSampler* ts;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    {
+        // Close the timestamp
+        MetalSample* metal_sample = (MetalSample*)ts->sample_trees[SampleType_Metal]->current_parent;
+        if (metal_sample->timestamp != NULL)
+            MetalTimestamp_End(metal_sample->timestamp);
+        
+        // Send to the update loop for ready-polling
+        if (ThreadSampler_Pop(ts, g_Remotery->metal->mq_to_metal_main, (Sample*)metal_sample))
+            // Perform ready-polling on popping of the root sample
+            UpdateMetalFrame();
+    }
+}
+
+
+
+#endif  // RMT_USE_METAL
 
 
 #endif // RMT_ENABLED
