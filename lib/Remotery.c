@@ -3171,7 +3171,7 @@ static rmtError ReceiveFrameHeader(WebSocket* web_socket)
     if (size_bytes_remaining > 0)
     {
         // Receive the wider bytes of the length
-        rmtU8 size_bytes[4];
+        rmtU8 size_bytes[8];
         error = TCPSocket_Receive(web_socket->tcp_socket, size_bytes, size_bytes_remaining, 20);
         if (error != RMT_ERROR_NONE)
             return RMT_ERROR_WEBSOCKET_BAD_FRAME_HEADER_SIZE;
