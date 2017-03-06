@@ -1,0 +1,2 @@
+language: C
+script: gcc lib/Remotery.c
