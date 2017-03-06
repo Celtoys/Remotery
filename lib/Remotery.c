@@ -92,7 +92,9 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #include <mach/mach.h>
         #include <sys/time.h>
     #else
-        #include <malloc.h>
+        #ifndef __FreeBSD__
+            #include <malloc.h>
+        #endif
     #endif
 
     #include <assert.h>
@@ -108,7 +110,11 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
     #ifdef RMT_PLATFORM_LINUX
         #include <time.h>
-        #include <sys/prctl.h>
+        #ifdef __FreeBSD__
+            #include <pthread_np.h>
+        #else
+            #include <sys/prctl.h>
+        #endif
     #endif
 
     #if defined(RMT_PLATFORM_POSIX)
@@ -241,7 +247,11 @@ static rmtU32 msTimer_Get()
         return (rmtU32)GetTickCount();
     #else
         clock_t time = clock();
-        rmtU32 msTime = (rmtU32) (time / (CLOCKS_PER_SEC / 1000));
+        #if CLOCKS_PER_SEC < 1000 // 128 on FreeBSD
+            rmtU32 msTime = (rmtU32) (time * 1000 / CLOCKS_PER_SEC);
+        #else
+            rmtU32 msTime = (rmtU32) (time / (CLOCKS_PER_SEC / 1000));
+        #endif
         return msTime;
     #endif
 }
@@ -644,7 +654,11 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
     RMT_UNREFERENCED_PARAMETER(nb_attempts);
 
 #ifdef RMT_PLATFORM_LINUX
-    char path[] = "/dev/shm/ring-buffer-XXXXXX";
+    #ifdef __FreeBSD__
+        char path[] = "/tmp/ring-buffer-XXXXXX";
+    #else
+        char path[] = "/dev/shm/ring-buffer-XXXXXX";
+    #endif
     int file_descriptor;
 #endif
 
@@ -4086,7 +4100,7 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
 
     // Set the initial name to Thread0 etc. or use the existing Linux name.
     thread_sampler->name[0] = 0;
-    #if defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES
+    #if defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES && !defined(__FreeBSD__)
     prctl(PR_GET_NAME,thread_sampler->name,0,0,0);
     #else
     {
@@ -4975,7 +4989,11 @@ static void SetDebuggerThreadName(const char* name)
         char name_clamp[16];
         name_clamp[0] = 0;
         strncat_s(name_clamp, sizeof(name_clamp), name, 15);
-        prctl(PR_SET_NAME,name_clamp,0,0,0);
+        #ifdef __FreeBSD__
+            pthread_set_name_np(pthread_self(), name_clamp);
+        #else
+            prctl(PR_SET_NAME,name_clamp,0,0,0);
+        #endif
     #endif
 }
 
