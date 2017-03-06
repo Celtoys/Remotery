@@ -1905,6 +1905,7 @@ static rmtError rmtHashTable_Resize(rmtHashTable* table)
     rmtU32 old_max_nb_slots = table->max_nb_slots;
     HashSlot* new_slots = NULL;
     HashSlot* old_slots = table->slots;
+    rmtU32 i;
 
     // Increase the table size
     rmtU32 new_max_nb_slots = table->max_nb_slots;
@@ -1925,7 +1926,7 @@ static rmtError rmtHashTable_Resize(rmtHashTable* table)
     table->nb_slots = 0;
 
     // Reinsert all objects into the new table
-    for (rmtU32 i = 0; i < old_max_nb_slots; i++)
+    for (i = 0; i < old_max_nb_slots; i++)
     {
         HashSlot* slot = old_slots + i;
         if (slot->key != 0)
@@ -4597,6 +4598,8 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
 
         case FOURCC('G', 'S', 'M', 'P'):
         {
+            ThreadSampler* ts;
+
             // Convert name hash to integer
             rmtU32 name_hash = 0;
             const char* cur = message_data + 4;
@@ -4605,7 +4608,6 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
                 name_hash = name_hash * 10 + *cur++ - '0';
 
             // Search all threads for a matching string hash
-            ThreadSampler* ts;
             for (ts = rmt->first_thread_sampler; ts != NULL; ts = ts->next)
             {
                 rmtPStr name = StringTable_Find(ts->names, name_hash);
@@ -5018,11 +5020,12 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 size, struct ThreadSampler* thread_sampler)
 {
     Message* message;
+    rmtU32 text_size;
 
     assert(queue != NULL);
 
     // Prefix with text size
-    rmtU32 text_size = size - 8;
+    text_size = size - 8;
     U32ToByteArray(text + 4, text_size);
 
     // Allocate some space for the line
