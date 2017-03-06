@@ -244,15 +244,22 @@ static void* rmtGetProcAddress(void* handle, const char* symbol)
 static rmtU32 msTimer_Get()
 {
     #ifdef RMT_PLATFORM_WINDOWS
+
         return (rmtU32)GetTickCount();
+
     #else
+
         clock_t time = clock();
-        #if CLOCKS_PER_SEC < 1000 // 128 on FreeBSD
+
+        // CLOCKS_PER_SEC is 128 on FreeBSD, causing div/0
+        #ifdef __FreeBSD__
             rmtU32 msTime = (rmtU32) (time * 1000 / CLOCKS_PER_SEC);
         #else
             rmtU32 msTime = (rmtU32) (time / (CLOCKS_PER_SEC / 1000));
         #endif
+
         return msTime;
+        
     #endif
 }
 
