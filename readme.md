@@ -1,6 +1,8 @@
 Remotery
 --------
 
+[![Build Status](https://travis-ci.org/Celtoys/Remotery.svg?branch=master)](https://travis-ci.org/Celtoys/Remotery)
+
 A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in a web browser.
 
 ![screenshot](screenshot.png?raw=true)
