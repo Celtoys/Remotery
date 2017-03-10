@@ -13,6 +13,9 @@ build_script:
     - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -TP lib\Remotery.c
 
     # VS2010 OpenGL
+    - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -DRMT_USE_OPENGL=1 lib\Remotery.c
+
+    # VS2010 C++ mode OpenGL
     - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
 
     # VS2015
@@ -24,3 +27,6 @@ build_script:
 
     # VS2015 OpenGL
     - cmd: cl.exe -nologo -c -DRMT_USE_OPENGL=1 lib\Remotery.c
+
+    # VS2015 C++ mode OpenGL
+    - cmd: cl.exe -nologo -c -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
