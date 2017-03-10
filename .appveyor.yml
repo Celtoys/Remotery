@@ -1,3 +1,3 @@
 build_script:
-    - cmd: call "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\vcvarsall.bat"
+    - cmd: call "C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat"
     - cmd: cl.exe -c lib\Remotery.c
