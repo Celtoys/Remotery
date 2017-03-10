@@ -7,15 +7,20 @@ build_script:
 
     # VS2010
     - cmd: if "%PLATFORM%" == "x86" call "C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat" %PLATFORM%
-    - cmd: if "%PLATFORM%" == "x86" cl.exe -c lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c lib\Remotery.c
 
     # VS2010 C++ mode
-    - cmd: if "%PLATFORM%" == "x86" cl.exe -c -TP lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -TP lib\Remotery.c
+
+    # VS2010 OpenGL
+    - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
 
     # VS2015
     - cmd: call "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\vcvarsall.bat" %PLATFORM%
-    - cmd: cl.exe -c lib\Remotery.c
+    - cmd: cl.exe -nologo -c lib\Remotery.c
 
     # VS2015 C++ mode
-    - cmd: call "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\vcvarsall.bat" %PLATFORM%
-    - cmd: cl.exe -c -TP lib\Remotery.c    
+    - cmd: cl.exe -nologo -c -TP lib\Remotery.c    
+
+    # VS2015 OpenGL
+    - cmd: cl.exe -nologo -c -DRMT_USE_OPENGL=1 lib\Remotery.c
