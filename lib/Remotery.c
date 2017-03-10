@@ -6033,8 +6033,8 @@ static void* rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
     {
         // Get OpenGL extension-loading function for each call
         typedef PROC(WINAPI * wglGetProcAddressFn)(LPCSTR);
+        assert(opengl != NULL);
         {
-            assert(opengl != NULL);
             wglGetProcAddressFn wglGetProcAddress = (wglGetProcAddressFn)rmtGetProcAddress(opengl->dll_handle, "wglGetProcAddress");
             if (wglGetProcAddress != NULL)
                 return (void*)wglGetProcAddress(symbol);
