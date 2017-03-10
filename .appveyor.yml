@@ -18,8 +18,11 @@ build_script:
     # VS2010 C++ mode OpenGL
     - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
 
-    # VS2010 OpenGL
+    # VS2010 D3D11
     - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -DRMT_USE_D3D11=1 lib\Remotery.c
+
+    # VS2010 C++ mode D3D11
+    - cmd: if "%PLATFORM%" == "x86" cl.exe -nologo -c -TP -DRMT_USE_D3D11=1 lib\Remotery.c
 
     # VS2015
     - cmd: call "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\vcvarsall.bat" %PLATFORM%
@@ -33,3 +36,10 @@ build_script:
 
     # VS2015 C++ mode OpenGL
     - cmd: cl.exe -nologo -c -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
+
+    # VS2015 D3D11
+    - cmd: cl.exe -nologo -c -DRMT_USE_D3D11=1 lib\Remotery.c
+
+    # VS2015 C++ mode D3D11
+    - cmd: cl.exe -nologo -c -TP -DRMT_USE_D3D11=1 lib\Remotery.c
+
