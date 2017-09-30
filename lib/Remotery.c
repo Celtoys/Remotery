@@ -1937,7 +1937,7 @@ static rmtError rmtHashTable_Resize(rmtHashTable* table)
     {
         HashSlot* slot = old_slots + i;
         if (slot->key != 0)
-            rmtHashTable_Insert(table, slot->key, slot->key);
+            rmtHashTable_Insert(table, slot->key, slot->value);
     }
 
     free(old_slots);
