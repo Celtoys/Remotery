@@ -5500,6 +5500,8 @@ typedef struct D3D11
 
     // Mark the first time so that remaining timestamps are offset from this
     rmtU64 first_timestamp;
+    // Last time in us (CPU time, via usTimer_Get) since we last resync'ed CPU & GPU
+    rmtU64 last_resync;
 } D3D11;
 
 
@@ -5520,6 +5522,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
     (*d3d11)->last_error = S_OK;
     (*d3d11)->mq_to_d3d11_main = NULL;
     (*d3d11)->first_timestamp = 0;
+    (*d3d11)->last_resync = 0;
 
     New_1(rmtMessageQueue, (*d3d11)->mq_to_d3d11_main, g_Settings.messageQueueSizeInBytes);
     if (error != RMT_ERROR_NONE)
@@ -5538,6 +5541,124 @@ static void D3D11_Destructor(D3D11* d3d11)
     Delete(rmtMessageQueue, d3d11->mq_to_d3d11_main);
 }
 
+static HRESULT rmtD3D11Finish(rmtU64 *out_timestamp, double *out_frequency)
+{
+    HRESULT result;
+    ID3D11Device* device = g_Remotery->d3d11->device;
+    ID3D11DeviceContext* context = g_Remotery->d3d11->context;
+    ID3D11Query* full_stall_fence;
+    ID3D11Query* query_disjoint;
+    D3D11_QUERY_DESC query_desc;
+    D3D11_QUERY_DESC disjoint_desc;
+    UINT64 timestamp;
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint;
+
+    query_desc.Query = D3D11_QUERY_TIMESTAMP;
+    query_desc.MiscFlags = 0;
+    result = ID3D11Device_CreateQuery(device, &query_desc, &full_stall_fence);
+    if (result != S_OK)
+        return result;
+
+    disjoint_desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+    disjoint_desc.MiscFlags = 0;
+    result = ID3D11Device_CreateQuery(device, &disjoint_desc, &query_disjoint);
+    if (result != S_OK)
+    {
+        ID3D11Query_Release(full_stall_fence);
+        return result;
+    }
+
+    ID3D11DeviceContext_Begin(context, (ID3D11Asynchronous*)query_disjoint);
+    ID3D11DeviceContext_End(context, (ID3D11Asynchronous*)full_stall_fence);
+    ID3D11DeviceContext_End(context, (ID3D11Asynchronous*)query_disjoint);
+
+    result = S_FALSE;
+
+    while( result == S_FALSE )
+    {
+        result = ID3D11DeviceContext_GetData(context, (ID3D11Asynchronous*)query_disjoint, &disjoint, sizeof(disjoint), 0);
+        if (result != S_OK && result != S_FALSE)
+        {
+            ID3D11Query_Release(full_stall_fence);
+            ID3D11Query_Release(query_disjoint);
+            return result;
+        }
+        if( result == S_OK )
+        {
+            result = ID3D11DeviceContext_GetData(context, (ID3D11Asynchronous*)full_stall_fence, &timestamp, sizeof(timestamp), 0);
+            if (result != S_OK && result != S_FALSE)
+            {
+                ID3D11Query_Release(full_stall_fence);
+                ID3D11Query_Release(query_disjoint);
+                return result;
+            }
+        }
+        //Give HyperThreading threads a breath on this spinlock.
+        YieldProcessor();
+    }
+
+    if (disjoint.Disjoint == FALSE)
+    {
+        double frequency = disjoint.Frequency / 1000000.0;
+        *out_timestamp = timestamp;
+        *out_frequency = frequency;
+    }
+    else
+    {
+        result = S_FALSE;
+    }
+
+    ID3D11Query_Release(full_stall_fence);
+    ID3D11Query_Release(query_disjoint);
+    return result;
+}
+
+static HRESULT SyncD3D11CpuGpuTimes(rmtU64* out_first_timestamp, rmtU64* out_last_resync)
+{
+    rmtU64 cpu_time_start = 0;
+    rmtU64 cpu_time_stop = 0;
+    rmtU64 average_half_RTT = 0; //RTT = Rountrip Time.
+    UINT64 gpu_base = 0;
+    double frequency = 1;
+    int i;
+
+    HRESULT result;
+    result = rmtD3D11Finish(&gpu_base, &frequency);
+    if (result != S_OK && result != S_FALSE)
+        return result;
+
+    for (i=0; i<RMT_GPU_CPU_SYNC_NUM_ITERATIONS; ++i)
+    {
+        rmtU64 half_RTT;
+        cpu_time_start = usTimer_Get(&g_Remotery->timer);
+        result = rmtD3D11Finish(&gpu_base, &frequency);
+        cpu_time_stop = usTimer_Get(&g_Remotery->timer);
+
+        if (result != S_OK && result != S_FALSE)
+            return result;
+
+        //Ignore attempts where there was a disjoint, since there would
+        //be a lot of noise in those readings for measuring the RTT
+        if (result == S_OK)
+        {
+            //Average the time it takes a roundtrip from CPU to GPU
+            //while doing nothing other than getting timestamps
+            half_RTT = (cpu_time_stop - cpu_time_start) >> 1ULL;
+            if( i == 0 )
+                average_half_RTT = half_RTT;
+            else
+                average_half_RTT = (average_half_RTT + half_RTT) >> 1ULL;
+        }
+    }
+
+    // All GPU times are offset from gpu_base, and then taken to
+    // the same relative origin CPU timestamps are based on.
+    // CPU is in us, we must translate it to ns.
+    *out_first_timestamp = gpu_base - (rmtU64)((cpu_time_start + average_half_RTT) * frequency);
+    *out_last_resync = cpu_time_stop;
+
+    return result;
+}
 
 typedef struct D3D11Timestamp
 {
@@ -5551,6 +5672,8 @@ typedef struct D3D11Timestamp
     // A disjoint to measure frequency/stability
     // TODO: Does *each* sample need one of these?
     ID3D11Query* query_disjoint;
+
+    rmtU64 cpu_timestamp;
 } D3D11Timestamp;
 
 
@@ -5569,6 +5692,7 @@ static rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
     stamp->query_start = NULL;
     stamp->query_end = NULL;
     stamp->query_disjoint = NULL;
+    stamp->cpu_timestamp = 0;
 
     assert(g_Remotery != NULL);
     assert(g_Remotery->d3d11 != NULL);
@@ -5615,6 +5739,7 @@ static void D3D11Timestamp_Begin(D3D11Timestamp* stamp, ID3D11DeviceContext* con
     assert(stamp != NULL);
 
     // Start of disjoint and first query
+    stamp->cpu_timestamp = usTimer_Get(&g_Remotery->timer);
     ID3D11DeviceContext_Begin(context, (ID3D11Asynchronous*)stamp->query_disjoint);
     ID3D11DeviceContext_End(context, (ID3D11Asynchronous*)stamp->query_start);
 }
@@ -5630,7 +5755,7 @@ static void D3D11Timestamp_End(D3D11Timestamp* stamp, ID3D11DeviceContext* conte
 }
 
 
-static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext* context, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
+static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext* context, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp, rmtU64* out_last_resync)
 {
     ID3D11Asynchronous* query_start;
     ID3D11Asynchronous* query_end;
@@ -5662,14 +5787,27 @@ static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext
     {
         double frequency = disjoint.Frequency / 1000000.0;
 
-        // Mark the first timestamp
+        // Mark the first timestamp. We may resync if we detect the GPU timestamp is in the
+        // past (i.e. happened before the CPU command) since it should be impossible.
         assert(out_first_timestamp != NULL);
-        if (*out_first_timestamp == 0)
-            *out_first_timestamp = start;
+        if (*out_first_timestamp == 0 || ((start - *out_first_timestamp) / frequency) < stamp->cpu_timestamp)
+        {
+            result = SyncD3D11CpuGpuTimes(out_first_timestamp, out_last_resync);
+            if (result != S_OK)
+                return result;
+        }
 
         // Calculate start and end timestamps from the disjoint info
         *out_start = (rmtU64)((start - *out_first_timestamp) / frequency);
         *out_end = (rmtU64)((end - *out_first_timestamp) / frequency);
+    }
+    else
+    {
+#if RMT_D3D11_RESYNC_ON_DISJOINT
+        result = SyncD3D11CpuGpuTimes(out_first_timestamp, out_last_resync);
+        if (result != S_OK)
+            return result;
+#endif
     }
 
     return S_OK;
@@ -5788,7 +5926,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
+static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp, rmtU64* out_last_resync)
 {
     Sample* child;
 
@@ -5802,12 +5940,30 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
         D3D11* d3d11 = g_Remotery->d3d11;
         assert(d3d11 != NULL);
 
+        assert(out_last_resync != NULL);
+
+        if (RMT_GPU_CPU_SYNC_SECONDS > 0 && *out_last_resync < d3d_sample->timestamp->cpu_timestamp)
+        {
+            //Convert from us to seconds.
+            rmtU64 time_diff = (d3d_sample->timestamp->cpu_timestamp - *out_last_resync) / 1000000ULL;
+            if (time_diff > RMT_GPU_CPU_SYNC_SECONDS)
+            {
+                result = SyncD3D11CpuGpuTimes(out_first_timestamp, out_last_resync);
+                if (result != S_OK)
+                {
+                    d3d11->last_error = result;
+                    return RMT_FALSE;
+                }
+            }
+        }
+
         result = D3D11Timestamp_GetData(
             d3d_sample->timestamp,
             d3d11->context,
             &sample->us_start,
             &sample->us_end,
-            out_first_timestamp);
+            out_first_timestamp,
+            out_last_resync);
 
         if (result != S_OK)
         {
@@ -5821,7 +5977,7 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp)
     // Get child sample times
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
-        if (!GetD3D11SampleTimes(child, out_first_timestamp))
+        if (!GetD3D11SampleTimes(child, out_first_timestamp, out_last_resync))
             return RMT_FALSE;
     }
 
@@ -5859,7 +6015,7 @@ static void UpdateD3D11Frame(void)
 
         // Retrieve timing of all D3D11 samples
         // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
-        if (!GetD3D11SampleTimes(sample, &d3d11->first_timestamp))
+        if (!GetD3D11SampleTimes(sample, &d3d11->first_timestamp, &d3d11->last_resync))
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
@@ -5959,6 +6115,8 @@ typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUIVPROC) (GLuint id, GLenum pname,
 typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTI64VPROC) (GLuint id, GLenum pname, GLint64* params);
 typedef void (GLAPIENTRY * PFNGLGETQUERYOBJECTUI64VPROC) (GLuint id, GLenum pname, GLuint64* params);
 typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
+typedef void (GLAPIENTRY * PFNGLGETINTEGER64VPROC) (GLenum pname, GLint64 *data);
+typedef void (GLAPIENTRY * PFNGLFINISHPROC) (void);
 
 #define GL_NO_ERROR 0
 #define GL_QUERY_RESULT 0x8866
@@ -5977,6 +6135,8 @@ typedef void (GLAPIENTRY * PFNGLQUERYCOUNTERPROC) (GLuint id, GLenum target);
 #define rmtglGetQueryObjecti64v RMT_GL_GET_FUN(__glGetQueryObjecti64v)
 #define rmtglGetQueryObjectui64v RMT_GL_GET_FUN(__glGetQueryObjectui64v)
 #define rmtglQueryCounter RMT_GL_GET_FUN(__glQueryCounter)
+#define rmtglGetInteger64v RMT_GL_GET_FUN(__glGetInteger64v)
+#define rmtglFinish RMT_GL_GET_FUN(__glFinish)
 
 
 struct OpenGL_t
@@ -5994,6 +6154,8 @@ struct OpenGL_t
     PFNGLGETQUERYOBJECTI64VPROC __glGetQueryObjecti64v;
     PFNGLGETQUERYOBJECTUI64VPROC __glGetQueryObjectui64v;
     PFNGLQUERYCOUNTERPROC __glQueryCounter;
+    PFNGLGETINTEGER64VPROC __glGetInteger64v;
+    PFNGLFINISHPROC __glFinish;
 
     // Queue to the OpenGL main update thread
     // Given that BeginSample/EndSample need to be called from the same thread that does the update, there
@@ -6002,6 +6164,8 @@ struct OpenGL_t
 
     // Mark the first time so that remaining timestamps are offset from this
     rmtU64 first_timestamp;
+    // Last time in us (CPU time, via usTimer_Get) since we last resync'ed CPU & GPU
+    rmtU64 last_resync;
 };
 
 
@@ -6077,9 +6241,12 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     (*opengl)->__glGetQueryObjecti64v = NULL;
     (*opengl)->__glGetQueryObjectui64v = NULL;
     (*opengl)->__glQueryCounter = NULL;
+    (*opengl)->__glGetInteger64v = NULL;
+    (*opengl)->__glFinish = NULL;
 
     (*opengl)->mq_to_opengl_main = NULL;
     (*opengl)->first_timestamp = 0;
+    (*opengl)->last_resync = 0;
 
     New_1(rmtMessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
     return error;
@@ -6092,6 +6259,40 @@ static void OpenGL_Destructor(OpenGL* opengl)
     Delete(rmtMessageQueue, opengl->mq_to_opengl_main);
 }
 
+static void SyncOpenGLCpuGpuTimes(rmtU64* out_first_timestamp, rmtU64* out_last_resync)
+{
+    rmtU64 cpu_time_start = 0;
+    rmtU64 cpu_time_stop = 0;
+    rmtU64 average_half_RTT = 0; //RTT = Rountrip Time.
+    GLint64 gpu_base = 0;
+    int i;
+
+    rmtglFinish();
+
+    for (i=0; i<RMT_GPU_CPU_SYNC_NUM_ITERATIONS; ++i)
+    {
+        rmtU64 half_RTT;
+
+        rmtglFinish();
+        cpu_time_start = usTimer_Get(&g_Remotery->timer);
+        rmtglGetInteger64v(GL_TIMESTAMP, &gpu_base);
+        cpu_time_stop = usTimer_Get(&g_Remotery->timer);
+        //Average the time it takes a roundtrip from CPU to GPU
+        //while doing nothing other than getting timestamps
+        half_RTT = (cpu_time_stop - cpu_time_start) >> 1ULL;
+        if( i == 0 )
+            average_half_RTT = half_RTT;
+        else
+            average_half_RTT = (average_half_RTT + half_RTT) >> 1ULL;
+    }
+
+    // All GPU times are offset from gpu_base, and then taken to
+    // the same relative origin CPU timestamps are based on.
+    // CPU is in us, we must translate it to ns.
+    *out_first_timestamp = (rmtU64)(gpu_base) - (cpu_time_start + average_half_RTT) * 1000ULL;
+    *out_last_resync = cpu_time_stop;
+}
+
 
 typedef struct OpenGLTimestamp
 {
@@ -6100,6 +6301,7 @@ typedef struct OpenGLTimestamp
 
     // Pair of timestamp queries that wrap the sample
     GLuint queries[2];
+    rmtU64 cpu_timestamp;
 } OpenGLTimestamp;
 
 
@@ -6113,6 +6315,7 @@ static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
 
     // Set defaults
     stamp->queries[0] = stamp->queries[1] = 0;
+    stamp->cpu_timestamp = 0;
 
     // Create start/end timestamp queries
     assert(g_Remotery != NULL);
@@ -6146,6 +6349,7 @@ static void OpenGLTimestamp_Begin(OpenGLTimestamp* stamp)
 
     // First query
     assert(g_Remotery != NULL);
+    stamp->cpu_timestamp = usTimer_Get(&g_Remotery->timer);
     rmtglQueryCounter(stamp->queries[0], GL_TIMESTAMP);
 }
 
@@ -6159,8 +6363,7 @@ static void OpenGLTimestamp_End(OpenGLTimestamp* stamp)
     rmtglQueryCounter(stamp->queries[1], GL_TIMESTAMP);
 }
 
-
-static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp)
+static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start, rmtU64* out_end, rmtU64* out_first_timestamp, rmtU64* out_last_resync)
 {
     GLuint64 start = 0, end = 0;
     GLint startAvailable = 0, endAvailable = 0;
@@ -6191,10 +6394,11 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
     error = rmtglGetError();
     assert(error == GL_NO_ERROR);
 
-    // Mark the first timestamp
+    // Mark the first timestamp. We may resync if we detect the GPU timestamp is in the
+    // past (i.e. happened before the CPU command) since it should be impossible.
     assert(out_first_timestamp != NULL);
-    if (*out_first_timestamp == 0)
-        *out_first_timestamp = start;
+    if (*out_first_timestamp == 0 || ((start - *out_first_timestamp) / 1000ULL) < stamp->cpu_timestamp)
+        SyncOpenGLCpuGpuTimes(out_first_timestamp, out_last_resync);
 
     // Calculate start and end timestamps (we want us, the queries give us ns)
     *out_start = (rmtU64)(start - *out_first_timestamp) / 1000ULL;
@@ -6236,7 +6440,6 @@ static void OpenGLSample_Destructor(OpenGLSample* sample)
     Sample_Destructor((Sample*)sample);
 }
 
-
 RMT_API void _rmt_BindOpenGL()
 {
     if (g_Remotery != NULL)
@@ -6260,6 +6463,8 @@ RMT_API void _rmt_BindOpenGL()
         opengl->__glGetQueryObjecti64v = (PFNGLGETQUERYOBJECTI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjecti64v");
         opengl->__glGetQueryObjectui64v = (PFNGLGETQUERYOBJECTUI64VPROC)rmtglGetProcAddress(opengl, "glGetQueryObjectui64v");
         opengl->__glQueryCounter = (PFNGLQUERYCOUNTERPROC)rmtglGetProcAddress(opengl, "glQueryCounter");
+        opengl->__glGetInteger64v = (PFNGLGETINTEGER64VPROC)rmtglGetProcAddress(opengl, "glGetInteger64v");
+        opengl->__glFinish = (PFNGLFINISHPROC)rmtGetProcAddress(opengl->dll_handle, "glFinish");
     }
 }
 
@@ -6325,7 +6530,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 }
 
 
-static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
+static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp, rmtU64* out_last_resync)
 {
     Sample* child;
 
@@ -6334,7 +6539,16 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
     assert(sample != NULL);
     if (ogl_sample->timestamp != NULL)
     {
-        if (!OpenGLTimestamp_GetData(ogl_sample->timestamp, &sample->us_start, &sample->us_end, out_first_timestamp))
+        assert(out_last_resync != NULL);
+        if (RMT_GPU_CPU_SYNC_SECONDS > 0 && *out_last_resync < ogl_sample->timestamp->cpu_timestamp)
+        {
+            //Convert from us to seconds.
+            rmtU64 time_diff = (ogl_sample->timestamp->cpu_timestamp - *out_last_resync) / 1000000ULL;
+            if (time_diff > RMT_GPU_CPU_SYNC_SECONDS)
+                SyncOpenGLCpuGpuTimes(out_first_timestamp, out_last_resync);
+        }
+
+        if (!OpenGLTimestamp_GetData(ogl_sample->timestamp, &sample->us_start, &sample->us_end, out_first_timestamp, out_last_resync))
             return RMT_FALSE;
 
         sample->us_length = sample->us_end - sample->us_start;
@@ -6343,7 +6557,7 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp)
     // Get child sample times
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
-        if (!GetOpenGLSampleTimes(child, out_first_timestamp))
+        if (!GetOpenGLSampleTimes(child, out_first_timestamp, out_last_resync))
             return RMT_FALSE;
     }
 
@@ -6381,7 +6595,7 @@ static void UpdateOpenGLFrame(void)
 
         // Retrieve timing of all OpenGL samples
         // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
-        if (!GetOpenGLSampleTimes(sample, &opengl->first_timestamp))
+        if (!GetOpenGLSampleTimes(sample, &opengl->first_timestamp,&opengl->last_resync))
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer

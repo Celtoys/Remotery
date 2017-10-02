@@ -77,6 +77,30 @@ documented just below this comment.
 #define RMT_USE_POSIX_THREADNAMES 0
 #endif
 
+// How many times we spin data back and forth between CPU & GPU
+// to calculate average RTT (Roundtrip Time). Cannot be 0.
+// Affects OpenGL & D3D11
+#ifndef RMT_GPU_CPU_SYNC_NUM_ITERATIONS
+#define RMT_GPU_CPU_SYNC_NUM_ITERATIONS 16
+#endif
+
+// Time in seconds between each resync to compensate for drifting between GPU & CPU timers,
+// effects of power saving, etc. Resyncs can cause stutter, lag spikes, stalls.
+// Set to 0 for never.
+// Affects OpenGL & D3D11
+#ifndef RMT_GPU_CPU_SYNC_SECONDS
+#define RMT_GPU_CPU_SYNC_SECONDS 30
+#endif
+
+// Whether we should automatically resync if we detect a timer disjoint (e.g.
+// changed from AC power to battery, GPU is overheating, or throttling up/down
+// due to laptop savings events). Set it to 0 to avoid resync in such events.
+// Useful if for some odd reason a driver reports a lot of disjoints.
+// Affects D3D11
+#ifndef RMT_D3D11_RESYNC_ON_DISJOINT
+#define RMT_D3D11_RESYNC_ON_DISJOINT 1
+#endif
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
