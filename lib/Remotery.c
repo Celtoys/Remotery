@@ -1702,13 +1702,6 @@ static rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
     return RMT_ERROR_NONE;
 }
 
-
-static rmtError Buffer_WriteString(Buffer* buffer, rmtPStr string)
-{
-    assert(string != NULL);
-    return Buffer_Write(buffer, (void*)string, (rmtU32)strnlen_s(string, 2048));
-}
-
 static rmtError Buffer_WriteStringZ(Buffer* buffer, rmtPStr string)
 {
     assert(string != NULL);
@@ -1780,7 +1773,7 @@ static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
         temp[6] = u.c[1];
         temp[7] = u.c[0];
     }
-    return Buffer_Write(buffer, u.c, sizeof(u.c));
+    return Buffer_Write(buffer, temp, sizeof(temp));
 }
 
 
@@ -2800,8 +2793,8 @@ static rmtU32 MurmurHash3_x86_32(const void* key, int len, rmtU32 seed)
 
     switch(len & 3)
     {
-    case 3: k1 ^= tail[2] << 16;
-    case 2: k1 ^= tail[1] << 8;
+    case 3: k1 ^= tail[2] << 16; // fallthrough
+    case 2: k1 ^= tail[1] << 8;  // fallthrough
     case 1: k1 ^= tail[0];
         k1 *= c1;
         k1 = rotl32(k1,15);
@@ -3474,14 +3467,6 @@ static void rmtMessageQueue_ConsumeNextMessage(rmtMessageQueue* queue, Message* 
     WriteFence();
     queue->read_pos += message_size;
 }
-
-
-static rmtBool rmtMessageQueue_IsEmpty(rmtMessageQueue* queue)
-{
-    assert(queue != NULL);
-    return queue->write_pos - queue->read_pos == 0;
-}
-
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -4817,32 +4802,6 @@ static rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_
     return RMT_ERROR_NONE;
 }
 
-
-static void Remotery_BlockingDeleteSampleTree(Remotery* rmt, enum SampleType sample_type)
-{
-    ThreadSampler* ts;
-
-    // Get the attached thread sampler
-    assert(rmt != NULL);
-    if (Remotery_GetThreadSampler(rmt, &ts) == RMT_ERROR_NONE)
-    {
-        SampleTree* sample_tree = ts->sample_trees[sample_type];
-        if (sample_tree != NULL)
-        {
-            // Wait around until the Remotery server thread has sent all sample trees
-            // of this type to the client
-            while (sample_tree->allocator->nb_inuse > 1)
-                msSleep(1);
-
-            // Now free to delete
-            Delete(SampleTree, sample_tree);
-            ts->sample_trees[sample_type] = NULL;
-        }
-    }
-}
-
-
-
 static void Remotery_DestroyThreadSamplers(Remotery* rmt)
 {
     // If the handle failed to create in the first place then it shouldn't be possible to create thread samplers
@@ -5177,7 +5136,37 @@ RMT_API void _rmt_EndCPUSample(void)
     }
 }
 
+#if RMT_USE_OPENGL || RMT_USE_D3D11
+static void Remotery_BlockingDeleteSampleTree(Remotery* rmt, enum SampleType sample_type)
+{
+    ThreadSampler* ts;
 
+    // Get the attached thread sampler
+    assert(rmt != NULL);
+    if (Remotery_GetThreadSampler(rmt, &ts) == RMT_ERROR_NONE)
+    {
+        SampleTree* sample_tree = ts->sample_trees[sample_type];
+        if (sample_tree != NULL)
+        {
+            // Wait around until the Remotery server thread has sent all sample trees
+            // of this type to the client
+            while (sample_tree->allocator->nb_inuse > 1)
+                msSleep(1);
+
+            // Now free to delete
+            Delete(SampleTree, sample_tree);
+            ts->sample_trees[sample_type] = NULL;
+        }
+    }
+}
+
+static rmtBool rmtMessageQueue_IsEmpty(rmtMessageQueue* queue)
+{
+    assert(queue != NULL);
+    return queue->write_pos - queue->read_pos == 0;
+}
+
+#endif
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
