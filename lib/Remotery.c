@@ -6264,7 +6264,7 @@ static void SyncOpenGLCpuGpuTimes(rmtU64* out_first_timestamp, rmtU64* out_last_
     rmtU64 cpu_time_start = 0;
     rmtU64 cpu_time_stop = 0;
     rmtU64 average_half_RTT = 0; //RTT = Rountrip Time.
-    rmtU64 gpu_base = 0;
+    GLint64 gpu_base = 0;
     int i;
 
     rmtglFinish();
@@ -6289,7 +6289,7 @@ static void SyncOpenGLCpuGpuTimes(rmtU64* out_first_timestamp, rmtU64* out_last_
     // All GPU times are offset from gpu_base, and then taken to
     // the same relative origin CPU timestamps are based on.
     // CPU is in us, we must translate it to ns.
-    *out_first_timestamp = gpu_base - (cpu_time_start + average_half_RTT) * 1000ULL;
+    *out_first_timestamp = (rmtU64)(gpu_base) - (cpu_time_start + average_half_RTT) * 1000ULL;
     *out_last_resync = cpu_time_stop;
 }
 
