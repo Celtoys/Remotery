@@ -25,6 +25,9 @@ TitleWindow = (function()
 		this.LoadButton = this.Window.AddControlNew(new WM.Button("Load", 5, 25, { toggle: false }));
 		this.LoadButton.SetOnClick(Bind(OnLoadPressed, this));
 
+		this.AutoRefresh = this.Window.AddControlNew(new WM.Button("AutoRefresh " + (settings.AutoRefresh ? "On" : "Off"), 5, 25, { toggle: true }));
+		this.AutoRefresh.SetOnClick(Bind(OnAutoRefresh, this));
+		this.AutoRefresh.SetState(settings.AutoRefresh)
 		server.AddMessageHandler("PING", Bind(OnPing, this));
 	}
 
@@ -41,6 +44,7 @@ TitleWindow = (function()
 		this.PauseButton.SetPosition(width - 80, 5);
 		this.SaveButton.SetPosition(width - 120, 5);
 		this.LoadButton.SetPosition(width - 160, 5);
+		this.AutoRefresh.SetPosition(width - 250, 5);
 	}
 
 
@@ -51,6 +55,16 @@ TitleWindow = (function()
 			self.PauseButton.SetText("Paused");
 		else
 			self.PauseButton.SetText("Pause");
+	}
+
+
+	function OnAutoRefresh(self)
+	{
+		self.Settings.AutoRefresh = self.AutoRefresh.IsPressed();
+		if (self.Settings.AutoRefresh)
+			self.AutoRefresh.SetText("AutoRefresh On");
+		else
+			self.AutoRefresh.SetText("AutoRefresh Off");
 	}
 
 	function OnFileSelected(self, event)
@@ -67,8 +81,6 @@ TitleWindow = (function()
 
         oFReader.onloadend = function (event) 
         {
-            //document.getElementById("uploadTextValue").value = oFREvent.target.result; 
-            //document.getElementById("obj").data = oFREvent.target.result;
             if (self.load_handler)
 				self.load_handler(event.target.result)
         };
