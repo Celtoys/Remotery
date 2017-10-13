@@ -11,6 +11,7 @@ Settings = (function()
 	function Settings()
 	{
 		this.IsPaused = false;
+		this.IsFromFile = false;
 	}
 
 	return Settings;
@@ -58,7 +59,7 @@ Remotery = (function()
 		this.Console = new Console(this.WindowManager, this.Server);
 
 		// Create required windows
-		this.TitleWindow = new TitleWindow(this.WindowManager, this.Settings, this.Server, this.ConnectionAddress);
+		this.TitleWindow = new TitleWindow(this.WindowManager, this.Settings, this.Server, this.ConnectionAddress, Bind(OnSaveRequested, this), Bind(OnLoadRequested, this));
 		this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
 		this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Settings, this.Server, Bind(OnTimelineCheck, this));
 		this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
@@ -94,6 +95,10 @@ Remotery = (function()
 
 	function AutoConnect(self)
 	{
+    //ms do not connect if we are loading from a saved profile
+		if (self.Settings.IsFromFile)
+			return
+
 		// Only attempt to connect if there isn't already a connection or an attempt to connect
 		if (!self.Server.Connected())
 			self.Server.Connect(self.ConnectionAddress);
@@ -204,14 +209,8 @@ Remotery = (function()
 	}
 
 
-	function OnSamples(self, socket, data_view)
+	function OnMessage(self, message)
 	{
-		// Discard any new samples while paused
-		if (self.Settings.IsPaused)
-		    return;
-
-        // Binary decode incoming sample data
-		var message = DecodeSamples(self, new DataViewReader(data_view, 8));
 		var name = message.thread_name;
 
 	    // Add to frame history for this thread
@@ -239,6 +238,17 @@ Remotery = (function()
 		// Set on the window and timeline
 		self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
 		self.TimelineWindow.OnSamples(name, frame_history);
+	}
+
+	function OnSamples(self, socket, data_view)
+	{
+		// Discard any new samples while paused
+		if (self.Settings.IsPaused)
+		    return;
+
+        // Binary decode incoming sample data
+		var message = DecodeSamples(self, new DataViewReader(data_view, 8));
+		OnMessage(self, message)
 	}
 
 
@@ -325,6 +335,176 @@ Remotery = (function()
 			self.SampleWindows[i].WindowResized(self.TimelineWindow.Window, self.Console.Window);
 	}
 
+	function WriteSamples(self, ds, sample)
+	{
+		ds.writeUint32(sample.name_hash);
+		ds.writeUint32(sample.id);		
+		ds.writeCString(sample.colour)
+		ds.writeUint64(sample.us_start);
+		ds.writeUint64(sample.us_length);
+		
+		ds.writeUint32(sample.children.length);
+		
+        // Recurse into children
+        for (var child in sample.children)
+        {
+        	WriteSamples(self, ds, sample.children[child])
+        }	    
+	}
 
+	function WriteFrame(self, ds, threadFrame)
+	{
+		ds.writeUint32(threadFrame.NbSamples);
+		ds.writeUint32(threadFrame.SampleDigest);		
+	
+		var keys = Object.keys(threadFrame.Samples)
+		ds.writeUint32(keys.length);
+	
+	 	for (var sample in threadFrame.Samples)
+        {
+        	WriteSamples(self, ds, threadFrame.Samples[sample])	
+        }
+    }
+
+	function OnSaveRequested(self)
+	{
+		var ds = new DataStream();
+
+		//write hashmap size and contents 		
+		var keys = Object.keys(self.NameMap)
+		self.Console.Log(" keys in map " + keys.length)
+		ds.writeUint32(keys.length);
+
+		for (var key in self.NameMap) 
+		{
+			var string = self.NameMap[key]
+			ds.writeCString(string); 	
+			ds.writeUint32(key);
+			self.Console.Log(" key "+ string + " actual key" + key)					
+		}
+
+		//write number of threads 
+		var threadCount = Object.keys(self.FrameHistory).length
+		ds.writeUint32(threadCount);
+	
+		self.Console.Log(" Threads in map " + threadCount)
+
+		//for each thread
+		for (var key in self.FrameHistory) 
+		{
+			var thread = self.FrameHistory[key]
+			ds.writeCString(key)
+
+			self.Console.Log(" frame for thread " + key)
+			// write frame history for this thread
+			
+			var threadSamples = Object.keys(thread)
+			ds.writeUint32(threadSamples.length);
+	
+			for (var frame in thread) 
+			{
+			 	WriteFrame(self, ds, thread[frame])	   
+			}		
+		}
+				
+		var date = new Date()		
+		var fileName = self.ConnectionAddress + date.toString() //mangle date and ip
+		ds.save(fileName +".jprofile");
+	}
+
+	function ReadSamples(self, ds)
+	{
+		var sample = {}
+		sample.name_hash = ds.readUint32();
+		sample.name = self.NameMap[sample.name_hash];
+		if (sample.name == undefined)
+		{
+			debugger;
+		}
+		sample.id = ds.readUint32();
+		sample.colour = ds.readCString();
+		sample.us_start = ds.readUint64();
+		sample.us_length = ds.readUint64();
+		
+		var childrenCount = ds.readUint32();
+		sample.children = new Array();	
+	    // Recurse into children
+        for (var index = 0; index < childrenCount; index++)
+        {
+			sample.children.push(ReadSamples(self, ds))
+        }
+
+        return sample;	    
+	
+	}
+
+	function ReadFrame(self, ds, key)
+	{
+		var message = {}
+		message.thread_name = key
+	    message.nb_samples = ds.readUint32();
+	    message.sample_digest = ds.readUint32();
+
+        // Read samples
+	    message.samples = new Array();
+	    var children = ds.readUint32();
+	    for (var index = 0 ; index < children; index ++)
+	    {	
+			message.samples.push(ReadSamples(self, ds));
+		}
+		return message	
+	}
+    	
+	function OnLoadRequested(self, reader)
+	{
+		//load file from disk 		
+		
+		self.Settings.IsFromFile = true;
+		self.Settings.IsPaused = true;	
+
+		if (self.Server.Connected())
+			self.Server.Disconnect();
+
+		//clear everything 
+
+		this.NbSampleWindows = 0;
+		this.SampleWindows = { };
+		this.FrameHistory = { };
+		this.SelectedFrames = { };
+		this.NameMap = { };
+
+		// read the hash map 
+		var ds = new DataStream(reader);
+
+		var namesCount = ds.readUint32();
+		
+		for (var index = 0; index < namesCount; index++) 
+		{
+			var string = ds.readCString();
+			var key = ds.readUint32();
+			
+			self.NameMap[key] = string;
+			self.Console.Log(" Read key "+ string + " for " + key)							
+		}
+
+		//read number of threads 
+		var threadCount = ds.readUint32();
+		self.Console.Log("Read threads in map " + threadCount)
+
+		//for each thread
+		for (var index = 0; index < threadCount; index++) 
+		{	
+			var key = ds.readCString();
+			
+			var threadSamples = ds.readUint32();
+		
+			for (var frameIndex = 0; frameIndex < threadSamples; frameIndex ++) 
+			{
+			 	var message = ReadFrame(self, ds, key)	   
+				OnMessage(self, message)
+			}		
+	
+		}
+	}
 	return Remotery;
 })();
