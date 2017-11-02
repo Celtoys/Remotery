@@ -14,7 +14,21 @@ SampleWindow = (function()
 
 		// Create a grid that's indexed by the unique sample ID
 		this.Grid = this.Window.AddControlNew(new WM.Grid(0, 0, 380, "calc( 100% - 17px )"));
-		this.RootRow = this.Grid.Rows.Add({ "Name": "Samples" }, "GridGroup", { "Name": "GridGroup" });
+		var cell_data =
+		{
+			Name: "Samples",
+			Length: "Time (ms)",
+			Self: "Self (ms)",
+			Count: "Calls",
+		};
+		var cell_classes =
+		{
+			Name: "SampleTitleNameCell",
+			Length: "SampleTitleTimeCell",
+			Self: "SampleTitleTimeCell",
+			Count: "SampleTitleCountCell",
+		};
+		this.RootRow = this.Grid.Rows.Add(cell_data, "GridGroup", cell_classes);
 		this.RootRow.Rows.AddIndex("_ID");
 	}
 
@@ -101,12 +115,17 @@ SampleWindow = (function()
 			{
 			    _ID: i,
 				Name: "",
-				Control: new WM.Label()
+				Length: "",
+				Self: "",
+				Count: "",
 			};
 
 			var cell_classes =
 			{
 				Name: "SampleNameCell",
+				Length: "SampleTimeCell",
+				Self: "SampleTimeCell",
+				Count: "SampleCountCell",
 			};
 
 			parent_row.Rows.Add(cell_data, null, cell_classes);
@@ -139,7 +158,9 @@ SampleWindow = (function()
 			name_node.innerHTML = indent + sample.name;
 			DOM.Node.SetColour(name_node, sample.colour);
 
-			row.CellData.Control.SetText(sample.us_length);
+			row.CellNodes["Length"].innerHTML = sample.ms_length;
+			row.CellNodes["Self"].innerHTML = sample.ms_self;
+			row.CellNodes["Count"].innerHTML = sample.call_count;
 
 			index = UpdateAllSampleFields(parent_row, sample.children, index, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
 		}
@@ -157,7 +178,9 @@ SampleWindow = (function()
 			var row = parent_row.Rows.GetBy("_ID", sample.id);
 			if (row)
 			{
-			    row.CellData.Control.SetText(sample.us_length);
+				row.CellNodes["Length"].innerHTML = sample.ms_length;
+				row.CellNodes["Self"].innerHTML = sample.ms_self;
+				row.CellNodes["Count"].innerHTML = sample.call_count;
 
 			    // Sample name will change when it switches from hash ID to network-retrieved 
                 // name. Quickly check that before re-applying the HTML for the name.

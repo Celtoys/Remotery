@@ -92,7 +92,60 @@ body
 
 .SampleNameCell
 {
-    width:300px;
+    width:244px;
+}
+.SampleTimeCell
+{
+    width:53px;
+}
+.SampleCountCell
+{
+    width:26px;
+}
+.SampleTitleNameCell
+{
+    width:238px;
+    
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+
+	background: #222;
+}
+.SampleTitleTimeCell
+{
+    width:47px;
+    
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+
+	background: #222;
+}
+.SampleTitleCountCell
+{
+    width:27px;
+    
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+
+	background: #222;
 }
 
 
