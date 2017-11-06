@@ -8,13 +8,29 @@ A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in
 
 ![screenshot](screenshot.png?raw=true)
 
-Supported features:
+Supported Platforms:
+
+* Windows
+* Linux
+* OSX
+* iOS
+* Android
+* XBox One
+* FreeBSD
+
+Supported GPU Profiling APIS:
+
+* D3D 11
+* OpenGL
+* CUDA
+* Metal
+
+Features:
 
 * Lightweight instrumentation of multiple threads running on the CPU.
 * Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
   transmits sample data to the browser on a latent thread.
 * Profiles itself and shows how it's performing in the viewer.
-* Can optionally sample CUDA/D3D11/OpenGL GPU activity.
 * Console output for logging text.
 * Console input for sending commands to your game.
 
