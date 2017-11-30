@@ -101,7 +101,7 @@ class AABB
         this.max = max;
     }
 
-    Expand(e: number)
+    Expand(e: number) : void
     {
         let ev = new int2(e);
         this.min = int2.Sub(this.min, ev);

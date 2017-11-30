@@ -16,12 +16,8 @@ namespace DOM
         // ----- Constructor ---------------------------------------------------------------
 
 
-        constructor(parameter: string | Element | Document | EventTarget, index?: number)
+        constructor(parameter: string | Element | Document | EventTarget)
         {
-            // If no index is provided replace with the first one 
-            if (index === undefined)
-                index = 0;
-
             // Take control of DOM objects
             if (parameter instanceof Element)
             {
@@ -37,19 +33,8 @@ namespace DOM
             }
             else if (typeof parameter === "string")
             {
-                // TODO: querySelector?
-
-                // Global ID search
-                if (parameter[0] == "#")
-                    this.Element = document.getElementById(parameter.slice(1));
-
-                // Global class search
-                else if (parameter[0] == ".")
-                    this.Element = <HTMLElement>document.getElementsByClassName(parameter.slice(1))[index];
-
                 // Create a node from the provided HTML
-                else
-                    this.SetHTML(parameter);
+                this.SetHTML(parameter);
             }
         }
 
@@ -148,51 +133,11 @@ namespace DOM
                 this.Element.className += " " + class_name;
         }
 
-        Find(filter: string, index?: number) : Node
+        Find(filter: string) : Node
         {
-            // Split filter type
-            let filter_type = filter[0];
-            filter = filter.slice(1);
-
-            // Set a default index
-            if (index === undefined)
-                index = 0;
-
-            if (filter[0] == "#")
-            {
-                return $(Node.FindById(this.Element, filter, index));
-            }
-
-            else if (filter_type == ".")
-            {
-                let elements = this.Element.getElementsByClassName(filter);
-                if (elements.length)
-                {
-                    return $(<HTMLElement>elements[index]);
-                }
-            }
-
-            return null;
-        }
-        private static FindById(parent_node: HTMLElement, id: string, index?: number) : HTMLElement
-        {
-            // Search the children looking for a node with the given class name
-            let matches_left = index;
-            for (let i = 0; i < parent_node.children.length; i++)
-            {
-                let element = <HTMLElement>parent_node.children[i];
-                if (element.id == id)
-                {
-                    if (index === undefined || matches_left-- == 0)
-                        return element;
-                }
-
-                // Recurse into children
-                element = Node.FindById(element, id, index);
-                if (element != null)
-                    return element;
-            }
-
+            var element = this.Element.querySelector(filter);
+            if (element)
+                return new DOM.Node(element);
             return null;
         }
 
@@ -261,8 +206,10 @@ namespace DOM
 }
 
 
-// jQuery-style HTML element lookup which just passes straight onto DOM.Node constructor
-function $(parameter: string | Element | Document | EventTarget, index?: number)
+function $(parameter: string | Element | Document | EventTarget)
 {
-    return new DOM.Node(parameter, index);
+    if (typeof parameter == "string")
+        return new DOM.Node(document.querySelector(parameter));
+ 
+    return new DOM.Node(parameter);
 }
