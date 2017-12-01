@@ -43,7 +43,7 @@ namespace DOM
         
 
         // Absolute position of a HTML element on the page
-        get Position() : int2
+        get AbsolutePosition() : int2
         {
             // Recurse up through parents, summing offsets from their parents
             let pos = new int2();
