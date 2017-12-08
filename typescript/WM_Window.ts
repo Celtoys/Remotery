@@ -292,7 +292,7 @@ namespace WM
         {
             // Subtract absolute parent node position from the mouse position
             if (this.ParentNode)
-                mouse_pos = int2.Sub(mouse_pos, this.ParentNode.Position);
+                mouse_pos = int2.Sub(mouse_pos, this.ParentNode.AbsolutePosition);
 
             // Use the DOM Node dimensions as they include visible borders/margins
             let offset_top_left = int2.Sub(mouse_pos, this.TopLeft); 
@@ -432,9 +432,9 @@ namespace WM
                 if ((mask.x != 0) != (mask.y != 0))
                 {
                     if (mask.x > 0 || mask.y > 0)
-                        parent_container.GetSnapControls(this.BottomRight, mask, [ this ], this.AnchorControls);
+                        WM.FindSnapControls(parent_container, this.BottomRight, mask, [ this ], this.AnchorControls);
                     if (mask.x < 0 || mask.y < 0)
-                        parent_container.GetSnapControls(this.TopLeft, mask, [ this ], this.AnchorControls);
+                        WM.FindSnapControls(parent_container, this.TopLeft, mask, [ this ], this.AnchorControls);
                 }
 
                 // We don't want windows at disjoint locations getting dragged into
