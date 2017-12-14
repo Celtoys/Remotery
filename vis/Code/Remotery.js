@@ -170,6 +170,7 @@ Remotery = (function()
 	    sample.us_length = data_view_reader.GetUInt64();
 		sample.us_self = data_view_reader.GetUInt64();
 		sample.call_count = data_view_reader.GetUInt32();
+		sample.recurse_depth = data_view_reader.GetUInt32();
 
 		// Calculate dependent properties
 		sample.ms_length = (sample.us_length / 1000.0).toFixed(3);

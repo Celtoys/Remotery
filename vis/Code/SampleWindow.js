@@ -19,14 +19,16 @@ SampleWindow = (function()
 			Name: "Samples",
 			Length: "Time (ms)",
 			Self: "Self (ms)",
-			Count: "Calls",
+			Calls: "Calls",
+			Recurse: "Recurse",
 		};
 		var cell_classes =
 		{
 			Name: "SampleTitleNameCell",
 			Length: "SampleTitleTimeCell",
 			Self: "SampleTitleTimeCell",
-			Count: "SampleTitleCountCell",
+			Calls: "SampleTitleCountCell",
+			Recurse: "SampleTitleCountCell",
 		};
 		this.RootRow = this.Grid.Rows.Add(cell_data, "GridGroup", cell_classes);
 		this.RootRow.Rows.AddIndex("_ID");
@@ -117,7 +119,8 @@ SampleWindow = (function()
 				Name: "",
 				Length: "",
 				Self: "",
-				Count: "",
+				Calls: "",
+				Recurse: "",
 			};
 
 			var cell_classes =
@@ -125,7 +128,8 @@ SampleWindow = (function()
 				Name: "SampleNameCell",
 				Length: "SampleTimeCell",
 				Self: "SampleTimeCell",
-				Count: "SampleCountCell",
+				Calls: "SampleCountCell",
+				Recurse: "SampleCountCell",
 			};
 
 			parent_row.Rows.Add(cell_data, null, cell_classes);
@@ -160,7 +164,8 @@ SampleWindow = (function()
 
 			row.CellNodes["Length"].innerHTML = sample.ms_length;
 			row.CellNodes["Self"].innerHTML = sample.ms_self;
-			row.CellNodes["Count"].innerHTML = sample.call_count;
+			row.CellNodes["Calls"].innerHTML = sample.call_count;
+			row.CellNodes["Recurse"].innerHTML = sample.recurse_depth;
 
 			index = UpdateAllSampleFields(parent_row, sample.children, index, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
 		}
@@ -180,7 +185,8 @@ SampleWindow = (function()
 			{
 				row.CellNodes["Length"].innerHTML = sample.ms_length;
 				row.CellNodes["Self"].innerHTML = sample.ms_self;
-				row.CellNodes["Count"].innerHTML = sample.call_count;
+				row.CellNodes["Calls"].innerHTML = sample.call_count;
+				row.CellNodes["Recurse"].innerHTML = sample.recurse_depth;
 
 			    // Sample name will change when it switches from hash ID to network-retrieved 
                 // name. Quickly check that before re-applying the HTML for the name.

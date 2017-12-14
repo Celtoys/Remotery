@@ -217,6 +217,7 @@ typedef struct Remotery Remotery;
 typedef enum rmtError
 {
     RMT_ERROR_NONE,
+    RMT_ERROR_RECURSIVE_SAMPLE,                 // Not an error but an internal message to calling code
 
     // System errors
     RMT_ERROR_MALLOC_FAIL,                      // Malloc call within remotery failed
@@ -280,10 +281,13 @@ typedef enum rmtError
 typedef enum rmtSampleFlags
 {
     // Default behaviour
-    RMTSF_None          = 0,
+    RMTSF_None = 0,
 
     // Search parent for same-named samples and merge timing instead of adding a new sample
-    RMTSF_Aggregate     = 1,
+    RMTSF_Aggregate = 1,
+
+    // Merge sample with parent if it's the same sample
+    RMTSF_Recursive = 2,
 } rmtSampleFlags;
 
 

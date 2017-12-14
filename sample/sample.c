@@ -4,6 +4,18 @@
 #include <stdio.h>
 #include "..\lib\Remotery.h"
 
+void aggregateFunction() {
+    rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);    
+    rmt_EndCPUSample();
+}
+void recursiveFunction(int depth) {
+    rmt_BeginCPUSample(recursive, RMTSF_Recursive);
+    if (depth < 5) {
+        recursiveFunction(depth + 1);
+    }
+    rmt_EndCPUSample();
+}
+
 double delay() {
     int i, end;
     double j = 0;
@@ -12,6 +24,10 @@ double delay() {
     for( i = 0, end = rand()/100; i < end; ++i ) {
         j += sin(i);
     }
+    recursiveFunction(0);
+    aggregateFunction();
+    aggregateFunction();
+    aggregateFunction();
     rmt_EndCPUSample();
     return j;
 }
@@ -26,7 +42,7 @@ void sigintHandler(int sig_num) {
 
 int main( ) {
     Remotery *rmt;
-    
+
     signal(SIGINT, sigintHandler);
 
     if( RMT_ERROR_NONE != rmt_CreateGlobalInstance(&rmt) ) {
