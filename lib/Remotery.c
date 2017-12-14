@@ -1869,7 +1869,7 @@ static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
             double d;
             unsigned char c[sizeof(double)];
         } u;
-        char* dest = buffer->data + buffer->bytes_used;
+        rmtU8* dest = buffer->data + buffer->bytes_used;
         u.d = (double)value;
         if (IsLittleEndian())
         {
