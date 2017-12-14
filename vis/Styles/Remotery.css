@@ -261,5 +261,5 @@ body
 /* enable vertical scrollbar in TimelineContainer (useful for many threads) */
 .TimelineContainer
 {
-    overflow-y: scroll;
+    overflow-y: auto;
 }
