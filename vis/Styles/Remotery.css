@@ -92,15 +92,15 @@ body
 
 .SampleNameCell
 {
-    width:244px;
+    width:243px;
 }
 .SampleTimeCell
 {
-    width:53px;
+    width:52px;
 }
 .SampleCountCell
 {
-    width:26px;
+    width:43px;
 }
 .SampleTitleNameCell
 {
@@ -134,7 +134,7 @@ body
 }
 .SampleTitleCountCell
 {
-    width:27px;
+    width:38px;
     
 	padding: 1px 1px 1px 2px;
 	border: 1px solid;
