@@ -47,6 +47,11 @@ documented just below this comment.
 #define RMT_ENABLED 1
 #endif
 
+// Help performance of the server sending data to the client by marking this machine as little-endian 
+#ifndef RMT_ASSUME_LITTLE_ENDIAN
+#define RMT_ASSUME_LITTLE_ENDIAN 0
+#endif
+
 // Used by the Celtoys TinyCRT library (not released yet)
 #ifndef RMT_USE_TINYCRT
 #define RMT_USE_TINYCRT 0

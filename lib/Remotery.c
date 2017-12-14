@@ -1754,6 +1754,22 @@ static void Buffer_Destructor(Buffer* buffer)
 }
 
 
+static rmtError Buffer_Grow(Buffer* buffer, rmtU32 length)
+{
+    // Calculate size increase rounded up to the requested allocation granularity
+    rmtU32 granularity = buffer->alloc_granularity;
+    rmtU32 allocate = buffer->bytes_allocated + length;
+    allocate = allocate + ((granularity - 1) - ((allocate - 1) % granularity));
+
+    buffer->bytes_allocated = allocate;
+    buffer->data = (rmtU8*)rmtRealloc(buffer->data, buffer->bytes_allocated);
+    if (buffer->data == NULL)
+        return RMT_ERROR_MALLOC_FAIL;
+
+    return RMT_ERROR_NONE;
+}
+
+
 static rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
 {
     assert(buffer != NULL);
@@ -1761,23 +1777,14 @@ static rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
     // Reallocate the buffer on overflow
     if (buffer->bytes_used + length > buffer->bytes_allocated)
     {
-        // Calculate size increase rounded up to the requested allocation granularity
-        rmtU32 g = buffer->alloc_granularity;
-        rmtU32 a = buffer->bytes_allocated + length;
-        a = a + ((g - 1) - ((a - 1) % g));
-        buffer->bytes_allocated = a;
-        buffer->data = (rmtU8*)rmtRealloc(buffer->data, buffer->bytes_allocated);
-        if (buffer->data == NULL)
-            return RMT_ERROR_MALLOC_FAIL;
+        rmtError error = Buffer_Grow(buffer, length);
+        if (error != RMT_ERROR_NONE)
+            return error;
     }
 
     // Copy all bytes
     memcpy(buffer->data + buffer->bytes_used, data, length);
     buffer->bytes_used += length;
-
-    // NULL terminate (if possible) for viewing in debug
-    if (buffer->bytes_used < buffer->bytes_allocated)
-        buffer->data[buffer->bytes_used] = 0;
 
     return RMT_ERROR_NONE;
 }
@@ -1801,9 +1808,26 @@ static void U32ToByteArray(rmtU8* dest, rmtU32 value)
 
 static rmtError Buffer_WriteU32(Buffer* buffer, rmtU32 value)
 {
-    rmtU8 temp[4];
-    U32ToByteArray(temp, value);
-    return Buffer_Write(buffer, temp, sizeof(temp));
+    assert(buffer != NULL);
+
+    // Reallocate the buffer on overflow
+    if (buffer->bytes_used + sizeof(value) > buffer->bytes_allocated)
+    {
+        rmtError error = Buffer_Grow(buffer, sizeof(value));
+        if (error != RMT_ERROR_NONE)
+            return error;
+    }
+
+    // Copy all bytes
+    #if RMT_ASSUME_LITTLE_ENDIAN
+        *(rmtU32*)(buffer->data + buffer->bytes_used) = value;
+    #else
+        U32ToByteArray(buffer->data + buffer->bytes_used, value);
+    #endif
+
+    buffer->bytes_used += sizeof(value);
+
+    return RMT_ERROR_NONE;
 }
 
 
@@ -1824,36 +1848,57 @@ static rmtBool IsLittleEndian()
 static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
 {
     // Write as a double as Javascript DataView doesn't have a 64-bit integer read
-    union
+
+    assert(buffer != NULL);
+
+    // Reallocate the buffer on overflow
+    if (buffer->bytes_used + sizeof(value) > buffer->bytes_allocated)
     {
-        double d;
-        unsigned char c[sizeof(double)];
-    } u;
-    char temp[8];
-    u.d = (double)value;
-    if (IsLittleEndian())
-    {
-        temp[0] = u.c[0];
-        temp[1] = u.c[1];
-        temp[2] = u.c[2];
-        temp[3] = u.c[3];
-        temp[4] = u.c[4];
-        temp[5] = u.c[5];
-        temp[6] = u.c[6];
-        temp[7] = u.c[7];
+        rmtError error = Buffer_Grow(buffer, sizeof(value));
+        if (error != RMT_ERROR_NONE)
+            return error;
     }
-    else
+
+    // Copy all bytes
+    #if RMT_ASSUME_LITTLE_ENDIAN
+        *(double*)(buffer->data + buffer->bytes_used) = (double)value;
+    #else
     {
-        temp[0] = u.c[7];
-        temp[1] = u.c[6];
-        temp[2] = u.c[5];
-        temp[3] = u.c[4];
-        temp[4] = u.c[3];
-        temp[5] = u.c[2];
-        temp[6] = u.c[1];
-        temp[7] = u.c[0];
+        union
+        {
+            double d;
+            unsigned char c[sizeof(double)];
+        } u;
+        char* dest = buffer->data + buffer->bytes_used;
+        u.d = (double)value;
+        if (IsLittleEndian())
+        {
+            dest[0] = u.c[0];
+            dest[1] = u.c[1];
+            dest[2] = u.c[2];
+            dest[3] = u.c[3];
+            dest[4] = u.c[4];
+            dest[5] = u.c[5];
+            dest[6] = u.c[6];
+            dest[7] = u.c[7];
+        }
+        else
+        {
+            dest[0] = u.c[7];
+            dest[1] = u.c[6];
+            dest[2] = u.c[5];
+            dest[3] = u.c[4];
+            dest[4] = u.c[3];
+            dest[5] = u.c[2];
+            dest[6] = u.c[1];
+            dest[7] = u.c[0];
+        }
     }
-    return Buffer_Write(buffer, temp, sizeof(temp));
+    #endif
+
+    buffer->bytes_used += sizeof(value);
+
+    return RMT_ERROR_NONE;
 }
 
 
