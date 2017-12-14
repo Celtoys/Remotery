@@ -4439,7 +4439,7 @@ static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samp
 
     // Concatenate this sample
     (*nb_samples)++;
-    *digest_hash = MurmurHash3_x86_32(&sample->unique_id, sizeof(sample->unique_id), *digest_hash);
+    *digest_hash = HashCombine(*digest_hash, sample->unique_id);
 
     {
         rmtU8 shift = 4;
