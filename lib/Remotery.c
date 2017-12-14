@@ -6485,7 +6485,7 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
 typedef struct OpenGLSample
 {
     // IS-A inheritance relationship
-    Sample m_sample;
+    Sample Sample;
 
     OpenGLTimestamp* timestamp;
 
@@ -6500,8 +6500,8 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->m_sample.type = SampleType_OpenGL;
-    sample->m_sample.size_bytes = sizeof(OpenGLSample);
+    sample->Sample.type = SampleType_OpenGL;
+    sample->Sample.size_bytes = sizeof(OpenGLSample);
 	New_0(OpenGLTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
@@ -6838,7 +6838,7 @@ static rmtBool MetalTimestamp_GetData(MetalTimestamp* stamp, rmtU64* out_start, 
 typedef struct MetalSample
 {
     // IS-A inheritance relationship
-    Sample m_sample;
+    Sample Sample;
 
     MetalTimestamp* timestamp;
 
@@ -6853,8 +6853,8 @@ static rmtError MetalSample_Constructor(MetalSample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->m_sample.type = SampleType_Metal;
-    sample->m_sample.size_bytes = sizeof(MetalSample);
+    sample->Sample.type = SampleType_Metal;
+    sample->Sample.size_bytes = sizeof(MetalSample);
     New_0(MetalTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
