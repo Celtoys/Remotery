@@ -2,7 +2,7 @@
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
-#include "Remotery.h"
+#include "..\lib\Remotery.h"
 
 double delay() {
     int i, end;
@@ -25,9 +25,9 @@ void sigintHandler(int sig_num) {
 }
 
 int main( ) {
-    signal(SIGINT, sigintHandler);
-
     Remotery *rmt;
+    
+    signal(SIGINT, sigintHandler);
 
     if( RMT_ERROR_NONE != rmt_CreateGlobalInstance(&rmt) ) {
         return -1;
