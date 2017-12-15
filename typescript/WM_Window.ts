@@ -424,8 +424,6 @@ namespace WM
                 }
             }
 
-            //this.ControlGraph.RefInfos
-
             if (parent_container && gather_sibling_controls)
             {
                 // Gather auto-anchor controls from siblings on side resizers only

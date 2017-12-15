@@ -215,7 +215,7 @@ namespace WM
 
                     // Check for horizontal separating axis
                     if (tl_1.x - br_0.x < 0 && tl_0.x - br_1.x < 0)
-                    {
+                    {                        
                         // Check top/bottom edge intersection
                         if (Math.abs(tl_0.y - br_1.y) < b)
                         {
