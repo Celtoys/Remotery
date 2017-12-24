@@ -444,13 +444,16 @@
 
 .GridBody
 {
-	overflow-x: hidden;
-	overflow-y: scroll;
+	overflow-x: auto;
+	overflow-y: auto;
 	height: inherit;
 }
 
 .GridRow
 {
+	display: inline-block;
+	white-space: nowrap;
+
 	background:#303030;
 
 	color: #BBB;
@@ -471,7 +474,7 @@
 
 .GridRowCell
 {
-	float:left;
+	display: inline-block;
 }
 .GridRowCell.GridGroup
 {

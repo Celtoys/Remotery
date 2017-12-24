@@ -92,7 +92,60 @@ body
 
 .SampleNameCell
 {
-    width:300px;
+    width:243px;
+}
+.SampleTimeCell
+{
+    width:52px;
+}
+.SampleCountCell
+{
+    width:43px;
+}
+.SampleTitleNameCell
+{
+    width:238px;
+    
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+
+	background: #222;
+}
+.SampleTitleTimeCell
+{
+    width:47px;
+    
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+
+	background: #222;
+}
+.SampleTitleCountCell
+{
+    width:38px;
+    
+	padding: 1px 1px 1px 2px;
+	border: 1px solid;
+	border-radius: 2px;
+
+	border-top-color:#555;
+	border-left-color:#555;
+	border-bottom-color:#111;
+	border-right-color:#111;
+
+	background: #222;
 }
 
 
@@ -208,5 +261,5 @@ body
 /* enable vertical scrollbar in TimelineContainer (useful for many threads) */
 .TimelineContainer
 {
-    overflow-y: scroll;
+    overflow-y: auto;
 }
