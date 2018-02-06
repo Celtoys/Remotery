@@ -7,6 +7,9 @@ SampleWindow = (function()
 		this.NbSamples = 0;
 		this.SampleDigest = null;
 
+		// Source sample reference to reduce repopulation
+		this.Samples = null;
+
 		this.XPos = 10 + offset * 410;
 		this.Window = wm.AddWindow(name, 100, 100, 100, 100);
 		this.Window.Show();
@@ -76,6 +79,11 @@ SampleWindow = (function()
 	{
 		if (!this.Visible)
 			return;
+		
+		// If the source hasn't changed, don't repopulate
+		if (this.Samples == samples)
+			return;
+		this.Samples = samples;
 
 		// Recreate all the HTML if the number of samples gets bigger
 		if (nb_samples > this.NbSamples)
