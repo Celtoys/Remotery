@@ -3290,7 +3290,7 @@ static rmtError WebSocket_Send(WebSocket* web_socket, const void* data, rmtU32 l
     delta = WEBSOCKET_MAX_FRAME_HEADER_SIZE - frame_header_size;
     data = (void*)((rmtU8*)data + delta);
     length -= delta;
-    WebSocket_WriteFrameHeader(web_socket, (char*)data, payload_length);
+    WebSocket_WriteFrameHeader(web_socket, (rmtU8*)data, payload_length);
 
     // Send frame header and data together
     error = TCPSocket_Send(web_socket->tcp_socket, data, length, timeout_ms);
