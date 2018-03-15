@@ -4,4 +4,4 @@ script:
  - gcc -c -x c++ lib/Remotery.c
  - gcc -c -D RMT_USE_OPENGL=1 lib/Remotery.c
  - gcc -c -D RMT_USE_OPENGL=1 -x c++ lib/Remotery.c
- - clang lib/Remotery.c
+ - clang -c lib/Remotery.c
