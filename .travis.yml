@@ -1,4 +1,5 @@
 language: C
 script:
  - gcc -c lib/Remotery.c
+ - gcc -c -x c++ lib/Remotery.c
  - gcc -c -D RMT_USE_OPENGL=1 lib/Remotery.c
