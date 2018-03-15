@@ -5377,7 +5377,7 @@ static rmtBool rmtMessageQueue_IsEmpty(rmtMessageQueue* queue)
 typedef struct CUDASample
 {
     // IS-A inheritance relationship
-    Sample Sample;
+    Sample base;
 
     // Pair of events that wrap the sample
     CUevent event_start;
@@ -5483,8 +5483,8 @@ static rmtError CUDASample_Constructor(CUDASample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->Sample.type = SampleType_CUDA;
-    sample->Sample.size_bytes = sizeof(CUDASample);
+    sample->base.type = SampleType_CUDA;
+    sample->base.size_bytes = sizeof(CUDASample);
     sample->event_start = NULL;
     sample->event_end = NULL;
 
@@ -5632,9 +5632,9 @@ RMT_API void _rmt_EndCUDASample(void* stream)
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
         CUDASample* sample = (CUDASample*)ts->sample_trees[SampleType_CUDA]->current_parent;
-        if (sample->Sample.recurse_depth > 0)
+        if (sample->base.recurse_depth > 0)
         {
-            sample->Sample.recurse_depth--;
+            sample->base.recurse_depth--;
         }
         else
         {
@@ -6006,7 +6006,7 @@ static HRESULT D3D11Timestamp_GetData(D3D11Timestamp* stamp, ID3D11DeviceContext
 typedef struct D3D11Sample
 {
     // IS-A inheritance relationship
-    Sample Sample;
+    Sample base;
 
     D3D11Timestamp* timestamp;
 
@@ -6021,8 +6021,8 @@ static rmtError D3D11Sample_Constructor(D3D11Sample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->Sample.type = SampleType_D3D11;
-    sample->Sample.size_bytes = sizeof(D3D11Sample);
+    sample->base.type = SampleType_D3D11;
+    sample->base.size_bytes = sizeof(D3D11Sample);
     New_0(D3D11Timestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
@@ -6234,9 +6234,9 @@ RMT_API void _rmt_EndD3D11Sample(void)
     {
         // Close the timestamp
         D3D11Sample* d3d_sample = (D3D11Sample*)ts->sample_trees[SampleType_D3D11]->current_parent;
-        if (d3d_sample->Sample.recurse_depth > 0)
+        if (d3d_sample->base.recurse_depth > 0)
         {
-            d3d_sample->Sample.recurse_depth--;
+            d3d_sample->base.recurse_depth--;
         }
         else
         {
@@ -6607,7 +6607,7 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
 typedef struct OpenGLSample
 {
     // IS-A inheritance relationship
-    Sample Sample;
+    Sample base;
 
     OpenGLTimestamp* timestamp;
 
@@ -6622,8 +6622,8 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->Sample.type = SampleType_OpenGL;
-    sample->Sample.size_bytes = sizeof(OpenGLSample);
+    sample->base.type = SampleType_OpenGL;
+    sample->base.size_bytes = sizeof(OpenGLSample);
 	New_0(OpenGLTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
@@ -6814,9 +6814,9 @@ RMT_API void _rmt_EndOpenGLSample(void)
     {
         // Close the timestamp
         OpenGLSample* ogl_sample = (OpenGLSample*)ts->sample_trees[SampleType_OpenGL]->current_parent;
-        if (ogl_sample->Sample.recurse_depth > 0)
+        if (ogl_sample->base.recurse_depth > 0)
         {
-            ogl_sample->Sample.recurse_depth--;
+            ogl_sample->base.recurse_depth--;
         }
         else
         {
@@ -6967,7 +6967,7 @@ static rmtBool MetalTimestamp_GetData(MetalTimestamp* stamp, rmtU64* out_start, 
 typedef struct MetalSample
 {
     // IS-A inheritance relationship
-    Sample Sample;
+    Sample base;
 
     MetalTimestamp* timestamp;
 
@@ -6982,8 +6982,8 @@ static rmtError MetalSample_Constructor(MetalSample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->Sample.type = SampleType_Metal;
-    sample->Sample.size_bytes = sizeof(MetalSample);
+    sample->base.type = SampleType_Metal;
+    sample->base.size_bytes = sizeof(MetalSample);
     New_0(MetalTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
@@ -7130,9 +7130,9 @@ RMT_API void _rmt_EndMetalSample(void)
     {
         // Close the timestamp
         MetalSample* metal_sample = (MetalSample*)ts->sample_trees[SampleType_Metal]->current_parent;
-        if (metal_sample->Sample.recurse_depth > 0)
+        if (metal_sample->base.recurse_depth > 0)
         {
-            metal_sample->Sample.recurse_depth--;
+            metal_sample->base.recurse_depth--;
         }
         else
         {
