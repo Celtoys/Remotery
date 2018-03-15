@@ -1770,7 +1770,7 @@ static rmtError Buffer_Grow(Buffer* buffer, rmtU32 length)
 }
 
 
-static rmtError Buffer_Write(Buffer* buffer, void* data, rmtU32 length)
+static rmtError Buffer_Write(Buffer* buffer, const void* data, rmtU32 length)
 {
     assert(buffer != NULL);
 
