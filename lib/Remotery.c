@@ -2244,11 +2244,10 @@ static void TCPSocket_Destructor(TCPSocket* tcp_socket)
 }
 
 
-static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool limit_connections_to_localhost)
+static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool reuse_open_port, rmtBool limit_connections_to_localhost)
 {
     SOCKET s = INVALID_SOCKET;
     struct sockaddr_in sin;
-    int enable = 1;
     #ifdef RMT_PLATFORM_WINDOWS
         u_long nonblock = 1;
     #endif
@@ -2261,19 +2260,24 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
     if (s == SOCKET_ERROR)
         return RMT_ERROR_SOCKET_CREATE_FAIL;
 
-    // set SO_REUSEADDR so binding doesn't fail when restarting the application
-    // (otherwise the same port can't be reused within TIME_WAIT)
-    // I'm not checking for errors because if this fails (unlikely) we might still
-    // be able to bind to the socket anyway
-    #ifdef RMT_PLATFORM_POSIX
-        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-    #elif defined(RMT_PLATFORM_WINDOWS)
-        // windows also needs SO_EXCLUSEIVEADDRUSE,
-        // see http://www.andy-pearce.com/blog/posts/2013/Feb/so_reuseaddr-on-windows/
-        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&enable, sizeof(enable));
-        enable = 1;
-        setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&enable, sizeof(enable));
-    #endif
+    if (reuse_open_port)
+    {
+		int enable = 1;
+
+		// set SO_REUSEADDR so binding doesn't fail when restarting the application
+        // (otherwise the same port can't be reused within TIME_WAIT)
+        // I'm not checking for errors because if this fails (unlikely) we might still
+        // be able to bind to the socket anyway
+        #ifdef RMT_PLATFORM_POSIX
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+        #elif defined(RMT_PLATFORM_WINDOWS)
+            // windows also needs SO_EXCLUSEIVEADDRUSE,
+            // see http://www.andy-pearce.com/blog/posts/2013/Feb/so_reuseaddr-on-windows/
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&enable, sizeof(enable));
+            enable = 1;
+            setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&enable, sizeof(enable));
+        #endif
+    }
 
     // Bind the socket to the incoming port
     sin.sin_family = AF_INET;
@@ -3153,12 +3157,12 @@ static void WebSocket_Destructor(WebSocket* web_socket)
 }
 
 
-static rmtError WebSocket_RunServer(WebSocket* web_socket, rmtU16 port, rmtBool limit_connections_to_localhost, enum WebSocketMode mode)
+static rmtError WebSocket_RunServer(WebSocket* web_socket, rmtU16 port, rmtBool reuse_open_port, rmtBool limit_connections_to_localhost, enum WebSocketMode mode)
 {
     // Create the server's listening socket
     assert(web_socket != NULL);
     web_socket->mode = mode;
-    return TCPSocket_RunServer(web_socket->tcp_socket, port, limit_connections_to_localhost);
+    return TCPSocket_RunServer(web_socket->tcp_socket, port, reuse_open_port, limit_connections_to_localhost);
 }
 
 
@@ -3637,6 +3641,8 @@ typedef struct
     rmtU32 last_ping_time;
 
     rmtU16 port;
+
+	rmtBool reuse_open_port;
     rmtBool limit_connections_to_localhost;
 
     // A dynamically-sized buffer used for binary-encoding messages and sending to the client
@@ -3648,19 +3654,19 @@ typedef struct
 } Server;
 
 
-static rmtError Server_CreateListenSocket(Server* server, rmtU16 port, rmtBool limit_connections_to_localhost)
+static rmtError Server_CreateListenSocket(Server* server, rmtU16 port, rmtBool reuse_open_port, rmtBool limit_connections_to_localhost)
 {
     rmtError error = RMT_ERROR_NONE;
 
     New_1(WebSocket, server->listen_socket, NULL);
     if (error == RMT_ERROR_NONE)
-        error = WebSocket_RunServer(server->listen_socket, port, limit_connections_to_localhost, WEBSOCKET_BINARY);
+        error = WebSocket_RunServer(server->listen_socket, port, reuse_open_port, limit_connections_to_localhost, WEBSOCKET_BINARY);
 
     return error;
 }
 
 
-static rmtError Server_Constructor(Server* server, rmtU16 port, rmtBool limit_connections_to_localhost)
+static rmtError Server_Constructor(Server* server, rmtU16 port, rmtBool reuse_open_port, rmtBool limit_connections_to_localhost)
 {
     rmtError error;
 
@@ -3669,6 +3675,7 @@ static rmtError Server_Constructor(Server* server, rmtU16 port, rmtBool limit_co
     server->client_socket = NULL;
     server->last_ping_time = 0;
     server->port = port;
+	server->reuse_open_port = reuse_open_port;
     server->limit_connections_to_localhost = limit_connections_to_localhost;
     server->bin_buf = NULL;
     server->receive_handler = NULL;
@@ -3680,7 +3687,7 @@ static rmtError Server_Constructor(Server* server, rmtU16 port, rmtBool limit_co
         return error;
 
     // Create the listening WebSocket
-    return Server_CreateListenSocket(server, port, limit_connections_to_localhost);
+    return Server_CreateListenSocket(server, port, reuse_open_port, limit_connections_to_localhost);
 }
 
 
@@ -3769,7 +3776,7 @@ static void Server_Update(Server* server)
 
     // Recreate the listening socket if it's been destroyed earlier
     if (server->listen_socket == NULL)
-        Server_CreateListenSocket(server, server->port, server->limit_connections_to_localhost);
+        Server_CreateListenSocket(server, server->port, server->reuse_open_port, server->limit_connections_to_localhost);
 
     if (server->listen_socket != NULL && server->client_socket == NULL)
     {
@@ -4867,7 +4874,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         return error;
 
     // Create the server
-    New_2(Server, rmt->server, g_Settings.port, g_Settings.limit_connections_to_localhost);
+    New_3(Server, rmt->server, g_Settings.port, g_Settings.reuse_open_port, g_Settings.limit_connections_to_localhost);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -5048,6 +5055,7 @@ RMT_API rmtSettings* _rmt_Settings(void)
     if( g_SettingsInitialized == RMT_FALSE )
     {
         g_Settings.port = 0x4597;
+		g_Settings.reuse_open_port = RMT_FALSE;
         g_Settings.limit_connections_to_localhost = RMT_FALSE;
         g_Settings.msSleepBetweenServerUpdates = 10;
         g_Settings.messageQueueSizeInBytes = 128 * 1024;
