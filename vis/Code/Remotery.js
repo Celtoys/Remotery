@@ -159,8 +159,9 @@ Remotery = (function()
 	    if (sample.name == undefined)
 	    {
             // Meanwhile, store the hash as the name
-	        sample.name = sample.name_hash;
-	        self.Server.Send("GSMP" + sample.name);
+			sample.name = { "string": sample.name_hash };
+			self.NameMap[sample.name_hash] = sample.name;
+	        self.Server.Send("GSMP" + sample.name_hash);
 	    }
 
         // Get the rest of the sample data
@@ -254,8 +255,8 @@ Remotery = (function()
         // Add any names sent by the server to the local map
 	    var data_view_reader = new DataViewReader(data_view, 4);
 	    var name_hash = data_view_reader.GetUInt32();
-	    var name = data_view_reader.GetString();
-	    self.NameMap[name_hash] = name;
+		var name = data_view_reader.GetString();
+		self.NameMap[name_hash].string = name;
 	}
 
 

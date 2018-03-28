@@ -163,11 +163,11 @@ SampleWindow = (function()
 			parent_row.Rows.AddRowToIndex("_ID", sample.id, row);
 
             // Record sample name for later comparison
-			row.CellData.Name = sample.name;
+			row.CellData.Name = sample.name.string;
 			
 		    // Set sample name and colour
 			var name_node = row.CellNodes["Name"];
-			name_node.innerHTML = indent + sample.name;
+			name_node.innerHTML = indent + sample.name.string;
 			DOM.Node.SetColour(name_node, sample.colour);
 
 			row.CellNodes["Length"].innerHTML = sample.ms_length;
@@ -198,11 +198,11 @@ SampleWindow = (function()
 
 			    // Sample name will change when it switches from hash ID to network-retrieved 
                 // name. Quickly check that before re-applying the HTML for the name.
-			    if (row.CellData.Name != sample.name)
+			    if (row.CellData.Name != sample.name.string)
 			    {
 			        var name_node = row.CellNodes["Name"];
-			        row.CellData.Name = sample.name;
-			        name_node.innerHTML = indent + sample.name;
+			        row.CellData.Name = sample.name.string;
+			        name_node.innerHTML = indent + sample.name.string;
 			    }
 			}
 
