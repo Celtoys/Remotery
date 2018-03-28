@@ -366,7 +366,10 @@ TimelineRow = (function()
             ctx.clip();
             ctx.font = "9px verdana";
             ctx.fillStyle = "black";
-            ctx.fillText(sample.name.string, offset_x + 5.5, offset_y + 1.5 + 9);
+            var text = sample.name.string
+            text += " (" + sample.ms_length + "ms";
+            text += ", " + sample.call_count + "c)";
+            ctx.fillText(text, offset_x + 5.5, offset_y + 1.5 + 9);
             ctx.restore();
         }
     }
