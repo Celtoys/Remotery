@@ -4261,7 +4261,7 @@ static void AddSampleTreeMessage(rmtMessageQueue* queue, Sample* sample, ObjectA
 typedef struct ThreadSampler
 {
     // Name to assign to the thread in the viewer
-    rmtS8 name[64];
+    rmtS8 name[256];
 
     // Store a unique sample tree for each type
     SampleTree* sample_trees[SampleType_Count];
@@ -4536,7 +4536,7 @@ static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
 static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
 {
     Sample* root_sample;
-    char thread_name[64];
+    char thread_name[256];
     rmtU32 digest_hash = 0, nb_samples = 0;
     rmtError error;
 
@@ -4549,7 +4549,7 @@ static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
 
     // Add any sample types as a thread name post-fix to ensure they get their own viewer
     thread_name[0] = 0;
-    strncat_s(thread_name, sizeof(thread_name), msg->thread_name, strnlen_s(msg->thread_name, 64));
+    strncat_s(thread_name, sizeof(thread_name), msg->thread_name, strnlen_s(msg->thread_name, 255));
     if (root_sample->type == SampleType_CUDA)
         strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
     if (root_sample->type == SampleType_D3D11)
