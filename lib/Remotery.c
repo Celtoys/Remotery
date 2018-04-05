@@ -1008,7 +1008,7 @@ struct Thread_t
         rmtThread* thread = (rmtThread*)lpParameter;
         assert(thread != NULL);
         thread->error = thread->callback(thread);
-        return thread->error == RMT_ERROR_NONE ? 1 : 0;
+        return thread->error == RMT_ERROR_NONE ? 0 : 1;
     }
 
 #else
