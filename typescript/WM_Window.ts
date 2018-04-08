@@ -46,6 +46,8 @@ namespace WM
         private DragWindowStartSize: int2;
         private MouseOffset: int2;
 
+        private ActiveTouchID: number;
+
         // List of controls that are auto-anchored to a container edge during sizing
         private AnchorControls: [Control, int2][];
 
@@ -83,7 +85,8 @@ namespace WM
             this.Title = title;
 
             // Window move handler
-            this.TitleBarNode.MouseDownEvent.Subscribe(this.OnBeginMove);
+            this.TitleBarNode.MouseDownEvent.Subscribe(this.OnMouseStart);
+            this.TitleBarNode.TouchStartEvent.Subscribe(this.OnTouchStart);
 
             // Cursor change handlers as the mouse moves over sizers
             this.SizeLeftNode.MouseMoveEvent.Subscribe(this.OnMoveOverSize);
@@ -222,14 +225,13 @@ namespace WM
         {
             this.UpdateSnapRuler(Side.Bottom, (snap_code & SnapCode.Y) != 0, this.BottomRight.y + 1);
             this.UpdateSnapRuler(Side.Right, (snap_code & SnapCode.X) != 0, this.BottomRight.x + 1);
-        }
+        } 
 
         // --- Window movement --------------------------------------------------------------------
         
-        private OnBeginMove = (event: MouseEvent) =>
+        private OnBeginMove(event: Event, mouse_pos: int2)
         {
             // Prepare for drag
-            let mouse_pos = DOM.Event.GetMousePosition(event);
             this.DragMouseStartPosition = mouse_pos;
             this.DragWindowStartPosition = this.Position.Copy();
 
@@ -243,16 +245,33 @@ namespace WM
                 this.UpdateBRSnapRulers(snap_br[0]);
             }
 
-            // Dynamically add handlers for movement and release
-            $(document).MouseMoveEvent.Subscribe(this.OnMove);
-            $(document).MouseUpEvent.Subscribe(this.OnEndMove);
-
             DOM.Event.StopDefaultAction(event);
         }
-        private OnMove = (event: MouseEvent) =>
+        private OnMouseStart = (event: MouseEvent) =>
+        {
+            let mouse_pos = DOM.Event.GetMousePosition(event);
+            this.OnBeginMove(event, mouse_pos);
+
+            // Dynamically add handlers for movement and release
+            $(document).MouseMoveEvent.Subscribe(this.OnMouseMove);
+            $(document).MouseUpEvent.Subscribe(this.OnMouseEnd);
+        }
+        private OnTouchStart = (event: TouchEvent) =>
+        {
+            // Use position of the first touch in the list
+            let touch = event.changedTouches[0];
+            this.ActiveTouchID = touch.identifier;
+            let touch_pos = new int2(touch.pageX, touch.pageY);
+            this.OnBeginMove(event, touch_pos);
+
+            // Dynamically add handlers for movement and release
+            $(document).TouchMoveEvent.Subscribe(this.OnTouchMove);
+            $(document).TouchEndEvent.Subscribe(this.OnTouchEnd);
+        }
+
+        private OnMove(event: Event, mouse_pos: int2)
         {
             // Use the offset at the beginning of movement to drag the window around
-            let mouse_pos = DOM.Event.GetMousePosition(event);
             let offset = int2.Sub(mouse_pos, this.DragMouseStartPosition);
             this.Position = int2.Add(this.DragWindowStartPosition, offset);
 
@@ -271,19 +290,51 @@ namespace WM
                 this.UpdateTLSnapRulers(snap_tl[0]);
                 this.UpdateBRSnapRulers(snap_br[0]);
             }
-            
+                        
             // TODO: OnMove handler
 
             DOM.Event.StopDefaultAction(event);
         }
-        private OnEndMove = () =>
+        private OnMouseMove = (event: MouseEvent) =>
+        {
+            let mouse_pos = DOM.Event.GetMousePosition(event);
+            this.OnMove(event, mouse_pos);
+        }
+        private OnTouchMove = (event: TouchEvent) =>
+        {
+            // Find the currently active touch to update movement
+            for (let i = 0; i < event.changedTouches.length; i++)
+            {
+                let touch = event.changedTouches[i];
+                if (touch.identifier == this.ActiveTouchID)
+                {
+                    let touch_pos = new int2(touch.pageX, touch.pageY);
+                    this.OnMove(event, touch_pos);
+                    break;
+                }
+            }
+        }
+
+        private OnEndMove(event: Event)
         {
             this.RemoveSnapRulers();
+            DOM.Event.StopDefaultAction(event);
+        }
+        private OnMouseEnd = (event: Event) =>
+        {
+            this.OnEndMove(event);
 
             // Remove handlers added during mouse down
-            $(document).MouseMoveEvent.Unsubscribe(this.OnMove);
-            $(document).MouseUpEvent.Unsubscribe(this.OnEndMove);
-            DOM.Event.StopDefaultAction(event);
+            $(document).MouseMoveEvent.Unsubscribe(this.OnMouseMove);
+            $(document).MouseUpEvent.Unsubscribe(this.OnMouseEnd);
+        }
+        private OnTouchEnd = (event: Event) =>
+        {
+            this.OnEndMove(event);
+
+            // Remove handlers added during touch down
+            $(document).TouchMoveEvent.Unsubscribe(this.OnTouchMove);
+            $(document).TouchEndEvent.Unsubscribe(this.OnTouchEnd);
         }
 
         // --- Window sizing ---------------------------------------------------------------------
