@@ -11,6 +11,10 @@ namespace DOM
         private _MouseUpEvent: DOMEvent;
         private _MouseMoveEvent: DOMEvent;
         private _ResizeEvent: DOMEvent;
+        private _TouchStartEvent: DOMEvent;
+        private _TouchEndEvent: DOMEvent;
+        private _TouchCancelEvent: DOMEvent;
+        private _TouchMoveEvent: DOMEvent;
 
 
         // ----- Constructor ---------------------------------------------------------------
@@ -201,6 +205,26 @@ namespace DOM
         {
             this._ResizeEvent = this._ResizeEvent || new DOMEvent(window, "resize");
             return this._ResizeEvent;
+        }
+        get TouchStartEvent() : DOMEvent
+        {
+            this._TouchStartEvent = this._TouchStartEvent || new DOMEvent(this.Element, "touchstart");
+            return this._TouchStartEvent;
+        }
+        get TouchEndEvent() : DOMEvent
+        {
+            this._TouchEndEvent = this._TouchEndEvent || new DOMEvent(this.Element, "touchend");
+            return this._TouchEndEvent;
+        }
+        get TouchCancelEvent() : DOMEvent
+        {
+            this._TouchCancelEvent = this._TouchCancelEvent || new DOMEvent(this.Element, "touchcancel");
+            return this._TouchCancelEvent;
+        }
+        get TouchMoveEvent() : DOMEvent
+        {
+            this._TouchMoveEvent = this._TouchMoveEvent || new DOMEvent(this.Element, "touchmove");
+            return this._TouchMoveEvent;
         }
     };
 }
