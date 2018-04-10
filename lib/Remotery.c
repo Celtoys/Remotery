@@ -6655,6 +6655,8 @@ RMT_API void _rmt_BindOpenGL()
             opengl->dll_handle = rmtLoadLibrary("opengl32.dll");
         #elif defined (RMT_PLATFORM_MACOS)
             opengl->dll_handle = rmtLoadLibrary("/System/Library/Frameworks/OpenGL.framework/Versions/Current/OpenGL");
+        #elif defined (RMT_PLATFORM_LINUX)
+            opengl->dll_handle = rmtLoadLibrary("libGL.so");
         #endif
 
         opengl->__glGetError = (PFNGLGETERRORPROC)rmtGetProcAddress(opengl->dll_handle, "glGetError");
