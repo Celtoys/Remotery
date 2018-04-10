@@ -6521,6 +6521,10 @@ static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
     stamp->queries[0] = stamp->queries[1] = 0;
     stamp->cpu_timestamp = 0;
 
+    // Empty the error queue before using it for glGenQueries
+    while ((error = glGetError()) != GL_NO_ERROR)
+        ;
+
     // Create start/end timestamp queries
     assert(g_Remotery != NULL);
     rmtglGenQueries(2, stamp->queries);
