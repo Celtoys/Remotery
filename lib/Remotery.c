@@ -6538,12 +6538,7 @@ static void OpenGLTimestamp_Destructor(OpenGLTimestamp* stamp)
 
     // Destroy queries
     if (stamp->queries[0] != 0)
-    {
-        int error;
         rmtglDeleteQueries(2, stamp->queries);
-        error = rmtglGetError();
-        assert(error == GL_NO_ERROR);
-    }
 }
 
 
@@ -6571,7 +6566,6 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
 {
     GLuint64 start = 0, end = 0;
     GLint startAvailable = 0, endAvailable = 0;
-    int error;
 
     assert(g_Remotery != NULL);
 
@@ -6581,22 +6575,14 @@ static rmtBool OpenGLTimestamp_GetData(OpenGLTimestamp* stamp, rmtU64* out_start
     // Check to see if all queries are ready
     // If any fail to arrive, wait until later
     rmtglGetQueryObjectiv(stamp->queries[0], GL_QUERY_RESULT_AVAILABLE, &startAvailable);
-    error = rmtglGetError();
-    assert(error == GL_NO_ERROR);
     if (!startAvailable)
         return RMT_FALSE;
     rmtglGetQueryObjectiv(stamp->queries[1], GL_QUERY_RESULT_AVAILABLE, &endAvailable);
-    error = rmtglGetError();
-    assert(error == GL_NO_ERROR);
     if (!endAvailable)
         return RMT_FALSE;
 
     rmtglGetQueryObjectui64v(stamp->queries[0], GL_QUERY_RESULT, &start);
-    error = rmtglGetError();
-    assert(error == GL_NO_ERROR);
     rmtglGetQueryObjectui64v(stamp->queries[1], GL_QUERY_RESULT, &end);
-    error = rmtglGetError();
-    assert(error == GL_NO_ERROR);
 
     // Mark the first timestamp. We may resync if we detect the GPU timestamp is in the
     // past (i.e. happened before the CPU command) since it should be impossible.

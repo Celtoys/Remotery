@@ -42,10 +42,13 @@ void sigintHandler(int sig_num) {
 
 int main( ) {
     Remotery *rmt;
+	rmtError error;
 
     signal(SIGINT, sigintHandler);
 
-    if( RMT_ERROR_NONE != rmt_CreateGlobalInstance(&rmt) ) {
+	error = rmt_CreateGlobalInstance(&rmt);
+    if( RMT_ERROR_NONE != error) {
+		printf("Error launching Remotery %d\n", error);
         return -1;
     }
 
