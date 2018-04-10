@@ -6511,7 +6511,7 @@ typedef struct OpenGLTimestamp
 
 static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
 {
-    int error;
+    GLenum error;
 
     assert(stamp != NULL);
 
@@ -6522,7 +6522,7 @@ static rmtError OpenGLTimestamp_Constructor(OpenGLTimestamp* stamp)
     stamp->cpu_timestamp = 0;
 
     // Empty the error queue before using it for glGenQueries
-    while ((error = glGetError()) != GL_NO_ERROR)
+    while ((error = rmtglGetError()) != GL_NO_ERROR)
         ;
 
     // Create start/end timestamp queries
