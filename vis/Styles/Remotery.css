@@ -7,6 +7,8 @@ body
     margin: 0px;
 
     background-color: #999;
+
+    touch-action: none;
 }
 
 
