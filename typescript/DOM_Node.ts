@@ -60,8 +60,8 @@ namespace DOM
         }
         set Position(position: int2)
         {
-            this.Element.style.left = position.x.toString();
-            this.Element.style.top = position.y.toString();
+            this.Element.style.left = position.x.toString() + "px";
+            this.Element.style.top = position.y.toString() + "px";
         }
 
         // HTML element size, including borders and padding
@@ -71,8 +71,8 @@ namespace DOM
         }
         set Size(size: int2)
         {
-            this.Element.style.width = size.x.toString();
-            this.Element.style.height = size.y.toString();
+            this.Element.style.width = size.x.toString() + "px";
+            this.Element.style.height = size.y.toString() + "px";
         }
 
         // Rendering z-index, applied through CSS
