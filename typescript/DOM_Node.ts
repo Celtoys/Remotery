@@ -160,18 +160,13 @@ namespace DOM
         // Assumes there is only one root node in the text
         SetHTML(html: string)
         {
-            // Create a temporary div to apply the HTML to
-            let div = document.createElement("div");
-            div.innerHTML = html;
+            // Prevent creation of superfluous text nodes
+            html = html.trim();
 
-            // First child may be a text node, followed by the created HTML
-            var child = div.firstChild;
-            if (child != null && child.nodeType == 3)
-                child = child.nextSibling;
-            this.Element = <HTMLElement>child;
-
-            // Remove the generated HTML from the temporary div
-            this.Detach();
+            // Create a temporary template to apply the HTML to
+            let template = document.createElement("template");
+            template.innerHTML = html;
+            this.Element = <HTMLElement>template.content.firstElementChild;
         }
 
         Contains(node: Node) : boolean
