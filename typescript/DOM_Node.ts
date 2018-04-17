@@ -163,6 +163,11 @@ namespace DOM
             return node != null;            
         }
 
+        SetText(text: string)
+        {
+            this.Element.textContent = text;
+        }
+
         // Create the HTML elements specified in the text parameter
         // Assumes there is only one root node in the text
         private CreateFromHTML(html: string)
