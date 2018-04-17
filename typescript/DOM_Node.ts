@@ -38,7 +38,7 @@ namespace DOM
             else if (typeof parameter === "string")
             {
                 // Create a node from the provided HTML
-                this.SetHTML(parameter);
+                this.CreateFromHTML(parameter);
             }
         }
 
@@ -156,9 +156,16 @@ namespace DOM
                 this.Element.parentNode.removeChild(this.Element);
         }
 
+        Contains(node: Node) : boolean
+        {
+            while (node.Element != null && node.Element != this.Element)
+                node = node.Parent;
+            return node != null;            
+        }
+
         // Create the HTML elements specified in the text parameter
         // Assumes there is only one root node in the text
-        SetHTML(html: string)
+        private CreateFromHTML(html: string)
         {
             // Prevent creation of superfluous text nodes
             html = html.trim();
@@ -167,13 +174,6 @@ namespace DOM
             let template = document.createElement("template");
             template.innerHTML = html;
             this.Element = <HTMLElement>template.content.firstElementChild;
-        }
-
-        Contains(node: Node) : boolean
-        {
-            while (node.Element != null && node.Element != this.Element)
-                node = node.Parent;
-            return node != null;            
         }
 
 
