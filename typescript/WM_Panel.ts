@@ -18,7 +18,7 @@ namespace WM
         // List of panels contained by this panel, in z-order
         Panels: Panel[] = [];
 
-        // Parent panel; can be null in the case of the browser body
+        // Parent panel that is always set, even when the panel node is hidden and not part of the DOM tree
         private _ParentPanel: Panel;
 
         // Rectangle coverage
@@ -40,12 +40,7 @@ namespace WM
                 window.WMRootPanel = new Panel(new int2(0), new int2(0), window.WMRootNode);
             }
 
-            // Add to parent panel's list?
-            // NO. Allow the parent panel to be null and this panel is currently unshowable
-
             this.Node = node;
-
-            this._ParentPanel = window.WMRootPanel;
 
             // Store position/size directly so that bottom/right can be calculated
             this._Position = position;
@@ -56,6 +51,9 @@ namespace WM
             this.Node.Position = this._Position;
             this.Node.Size = this._Size;
             
+            // Parent everything to the root to start with
+            window.WMRootPanel.Add(this);
+
             this.Node.MouseDownEvent.Subscribe(this.OnMouseDown);
         }
 
@@ -123,12 +121,11 @@ namespace WM
         // Make the panel visible
         Show()
         {
-            // Only show if there's a oarent panel to host this one
-            if (this.ParentPanel != null)
-            {
+            // Node will be parented to a panel but might not yet be part of the element tree
+            if (this.Node.ParentElement == null)
                 this.ParentPanel.Node.Append(this.Node);
-                this._Visible = true;
-            }
+            
+            this._Visible = true;
         }
 
         // Hide the panel
@@ -143,8 +140,7 @@ namespace WM
         Add(panel: Panel) : Panel
         {
             // Remove from any existing parent
-            if (panel.ParentPanel)
-                panel.ParentPanel.Remove(panel);
+            panel.ParentPanel.Remove(panel);
 
             // Parent this this panel
             this.Panels.push(panel);
@@ -163,46 +159,40 @@ namespace WM
             // Remove from the panel list and orphan
             let index = this.Panels.indexOf(panel);
             this.Panels.splice(index);
-            panel.ParentPanel = null;
+            panel.ParentPanel = window.WMRootPanel;
         }
 
         SendToTop()
         {
             let parent_panel = this.ParentPanel;
-            if (parent_panel != null)
+            let parent_panels = parent_panel.Panels;
+            
+            // Push to the back of the parent's panel list
+            let index = parent_panels.indexOf(this);
+            if (index != -1)
             {
-                let parent_panels = parent_panel.Panels;
-                
-                // Push to the back of the parent's panel list
-                let index = parent_panels.indexOf(this);
-                if (index != -1)
-                {
-                    parent_panels.splice(index, 1);
-                    parent_panels.push(this);
+                parent_panels.splice(index, 1);
+                parent_panels.push(this);
 
-                    // Recalculate z-indices for visible sort
-                    parent_panel.UpdateZIndices();
-                }
+                // Recalculate z-indices for visible sort
+                parent_panel.UpdateZIndices();
             }
         }
 
         SendToBottom()
         {
             let parent_panel = this.ParentPanel;
-            if (parent_panel != null)
+            let parent_panels = parent_panel.Panels;
+
+            // Push to the front of the parent's panel list 
+            let index = parent_panels.indexOf(this);
+            if (index != -1)
             {
-                let parent_panels = parent_panel.Panels;
+                parent_panels.splice(index, 1);
+                parent_panels.unshift(this);
 
-                // Push to the front of the parent's panel list 
-                let index = parent_panels.indexOf(this);
-                if (index != -1)
-                {
-                    parent_panels.splice(index, 1);
-                    parent_panels.unshift(this);
-
-                    // Recalculate z-indices for visible sort
-                    parent_panel.UpdateZIndices();
-                }
+                // Recalculate z-indices for visible sort
+                parent_panel.UpdateZIndices();
             }
         }
 

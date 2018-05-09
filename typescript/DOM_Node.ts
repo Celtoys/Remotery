@@ -111,6 +111,10 @@ namespace DOM
                 return new Node(this.Element.parentElement);
             return null;  
         }
+        get ParentElement() : HTMLElement
+        {
+            return this.Element.parentElement;
+        }
 
 
         // ----- Methods -------------------------------------------------------------------
