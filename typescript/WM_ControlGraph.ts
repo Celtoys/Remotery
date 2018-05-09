@@ -104,6 +104,7 @@ namespace WM
             for (let i = 0; i < container.Controls.length; i++)
                 control_visited.push(false);
 
+            // Build references for each container
             for (let i = 0; i < container.Controls.length; i++)
             {
                 if (control_visited[i])
@@ -112,6 +113,7 @@ namespace WM
                 let control = container.Controls[i];
 
                 // TODO: Exempt Rulers but allow Buttons? Or, exempt any control from auto snap/anchor?
+                //       This is technically a container graph right now
                 if (!(control instanceof Container))
                     continue;
 
