@@ -118,6 +118,10 @@ namespace WM
                 this.ApplySizeConstraints();
                 this.ApplyMinimumSizeConstraints();
                 this.ApplyBufferConstraints();
+
+                // Do this here before non-spring constraints
+                this.IntegerRoundSpans();
+
                 this.ApplyContainerConstraints();
 
                 // HERE
@@ -127,7 +131,8 @@ namespace WM
             // TODO: Finish with a snap! Can that be made into a constraint?
             // Problem is that multiple controls may be out of line
             this.ApplySnapConstraints();
-
+            this.ApplyContainerConstraints();
+            
             // Copy simulation back to the controls
             for (let span of this.Spans)
             {
@@ -324,18 +329,29 @@ namespace WM
             }
         }
 
+        private IntegerRoundSpans()
+        {
+            for (let span of this.Spans)
+            {
+                span.Min = Math.round(span.Min);
+                span.Max = Math.round(span.Max);
+            }
+        }
+
         private ApplySnapConstraints()
         {
             for (let constraint of this.SnapConstraints)
             {
-                constraint.MaxSpan.Min = constraint.MinSpan.Max + Container.SnapBorderSize;
+                constraint.MaxSpan.Min = constraint.MinSpan.Max + Container.SnapBorderSize - 1;
             }
+
+            // TODO: Snap to container
         }
 
         private SetInitialSizeStrengths(container: Container, control_graph: ControlGraph, min_controls: number[], max_controls: number[])
         {
             let weak_strength = 0.01;
-            let strong_strength = 0.1;
+            let strong_strength = 0.5;
 
             let side_distance = 0;
             while (min_controls.length && max_controls.length)
