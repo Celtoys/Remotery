@@ -20,7 +20,9 @@ namespace WM
                     <div class='WindowTitleBarText notextsel' style='float:left'>Window Title Bar</div>
                     <div class='WindowTitleBarClose notextsel' style='float:right'>O</div>
                 </div>
-                <div class='WindowBody'></div>
+                <div class='WindowBody'>
+                    <div class='WindowBodyDebug'></div>
+                </div>
                 <div class='WindowSizeLeft'></div>
                 <div class='WindowSizeRight'></div>
                 <div class='WindowSizeTop'></div>
@@ -32,6 +34,7 @@ namespace WM
         private TitleBarTextNode: DOM.Node;
         private TitleBarCloseNode: DOM.Node;
         private BodyNode: DOM.Node;
+        private DebugNode: DOM.Node;
         private SizeLeftNode: DOM.Node;
         private SizeRightNode: DOM.Node;
         private SizeTopNode: DOM.Node;
@@ -71,6 +74,7 @@ namespace WM
             this.TitleBarTextNode = this.Node.Find(".WindowTitleBarText");
             this.TitleBarCloseNode = this.Node.Find(".WindowTitleBarClose");
             this.BodyNode = this.Node.Find(".WindowBody");
+            this.DebugNode = this.Node.Find(".WindowBodyDebug");
             this.SizeLeftNode = this.Node.Find(".WindowSizeLeft");
             this.SizeRightNode = this.Node.Find(".WindowSizeRight");
             this.SizeTopNode = this.Node.Find(".WindowSizeTop");
@@ -99,6 +103,8 @@ namespace WM
             this.SizeRightNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
             this.SizeTopNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
             this.SizeBottomNode.MouseDownEvent.Subscribe((event: MouseEvent) => { this.OnBeginSize(event, null, true); });
+
+            this.UpdateDebugText();
         }
 
 
@@ -160,6 +166,8 @@ namespace WM
             this.SizeRightNode.ZIndex = z_index + 1;
             this.SizeTopNode.ZIndex = z_index + 1;
             this.SizeBottomNode.ZIndex = z_index + 1;
+
+            this.UpdateDebugText();
         }
         get ZIndex() : number
         {
@@ -246,6 +254,8 @@ namespace WM
             }
 
             DOM.Event.StopDefaultAction(event);
+
+            this.UpdateDebugText();
         }
         private OnMouseStart = (event: MouseEvent) =>
         {
@@ -294,6 +304,8 @@ namespace WM
             // TODO: OnMove handler
 
             DOM.Event.StopDefaultAction(event);
+
+            this.UpdateDebugText();
         }
         private OnMouseMove = (event: MouseEvent) =>
         {
@@ -319,6 +331,7 @@ namespace WM
         {
             this.RemoveSnapRulers();
             DOM.Event.StopDefaultAction(event);
+            this.UpdateDebugText();
         }
         private OnMouseEnd = (event: Event) =>
         {
@@ -556,6 +569,8 @@ namespace WM
 
                 DOM.Event.StopDefaultAction(event);
             }
+
+            this.UpdateDebugText();
         }
         
         private OnSize = (event: MouseEvent, mask: int2, master_offset: int2) =>
@@ -646,6 +661,8 @@ namespace WM
             this.SetResizeCursor($(document.body), mask);
 
             DOM.Event.StopDefaultAction(event);
+
+            this.UpdateDebugText();
         }
         private OnEndSize = (event: MouseEvent, mask: int2) =>
         {
@@ -670,7 +687,16 @@ namespace WM
             this.OnSizeDelegate = null;
             $(document).MouseUpEvent.Unsubscribe(this.OnEndSizeDelegate);
             this.OnEndSizeDelegate = null;
-            DOM.Event.StopDefaultAction(event);            
+            DOM.Event.StopDefaultAction(event);
+
+            this.UpdateDebugText();
+        }
+
+        private UpdateDebugText()
+        {
+            let text = "";
+            text += this.BottomRight.x;
+            this.DebugNode.SetText(text);
         }
     }
 }
