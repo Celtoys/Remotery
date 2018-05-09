@@ -54,6 +54,13 @@ body
 	--SideBarSize: 5px;
 }
 
+.WindowBodyDebug
+{
+	color: #BBB;
+	font: 9px Verdana;
+	white-space: nowrap;
+}
+
 .WindowSizeLeft
 {
 	position: absolute;
