@@ -9,7 +9,9 @@ namespace WM
 {
     export class Panel
     {
-        static TemplateHTML = "<div class='Panel'>/div>";
+        static SnapBorderSize = 5;
+
+        private static TemplateHTML = "<div class='Panel'>/div>";
 
         // Main generated HTML node for the control
         // TODO: Can this be made private?
@@ -116,6 +118,12 @@ namespace WM
         get ParentPanel() : Panel
         {
             return this._ParentPanel;
+        }
+
+        // Returns the node which all added panels are parented to
+        get PanelContainerNode() : DOM.Node
+        {
+            return this.Node;
         }
 
         // Make the panel visible
