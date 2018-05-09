@@ -30,7 +30,7 @@ namespace WM
         // Records current visibility state
         private _Visible = false;
 
-        constructor(position: int2, size: int2, node: DOM.Node)
+        constructor(position: int2, size: int2, node?: DOM.Node)
         {
             // First-time initialisation of any panel resources
             if (window.WMRootNode == null)
@@ -40,7 +40,7 @@ namespace WM
                 window.WMRootPanel = new Panel(new int2(0), new int2(0), window.WMRootNode);
             }
 
-            this.Node = node;
+            this.Node = node ? node : new DOM.Node(Panel.TemplateHTML);
 
             // Store position/size directly so that bottom/right can be calculated
             this._Position = position;
