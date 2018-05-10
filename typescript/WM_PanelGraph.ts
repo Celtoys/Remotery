@@ -68,7 +68,7 @@ namespace WM
             return false;
         }
 
-        GetControlRef(index: number) : PanelRef
+        GetPanelRef(index: number) : PanelRef
         {
             if (index < this.NbRefs)
                 return this.ParentGraph.Refs[this.StartRef + index];
