@@ -93,7 +93,7 @@ namespace WM
 
         RefInfos: PanelRefInfo[] = [];
 
-        Build(panel: Panel)
+        Build(container: PanelContainer)
         {
             // Clear existing references
             this.Refs = [ ];
@@ -101,16 +101,16 @@ namespace WM
 
             // Mark all panels as unvisited
             let panel_visited: boolean[] = [];
-            for (let i = 0; i < panel.Panels.length; i++)
+            for (let i = 0; i < container.Panels.length; i++)
                 panel_visited.push(false);
 
             // Build references for each panel
-            for (let i = 0; i < panel.Panels.length; i++)
+            for (let i = 0; i < container.Panels.length; i++)
             {
                 if (panel_visited[i])
                     continue;
 
-                let child_panel = panel.Panels[i];
+                let child_panel = container.Panels[i];
                 if (!child_panel.Visible)
                     continue;
 
@@ -119,7 +119,7 @@ namespace WM
                 if (child_panel instanceof Ruler)
                     continue;
 
-                this.BuildRefs(child_panel, panel, panel_visited);
+                this.BuildRefs(child_panel, container, panel_visited);
             }
 
             // Sort panel references, packing panels/sides next to each other
@@ -129,9 +129,9 @@ namespace WM
             });
 
             // Initialise the panel ref info array
-            for (let i = 0; i < panel.Panels.length * 4; i++)
+            for (let i = 0; i < container.Panels.length * 4; i++)
             {
-                let child_panel = panel.Panels[i >> 2];
+                let child_panel = container.Panels[i >> 2];
                 this.RefInfos.push(new PanelRefInfo(this, child_panel, i & 3));
             }
 
@@ -153,7 +153,7 @@ namespace WM
             }
         }
 
-        private BuildRefs(root_panel: Panel, parent_panel: Panel, panel_visited: boolean[])
+        private BuildRefs(root_panel: Panel, container: PanelContainer, panel_visited: boolean[])
         {
             // First panel to visit is the root panel
             let to_visit_panels: Panel[] = [ root_panel ];
@@ -162,7 +162,7 @@ namespace WM
             for (let panel_0 of to_visit_panels)
             {
                 // It's possible for the same panel to be pushed onto the to-visit list more than once
-                let panel_0_index = parent_panel.Panels.indexOf(panel_0);
+                let panel_0_index = container.Panels.indexOf(panel_0);
                 if (panel_visited[panel_0_index])
                     continue;
                 panel_visited[panel_0_index] = true;
@@ -171,6 +171,7 @@ namespace WM
                 let br_0 = panel_0.BottomRight;
 
                 // Add references to the parent panel
+                let parent_panel = container.Owner;
                 let b = Panel.SnapBorderSize;
                 let s = parent_panel.PanelContainerNode.Size;
                 if (tl_0.x <= b)
@@ -183,11 +184,11 @@ namespace WM
                     this.Refs.push(new PanelRef(panel_0_index, panel_0, Side.Bottom, -1, parent_panel));
 
                 // Check candidate panels for auto-anchor intersection
-                for (let panel_1 of parent_panel.Panels)
+                for (let panel_1 of container.Panels)
                 {
                     // If a panel has been previous visited, no need to add forward links as back
                     // links would have been added when it was visited
-                    let panel_1_index = parent_panel.Panels.indexOf(panel_1);
+                    let panel_1_index = container.Panels.indexOf(panel_1);
                     if (panel_visited[panel_1_index])
                         continue;
 

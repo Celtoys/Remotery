@@ -71,30 +71,30 @@ namespace WM
             this.SnapConstraints = [];
         }
 
-        Build(base_side: Side, panel: Panel, panel_graph: PanelGraph)
+        Build(base_side: Side, container: PanelContainer, panel_graph: PanelGraph)
         {
             this.MinSide = base_side;
             this.MaxSide = base_side + 1;
 
             if (base_side == Side.Left)
-                this.ContainerRestSize = panel.PanelContainerNode.Size.x;
+                this.ContainerRestSize = container.Owner.PanelContainerNode.Size.x;
             else
-                this.ContainerRestSize = panel.PanelContainerNode.Size.y;
+                this.ContainerRestSize = container.Owner.PanelContainerNode.Size.y;
 
             // Clear previous constraints
             this.Clear();
 
             // Build the span list
-            this.BuildSpans(panel);
+            this.BuildSpans(container);
 
             // Build constraints
             let min_panels: number[] = [];
             let max_panels: number[] = [];
-            this.BuildContainerConstraints(panel, panel_graph, min_panels, max_panels);
-            this.BuildBufferConstraints(panel, panel_graph);
-            this.BuildSnapConstraints(panel, panel_graph);
+            this.BuildContainerConstraints(container, panel_graph, min_panels, max_panels);
+            this.BuildBufferConstraints(panel_graph);
+            this.BuildSnapConstraints(container.Owner, panel_graph);
 
-            this.SetInitialSizeStrengths(panel, panel_graph, min_panels, max_panels);
+            this.SetInitialSizeStrengths(container.Owner, panel_graph, min_panels, max_panels);
         }
 
         ChangeSize(new_size: number, panel_graph: PanelGraph)
@@ -149,9 +149,9 @@ namespace WM
             }
         }
 
-        private BuildSpans(panel: Panel)
+        private BuildSpans(container: PanelContainer)
         {
-            for (let child_panel of panel.Panels)
+            for (let child_panel of container.Panels)
             {
                 // Anything that's exempt from sizing (e.g. a Ruler) still needs an entry in the array, even if it's empty
                 if (child_panel instanceof Ruler)
@@ -162,16 +162,16 @@ namespace WM
 
                 // Set initial parameters
                 let span = new Span();
-                span.Panel = panel;
+                span.Panel = child_panel;
                 if (this.MinSide == Side.Left)
                 {
-                    span.Min = panel.TopLeft.x;
-                    span.Max = panel.BottomRight.x;
+                    span.Min = child_panel.TopLeft.x;
+                    span.Max = child_panel.BottomRight.x;
                 }
                 else
                 {
-                    span.Min = panel.TopLeft.y;
-                    span.Max = panel.BottomRight.y;
+                    span.Min = child_panel.TopLeft.y;
+                    span.Max = child_panel.BottomRight.y;
                 }
                 span.SizeStrength = 1;
                 span.RestSizeStrength = 1;
@@ -219,15 +219,15 @@ namespace WM
             }
         }
 
-        private BuildContainerConstraints(panel: Panel, panel_graph: PanelGraph, min_panels: number[], max_panels: number[])
+        private BuildContainerConstraints(container: PanelContainer, panel_graph: PanelGraph, min_panels: number[], max_panels: number[])
         {
-            for (let i = 0; i < panel.Panels.length; i++)
+            for (let i = 0; i < container.Panels.length; i++)
             {
                 let min_ref_info = panel_graph.RefInfos[i * 4 + this.MinSide];
                 let max_ref_info = panel_graph.RefInfos[i * 4 + this.MaxSide];
 
                 // Looking for panels that reference the external container on min/max sides
-                if (min_ref_info.References(panel))
+                if (min_ref_info.References(container.Owner))
                 {
                     let constraint = new ContainerConstraint();
                     constraint.Span = this.Spans[i];
@@ -238,7 +238,7 @@ namespace WM
                     // Track min panels for strength setting
                     min_panels.push(i);
                 }
-                if (max_ref_info.References(panel))
+                if (max_ref_info.References(container.Owner))
                 {
                     let constraint = new ContainerConstraint();
                     constraint.Span = this.Spans[i];
@@ -263,7 +263,7 @@ namespace WM
             }
         }
 
-        private BuildBufferConstraints(panel: Panel, panel_graph: PanelGraph)
+        private BuildBufferConstraints(panel_graph: PanelGraph)
         {
             for (let ref of panel_graph.Refs)
             {
