@@ -22,6 +22,7 @@
         "DOM.ts",
         "DOM_Node.ts",
         "WM_Panel.ts",
+        "WM_PanelContainer.ts",
         "WM_PanelGraph.ts",
         "WM_PanelSizer.ts",
         "WM_Control.ts",
