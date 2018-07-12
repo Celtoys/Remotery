@@ -498,7 +498,7 @@ static void WriteFence()
 #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     _WriteBarrier();
 #elif defined (__clang__)
-	__asm__ volatile("" : : : "memory");
+    __asm__ volatile("" : : : "memory");
 #else
     asm volatile ("" : : : "memory");
 #endif
@@ -583,8 +583,8 @@ typedef struct VirtualMirrorBuffer
 
 #ifdef RMT_PLATFORM_WINDOWS
     #ifdef _XBOX_ONE
-	    size_t page_count;
-	    size_t* page_mapping;
+        size_t page_count;
+        size_t* page_mapping;
     #else
         HANDLE file_map_handle;
     #endif
@@ -678,8 +678,8 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
     buffer->ptr = NULL;
 #ifdef RMT_PLATFORM_WINDOWS
     #ifdef _XBOX_ONE
-	    buffer->page_count = 0;
-	    buffer->page_mapping = NULL;
+        buffer->page_count = 0;
+        buffer->page_mapping = NULL;
     #else
         buffer->file_map_handle = INVALID_HANDLE_VALUE;
     #endif
@@ -690,47 +690,47 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
 
     // Xbox version based on Windows version and XDK reference
 
-	buffer->page_count = size / k_64;
-	if (buffer->page_mapping)
-	{
-		free( buffer->page_mapping );
-	}
-	buffer->page_mapping = malloc( sizeof( ULONG )*buffer->page_count );
+    buffer->page_count = size / k_64;
+    if (buffer->page_mapping)
+    {
+        free( buffer->page_mapping );
+    }
+    buffer->page_mapping = malloc( sizeof( ULONG )*buffer->page_count );
 
-	while(nb_attempts-- > 0)
-	{
-		rmtU8* desired_addr;
+    while(nb_attempts-- > 0)
+    {
+        rmtU8* desired_addr;
 
-		// Create a page mapping for pointing to its physical address with multiple virtual pages
-		if (!AllocateTitlePhysicalPages( GetCurrentProcess(), MEM_LARGE_PAGES, &buffer->page_count, buffer->page_mapping ))
-		{
-			free( buffer->page_mapping );
-			buffer->page_mapping = NULL;
-			break;
-		}
+        // Create a page mapping for pointing to its physical address with multiple virtual pages
+        if (!AllocateTitlePhysicalPages( GetCurrentProcess(), MEM_LARGE_PAGES, &buffer->page_count, buffer->page_mapping ))
+        {
+            free( buffer->page_mapping );
+            buffer->page_mapping = NULL;
+            break;
+        }
 
-		// Reserve two contiguous pages of virtual memory
-		desired_addr = (rmtU8*)VirtualAlloc( 0, size * 2, MEM_RESERVE, PAGE_NOACCESS );
-		if (desired_addr == NULL)
-			break;
+        // Reserve two contiguous pages of virtual memory
+        desired_addr = (rmtU8*)VirtualAlloc( 0, size * 2, MEM_RESERVE, PAGE_NOACCESS );
+        if (desired_addr == NULL)
+            break;
 
-		// Release the range immediately but retain the address for the next sequence of code to
-		// try and map to it. In the mean-time some other OS thread may come along and allocate this
-		// address range from underneath us so multiple attempts need to be made.
-		VirtualFree( desired_addr, 0, MEM_RELEASE );
+        // Release the range immediately but retain the address for the next sequence of code to
+        // try and map to it. In the mean-time some other OS thread may come along and allocate this
+        // address range from underneath us so multiple attempts need to be made.
+        VirtualFree( desired_addr, 0, MEM_RELEASE );
 
-		// Immediately try to point both pages at the file mapping
-		if (MapTitlePhysicalPages( desired_addr, buffer->page_count, MEM_LARGE_PAGES, PAGE_READWRITE, buffer->page_mapping ) == desired_addr &&
-			MapTitlePhysicalPages( desired_addr + size, buffer->page_count, MEM_LARGE_PAGES, PAGE_READWRITE, buffer->page_mapping ) == desired_addr + size)
-		{
-			buffer->ptr = desired_addr;
-			break;
-		}
+        // Immediately try to point both pages at the file mapping
+        if (MapTitlePhysicalPages( desired_addr, buffer->page_count, MEM_LARGE_PAGES, PAGE_READWRITE, buffer->page_mapping ) == desired_addr &&
+            MapTitlePhysicalPages( desired_addr + size, buffer->page_count, MEM_LARGE_PAGES, PAGE_READWRITE, buffer->page_mapping ) == desired_addr + size)
+        {
+            buffer->ptr = desired_addr;
+            break;
+        }
 
-		// Failed to map the virtual pages; cleanup and try again
-		FreeTitlePhysicalPages( GetCurrentProcess(), buffer->page_count, buffer->page_mapping );
-		buffer->page_mapping = NULL;
-	}
+        // Failed to map the virtual pages; cleanup and try again
+        FreeTitlePhysicalPages( GetCurrentProcess(), buffer->page_count, buffer->page_mapping );
+        buffer->page_mapping = NULL;
+    }
 
 #else
 
@@ -918,13 +918,13 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
 
 #ifdef RMT_PLATFORM_WINDOWS
     #ifdef _XBOX_ONE
-	    if (buffer->page_mapping != NULL)
-	    {
-		    VirtualFree( buffer->ptr, 0, MEM_DECOMMIT );	//needed in conjunction with FreeTitlePhysicalPages
-		    FreeTitlePhysicalPages( GetCurrentProcess(), buffer->page_count, buffer->page_mapping );
-		    free( buffer->page_mapping );
-		    buffer->page_mapping = NULL;
-	    }
+        if (buffer->page_mapping != NULL)
+        {
+            VirtualFree( buffer->ptr, 0, MEM_DECOMMIT );	//needed in conjunction with FreeTitlePhysicalPages
+            FreeTitlePhysicalPages( GetCurrentProcess(), buffer->page_count, buffer->page_mapping );
+            free( buffer->page_mapping );
+            buffer->page_mapping = NULL;
+        }
     #else
         if (buffer->file_map_handle != NULL)
         {
@@ -2247,9 +2247,9 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
 
     if (reuse_open_port)
     {
-		int enable = 1;
+        int enable = 1;
 
-		// set SO_REUSEADDR so binding doesn't fail when restarting the application
+        // set SO_REUSEADDR so binding doesn't fail when restarting the application
         // (otherwise the same port can't be reused within TIME_WAIT)
         // I'm not checking for errors because if this fails (unlikely) we might still
         // be able to bind to the socket anyway
@@ -3627,7 +3627,7 @@ typedef struct
 
     rmtU16 port;
 
-	rmtBool reuse_open_port;
+    rmtBool reuse_open_port;
     rmtBool limit_connections_to_localhost;
 
     // A dynamically-sized buffer used for binary-encoding messages and sending to the client
@@ -3660,7 +3660,7 @@ static rmtError Server_Constructor(Server* server, rmtU16 port, rmtBool reuse_op
     server->client_socket = NULL;
     server->last_ping_time = 0;
     server->port = port;
-	server->reuse_open_port = reuse_open_port;
+    server->reuse_open_port = reuse_open_port;
     server->limit_connections_to_localhost = limit_connections_to_localhost;
     server->bin_buf = NULL;
     server->receive_handler = NULL;
@@ -5040,7 +5040,7 @@ RMT_API rmtSettings* _rmt_Settings(void)
     if( g_SettingsInitialized == RMT_FALSE )
     {
         g_Settings.port = 0x4597;
-		g_Settings.reuse_open_port = RMT_FALSE;
+        g_Settings.reuse_open_port = RMT_FALSE;
         g_Settings.limit_connections_to_localhost = RMT_FALSE;
         g_Settings.msSleepBetweenServerUpdates = 10;
         g_Settings.messageQueueSizeInBytes = 128 * 1024;
@@ -6612,7 +6612,7 @@ typedef struct OpenGLSample
 
 static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 {
-	rmtError error;
+    rmtError error;
 
     assert(sample != NULL);
 
@@ -6620,7 +6620,7 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
     Sample_Constructor((Sample*)sample);
     sample->base.type = SampleType_OpenGL;
     sample->base.size_bytes = sizeof(OpenGLSample);
-	New_0(OpenGLTimestamp, sample->timestamp);
+    New_0(OpenGLTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
 }
@@ -6628,7 +6628,7 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 
 static void OpenGLSample_Destructor(OpenGLSample* sample)
 {
-	Delete(OpenGLTimestamp, sample->timestamp);
+    Delete(OpenGLTimestamp, sample->timestamp);
     Sample_Destructor((Sample*)sample);
 }
 
@@ -6673,13 +6673,13 @@ RMT_API void _rmt_UnbindOpenGL(void)
         OpenGL* opengl = g_Remotery->opengl;
         assert(opengl != NULL);
 
-		// Stall waiting for the OpenGL queue to empty into the Remotery queue
-		while (!rmtMessageQueue_IsEmpty(opengl->mq_to_opengl_main))
-			UpdateOpenGLFrame();
+        // Stall waiting for the OpenGL queue to empty into the Remotery queue
+        while (!rmtMessageQueue_IsEmpty(opengl->mq_to_opengl_main))
+            UpdateOpenGLFrame();
 
-		// Forcefully delete sample tree on this thread to release time stamps from
-		// the same thread that created them
-		Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_OpenGL);
+        // Forcefully delete sample tree on this thread to release time stamps from
+        // the same thread that created them
+        Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_OpenGL);
 
         // Release reference to the OpenGL DLL
         if (opengl->dll_handle != NULL)
@@ -6708,8 +6708,8 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** ogl_tree = &ts->sample_trees[SampleType_OpenGL];
         if (*ogl_tree == NULL)
         {
-			rmtError error;
-			New_3(SampleTree, *ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor, (ObjDestructor)OpenGLSample_Destructor);
+            rmtError error;
+            New_3(SampleTree, *ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor, (ObjDestructor)OpenGLSample_Destructor);
             if (error != RMT_ERROR_NONE)
                 return;
         }
