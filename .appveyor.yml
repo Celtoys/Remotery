@@ -5,7 +5,7 @@ platform:
 build_script:
     # VS2010 doesn't have a 64-bit install
 
-    # VS2010
+    # --- VS2010 -----------------------------------------------------------------------------
     - cmd: if "%PLATFORM%" == "x86" call "C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat" %PLATFORM%
     - cmd: if "%PLATFORM%" == "x86" cl.exe -c lib\Remotery.c
 
@@ -24,6 +24,7 @@ build_script:
     # VS2010 C++ mode D3D11
     - cmd: if "%PLATFORM%" == "x86" cl.exe -c -TP -DRMT_USE_D3D11=1 lib\Remotery.c
 
+    # --- VS2015 -----------------------------------------------------------------------------
     # VS2015
     - cmd: call "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\vcvarsall.bat" %PLATFORM%
     - cmd: cl.exe -c lib\Remotery.c
@@ -42,4 +43,8 @@ build_script:
 
     # VS2015 C++ mode D3D11
     - cmd: cl.exe -c -TP -DRMT_USE_D3D11=1 lib\Remotery.c
+
+    # --- VS2017 -----------------------------------------------------------------------------
+    - cmd: call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvarsall.bat"
+    - cmd: cl.exe -c lib\Remotery.c
 
