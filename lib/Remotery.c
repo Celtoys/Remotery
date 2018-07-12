@@ -206,16 +206,20 @@ static void rmtFreeLibrary(void* handle)
 }
 
 #if defined(RMT_PLATFORM_WINDOWS)
-static FARPROC rmtGetProcAddress(void* handle, const char* symbol)
-{
-    return GetProcAddress((HMODULE)handle, (LPCSTR)symbol);
-}
-#elif defined(RMT_PLATFORM_POSIX)
-static void* rmtGetProcAddress(void* handle, const char* symbol)
-{
-    return dlsym(handle, symbol);
-}
+    typedef FARPROC ProcReturnType;
+#else
+    typedef void* ProcReturnType;
 #endif
+
+static ProcReturnType rmtGetProcAddress(void* handle, const char* symbol)
+{
+    #if defined(RMT_PLATFORM_WINDOWS)
+        return GetProcAddress((HMODULE)handle, (LPCSTR)symbol);
+    #elif defined(RMT_PLATFORM_POSIX)
+        return dlsym(handle, symbol);
+    #endif
+}
+
 
 #endif
 
@@ -6389,17 +6393,17 @@ static GLenum rmtglGetError(void)
 #endif
 
 
-static void* rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
+static ProcReturnType rmtglGetProcAddress(OpenGL* opengl, const char* symbol)
 {
     #if defined(RMT_PLATFORM_WINDOWS)
     {
         // Get OpenGL extension-loading function for each call
-        typedef PROC(WINAPI * wglGetProcAddressFn)(LPCSTR);
+        typedef ProcReturnType (WINAPI * wglGetProcAddressFn)(LPCSTR);
         assert(opengl != NULL);
         {
             wglGetProcAddressFn wglGetProcAddress = (wglGetProcAddressFn)rmtGetProcAddress(opengl->dll_handle, "wglGetProcAddress");
             if (wglGetProcAddress != NULL)
-                return (void*)wglGetProcAddress(symbol);
+                return wglGetProcAddress(symbol);
         }
     }
 
