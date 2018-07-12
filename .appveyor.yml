@@ -45,6 +45,6 @@ build_script:
     - cmd: cl.exe -c -TP -DRMT_USE_D3D11=1 lib\Remotery.c
 
     # --- VS2017 -----------------------------------------------------------------------------
-    - cmd: call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvarsall.bat"
+    - cmd: call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat" %PLATFORM%
     - cmd: cl.exe -c lib\Remotery.c
 
