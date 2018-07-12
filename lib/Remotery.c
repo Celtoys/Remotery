@@ -6125,20 +6125,22 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp, 
 
         assert(out_last_resync != NULL);
 
-        if (RMT_GPU_CPU_SYNC_SECONDS > 0 && *out_last_resync < d3d_sample->timestamp->cpu_timestamp)
-        {
-            //Convert from us to seconds.
-            rmtU64 time_diff = (d3d_sample->timestamp->cpu_timestamp - *out_last_resync) / 1000000ULL;
-            if (time_diff > RMT_GPU_CPU_SYNC_SECONDS)
+        #if (RMT_GPU_CPU_SYNC_SECONDS > 0)
+            if (*out_last_resync < d3d_sample->timestamp->cpu_timestamp)
             {
-                result = SyncD3D11CpuGpuTimes(out_first_timestamp, out_last_resync);
-                if (result != S_OK)
+                //Convert from us to seconds.
+                rmtU64 time_diff = (d3d_sample->timestamp->cpu_timestamp - *out_last_resync) / 1000000ULL;
+                if (time_diff > RMT_GPU_CPU_SYNC_SECONDS)
                 {
-                    d3d11->last_error = result;
-                    return RMT_FALSE;
+                    result = SyncD3D11CpuGpuTimes(out_first_timestamp, out_last_resync);
+                    if (result != S_OK)
+                    {
+                        d3d11->last_error = result;
+                        return RMT_FALSE;
+                    }
                 }
             }
-        }
+        #endif
 
         result = D3D11Timestamp_GetData(
             d3d_sample->timestamp,
@@ -6722,13 +6724,15 @@ static rmtBool GetOpenGLSampleTimes(Sample* sample, rmtU64* out_first_timestamp,
     if (ogl_sample->timestamp != NULL)
     {
         assert(out_last_resync != NULL);
-        if (RMT_GPU_CPU_SYNC_SECONDS > 0 && *out_last_resync < ogl_sample->timestamp->cpu_timestamp)
-        {
-            //Convert from us to seconds.
-            rmtU64 time_diff = (ogl_sample->timestamp->cpu_timestamp - *out_last_resync) / 1000000ULL;
-            if (time_diff > RMT_GPU_CPU_SYNC_SECONDS)
-                SyncOpenGLCpuGpuTimes(out_first_timestamp, out_last_resync);
-        }
+        #if (RMT_GPU_CPU_SYNC_SECONDS > 0)
+            if (*out_last_resync < ogl_sample->timestamp->cpu_timestamp)
+            {
+                //Convert from us to seconds.
+                rmtU64 time_diff = (ogl_sample->timestamp->cpu_timestamp - *out_last_resync) / 1000000ULL;
+                if (time_diff > RMT_GPU_CPU_SYNC_SECONDS)
+                    SyncOpenGLCpuGpuTimes(out_first_timestamp, out_last_resync);
+            }
+        #endif
 
         if (!OpenGLTimestamp_GetData(ogl_sample->timestamp, &sample->us_start, &sample->us_end, out_first_timestamp, out_last_resync))
             return RMT_FALSE;
