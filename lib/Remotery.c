@@ -5665,7 +5665,17 @@ RMT_API void _rmt_EndCUDASample(void* stream)
 // Allow use of the D3D11 helper macros for accessing the C-style vtable
 #define COBJMACROS
 
+#if _MSC_VER
+    // Disable for d3d11.h
+    // warning C4201: nonstandard extension used : nameless struct/union
+    #pragma warning(push, disable: 4201)
+#endif
+
 #include <d3d11.h>
+
+#if _MSC_VER
+    #pragma warning(pop)
+#endif
 
 
 typedef struct D3D11
