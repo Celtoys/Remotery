@@ -6,6 +6,10 @@ platform:
     - x86
     - x64
 
+configuration:
+    - Debug
+    - Release
+
 build_script:
     # VS2010 doesn't have a 64-bit install
 
