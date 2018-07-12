@@ -1,4 +1,6 @@
-image: Visual Studio 2017
+image:
+    - Visual Studio 2015
+    - Visual Studio 2017
 
 platform:
     - x86
@@ -8,7 +10,7 @@ build_script:
     # VS2010 doesn't have a 64-bit install
 
     # --- VS2010 -----------------------------------------------------------------------------
-    - cmd: if "%PLATFORM%" == "x86" call "C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat" %PLATFORM%
+    - cmd: if "%PLATFORM%" == "x86" if "%IMAGE% == "Visual Studio 2015" call "C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat" %PLATFORM%
     - cmd: if "%PLATFORM%" == "x86" cl.exe -c lib\Remotery.c
 
     # VS2010 C++ mode
