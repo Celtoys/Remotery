@@ -15,44 +15,44 @@ build_script:
 
     # --- VS2010 -----------------------------------------------------------------------------
     - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" call "C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat" %PLATFORM%
-    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 lib\Remotery.c
 
     # VS2010 C++ mode
-    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -TP lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -TP lib\Remotery.c
 
     # VS2010 OpenGL
-    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -DRMT_USE_OPENGL=1 lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -DRMT_USE_OPENGL=1 lib\Remotery.c
 
     # VS2010 C++ mode OpenGL
-    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
 
     # VS2010 D3D11
-    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -DRMT_USE_D3D11=1 lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -DRMT_USE_D3D11=1 lib\Remotery.c
 
     # VS2010 C++ mode D3D11
-    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -TP -DRMT_USE_D3D11=1 lib\Remotery.c
+    - cmd: if "%PLATFORM%" == "x86" if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -TP -DRMT_USE_D3D11=1 lib\Remotery.c
 
     # --- VS2015 -----------------------------------------------------------------------------
     # VS2015
     - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" call "C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\vcvarsall.bat" %PLATFORM%
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c lib\Remotery.c
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 lib\Remotery.c
 
     # VS2015 C++ mode
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -TP lib\Remotery.c    
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -TP lib\Remotery.c    
 
     # VS2015 OpenGL
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -DRMT_USE_OPENGL=1 lib\Remotery.c
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -DRMT_USE_OPENGL=1 lib\Remotery.c
 
     # VS2015 C++ mode OpenGL
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -TP -DRMT_USE_OPENGL=1 lib\Remotery.c
 
     # VS2015 D3D11
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -DRMT_USE_D3D11=1 lib\Remotery.c
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -DRMT_USE_D3D11=1 lib\Remotery.c
 
     # VS2015 C++ mode D3D11
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -TP -DRMT_USE_D3D11=1 lib\Remotery.c
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe -c -W4 -TP -DRMT_USE_D3D11=1 lib\Remotery.c
 
     # --- VS2017 -----------------------------------------------------------------------------
     - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2017" call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvarsall.bat" %PLATFORM%
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2017" cl.exe -c lib\Remotery.c
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2017" cl.exe -c -W4 lib\Remotery.c
 
