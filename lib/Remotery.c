@@ -205,23 +205,18 @@ static void rmtFreeLibrary(void* handle)
     #endif
 }
 
+#if defined(RMT_PLATFORM_WINDOWS)
+static FARPROC rmtGetProcAddress(void* handle, const char* symbol)
+{
+    return GetProcAddress((HMODULE)handle, (LPCSTR)symbol);
+}
+#elif defined(RMT_PLATFORM_POSIX)
 static void* rmtGetProcAddress(void* handle, const char* symbol)
 {
-    #if defined(RMT_PLATFORM_WINDOWS)
-        #ifdef _MSC_VER
-            #pragma warning(push)
-            #pragma warning(disable:4152) // C4152: nonstandard extension, function/data pointer conversion in expression
-        #endif
-        return GetProcAddress((HMODULE)handle, (LPCSTR)symbol);
-        #ifdef _MSC_VER
-            #pragma warning(pop)
-        #endif
-    #elif defined(RMT_PLATFORM_POSIX)
-        return dlsym(handle, symbol);
-    #else
-        return NULL;
-    #endif
+    return dlsym(handle, symbol);
 }
+#endif
+
 #endif
 
 /*
