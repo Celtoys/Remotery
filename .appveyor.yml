@@ -10,7 +10,9 @@ environment:
     CL_OPTS_GLOBAL: -c -W4
     matrix:
         - CL_OPTS: "%CL_OPTS_GLOBAL% -DNDEBUG"
+          configuration: Release
         - CL_OPTS: "%CL_OPTS_GLOBAL% -D_DEBUG"
+          configuration: Debug
 
 matrix:
     fast_finish: true
@@ -42,7 +44,7 @@ build_script:
     - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe %CL_OPTS% lib\Remotery.c
 
     # VS2015 C++ mode
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe %CL_OPTS% -TP lib\Remotery.c    
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe %CL_OPTS% -TP lib\Remotery.c
 
     # VS2015 OpenGL
     - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2015" cl.exe %CL_OPTS% -DRMT_USE_OPENGL=1 lib\Remotery.c
@@ -61,7 +63,7 @@ build_script:
     - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2017" cl.exe %CL_OPTS% lib\Remotery.c
 
     # VS2017 C++ mode
-    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2017" cl.exe %CL_OPTS% -TP lib\Remotery.c    
+    - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2017" cl.exe %CL_OPTS% -TP lib\Remotery.c
 
     # VS2017 OpenGL
     - cmd: if "%APPVEYOR_BUILD_WORKER_IMAGE%" == "Visual Studio 2017" cl.exe %CL_OPTS% -DRMT_USE_OPENGL=1 lib\Remotery.c
