@@ -140,7 +140,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 #endif
 
 #ifdef _MSC_VER
-    #define RMT_UNREFERENCED_PARAMETER(i) assert(i == 0 || i != 0);	// To fool warning C4100 on warning level 4
+    #define RMT_UNREFERENCED_PARAMETER(i) (i)
 #else
     #define RMT_UNREFERENCED_PARAMETER(i) (void)(1 ? (void)0 : ((void)i))
 #endif
