@@ -9,8 +9,11 @@ platform:
 environment:
     CL_OPTS_GLOBAL: -c -W4
     matrix:
-        - CL_OPTS: CL_OPTS_GLOBAL -DNDEBUG
-        - CL_OPTS: CL_OPTS_GLOBAL -D_DEBUG
+        - CL_OPTS: "%CL_OPTS_GLOBAL%" -DNDEBUG
+        - CL_OPTS: "%CL_OPTS_GLOBAL%" -D_DEBUG
+
+matrix:
+    fast_finish: true
 
 build_script:
     # VS2010 doesn't have a 64-bit install
