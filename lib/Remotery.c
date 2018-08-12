@@ -5187,7 +5187,7 @@ static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 siz
 
 RMT_API void _rmt_LogText(rmtPStr text)
 {
-    int start_offset, prev_offset, i;
+    int start_offset, offset, i;
     unsigned char line_buffer[1024] = { 0 };
     ThreadSampler* ts;
 
@@ -5204,19 +5204,19 @@ RMT_API void _rmt_LogText(rmtPStr text)
     start_offset = 8;
 
     // There might be newlines in the buffer, so split them into multiple network calls
-    prev_offset = start_offset;
+    offset = start_offset;
     for (i = 0; text[i] != 0; i++)
     {
         char c = text[i];
 
         // Line wrap when too long or newline encountered
-        if (prev_offset >= (int)sizeof(line_buffer) - 3 || c == '\n')
+        if (offset >= (int)sizeof(line_buffer) - 1 || c == '\n')
         {
-            if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts) == RMT_FALSE)
+            if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, ts) == RMT_FALSE)
                 return;
 
             // Restart line
-            prev_offset = start_offset;
+            offset = start_offset;
         }
 
         // Safe to insert 2 characters here as previous check would split lines if not enough space left
@@ -5228,27 +5228,27 @@ RMT_API void _rmt_LogText(rmtPStr text)
 
             // Escape these
             case '\\':
-                line_buffer[prev_offset++] = '\\';
-                line_buffer[prev_offset++] = '\\';
+                line_buffer[offset++] = '\\';
+                line_buffer[offset++] = '\\';
                 break;
 
             case '\"':
-                line_buffer[prev_offset++] = '\\';
-                line_buffer[prev_offset++] = '\"';
+                line_buffer[offset++] = '\\';
+                line_buffer[offset++] = '\"';
                 break;
 
             // Add the rest
             default:
-                line_buffer[prev_offset++] = c;
+                line_buffer[offset++] = c;
                 break;
         }
     }
 
     // Send the last line
-    if (prev_offset > start_offset)
+    if (offset > start_offset)
     {
-        assert(prev_offset <= (int)sizeof(line_buffer) - 2);
-        QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts);
+        assert(offset <= (int)sizeof(line_buffer));
+        QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, ts);
     }
 }
 
