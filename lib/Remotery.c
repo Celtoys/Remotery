@@ -4764,12 +4764,13 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
     {
         case FOURCC('C', 'O', 'N', 'I'):
         {
+            rmt_LogText("Console message received...");
+            rmt_LogText(message_data + 4);
+
             // Pass on to any registered handler
             if (g_Settings.input_handler != NULL)
                 g_Settings.input_handler(message_data + 4, g_Settings.input_handler_context);
 
-            rmt_LogText("Console message received...");
-            rmt_LogText(message_data + 4);
             break;
         }
 
@@ -5184,6 +5185,7 @@ static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 siz
 
     return RMT_TRUE;
 }
+
 
 RMT_API void _rmt_LogText(rmtPStr text)
 {
