@@ -117,7 +117,7 @@ Console = (function()
 			var app_node = self.AppContainer.Node;
 			app_node.innerHTML = self.AppTextBuffer;
 			app_node.scrollTop = app_node.scrollHeight;
-			self.AppTextPending = false;
+			self.AppTextUpdatePending = false;
 		}
 	}
 
