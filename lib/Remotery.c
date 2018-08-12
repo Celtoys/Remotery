@@ -5185,7 +5185,6 @@ static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 siz
     return RMT_TRUE;
 }
 
-
 RMT_API void _rmt_LogText(rmtPStr text)
 {
     int start_offset, prev_offset, i;
@@ -5211,7 +5210,7 @@ RMT_API void _rmt_LogText(rmtPStr text)
         char c = text[i];
 
         // Line wrap when too long or newline encountered
-        if (prev_offset == sizeof(line_buffer) - 3 || c == '\n')
+        if (prev_offset >= (int)sizeof(line_buffer) - 3 || c == '\n')
         {
             if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts) == RMT_FALSE)
                 return;
@@ -5248,7 +5247,7 @@ RMT_API void _rmt_LogText(rmtPStr text)
     // Send the last line
     if (prev_offset > start_offset)
     {
-        assert(prev_offset < ((int)sizeof(line_buffer) - 3));
+        assert(prev_offset <= (int)sizeof(line_buffer) - 2);
         QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, prev_offset, ts);
     }
 }
