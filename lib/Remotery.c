@@ -5210,38 +5210,19 @@ RMT_API void _rmt_LogText(rmtPStr text)
         char c = text[i];
 
         // Line wrap when too long or newline encountered
-        if (offset >= (int)sizeof(line_buffer) - 1 || c == '\n')
+        if (offset == sizeof(line_buffer) || c == '\n')
         {
             if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, ts) == RMT_FALSE)
                 return;
 
             // Restart line
             offset = start_offset;
+
+            if (c == '\n')
+                continue;
         }
 
-        // Safe to insert 2 characters here as previous check would split lines if not enough space left
-        switch (c)
-        {
-            // Skip newline, dealt with above
-            case '\n':
-                break;
-
-            // Escape these
-            case '\\':
-                line_buffer[offset++] = '\\';
-                line_buffer[offset++] = '\\';
-                break;
-
-            case '\"':
-                line_buffer[offset++] = '\\';
-                line_buffer[offset++] = '\"';
-                break;
-
-            // Add the rest
-            default:
-                line_buffer[offset++] = c;
-                break;
-        }
+        line_buffer[offset++] = c;
     }
 
     // Send the last line
