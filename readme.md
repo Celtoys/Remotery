@@ -231,5 +231,7 @@ Some important settings are:
 
     // Specify an input handler that receives text input from the Remotery console, with an additional
     // context pointer that gets passed to your callback.
+    // The handler will be called from the Remotery thread so synchronization with a mutex or atomics
+    // might be needed to avoid race conditions with your threads.
     settings->input_handler;
     settings->input_handler_context;
