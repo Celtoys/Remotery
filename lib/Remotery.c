@@ -492,7 +492,7 @@ static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 }
 
 
-// Compiler write fences (windows implementation)
+// Compiler write fences
 static void WriteFence()
 {
 #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
@@ -5203,6 +5203,12 @@ RMT_API void _rmt_LogText(rmtPStr text)
     line_buffer[1] = 'O';
     line_buffer[2] = 'G';
     line_buffer[3] = 'M';
+    // Fill with spaces to enable viewing line_buffer without offset in a debugger
+    // (will be overwritten later by QueueLine/rmtMessageQueue_AllocMessage)
+    line_buffer[4] = ' ';
+    line_buffer[5] = ' ';
+    line_buffer[6] = ' ';
+    line_buffer[7] = ' ';
     start_offset = 8;
 
     // There might be newlines in the buffer, so split them into multiple network calls
@@ -5212,14 +5218,17 @@ RMT_API void _rmt_LogText(rmtPStr text)
         char c = text[i];
 
         // Line wrap when too long or newline encountered
-        if (offset == sizeof(line_buffer) || c == '\n')
+        if (offset == sizeof(line_buffer) - 1 || c == '\n')
         {
+            // Send the line up to now
             if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, ts) == RMT_FALSE)
                 return;
 
             // Restart line
             offset = start_offset;
 
+            // Don't add the newline character (if this was the reason for the flush)
+            // to the restarted line_buffer, let's skip it
             if (c == '\n')
                 continue;
         }
@@ -5230,7 +5239,7 @@ RMT_API void _rmt_LogText(rmtPStr text)
     // Send the last line
     if (offset > start_offset)
     {
-        assert(offset <= (int)sizeof(line_buffer));
+        assert(offset < (int)sizeof(line_buffer));
         QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, ts);
     }
 }
