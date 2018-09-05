@@ -139,7 +139,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
 #endif
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
     #define RMT_UNREFERENCED_PARAMETER(i) (i)
 #else
     #define RMT_UNREFERENCED_PARAMETER(i) (void)(1 ? (void)0 : ((void)i))
@@ -495,7 +495,7 @@ static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 // Compiler write fences
 static void WriteFence()
 {
-#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__) && !defined(__clang__)
     _WriteBarrier();
 #elif defined (__clang__)
     __asm__ volatile("" : : : "memory");
