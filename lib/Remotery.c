@@ -495,10 +495,10 @@ static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 // Compiler write fences
 static void WriteFence()
 {
-#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__) && !defined(__clang__)
-    _WriteBarrier();
-#elif defined (__clang__)
+#if defined (__clang__)
     __asm__ volatile("" : : : "memory");
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    _WriteBarrier();
 #else
     asm volatile ("" : : : "memory");
 #endif
