@@ -33,6 +33,7 @@ TimelineWindow = (function()
 
 		// Setup timeline manipulation
 		this.MouseDown = false;
+		this.LastMouseState = null;
 		this.TimelineMoved = false;
 		this.OnHoverHandler = null;
 		this.OnSelectedHandler = null;
@@ -179,6 +180,7 @@ TimelineWindow = (function()
 			return;
 
 		self.MouseDown = true;
+		self.LastMouseState = new Mouse.State(evt);
 		self.TimelineMoved = false;
 		DOM.Event.StopDefaultAction(evt);
 	}
@@ -231,7 +233,7 @@ TimelineWindow = (function()
 			var time_us = self.TimeRange.Start_us + x / self.TimeRange.usPerPixel;
 
 			// Shift the visible time range with mouse movement
-			var time_offset_us = mouse_state.PositionDelta[0] / self.TimeRange.usPerPixel;
+			var time_offset_us = (mouse_state.Position[0] - self.LastMouseState.Position[0]) / self.TimeRange.usPerPixel;
 			if (time_offset_us)
 			{
 				self.TimeRange.SetStart(self.TimeRange.Start_us - time_offset_us);
@@ -262,6 +264,8 @@ TimelineWindow = (function()
 				}
 			}
 		}
+
+		self.LastMouseState = mouse_state;
 	}
 
 
