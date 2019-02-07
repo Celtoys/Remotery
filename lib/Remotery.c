@@ -655,7 +655,6 @@ error:
 }
 #endif // __ANDROID__
 
-
 static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmtU32 size, int nb_attempts)
 {
     static const rmtU32 k_64 = 64 * 1024;
@@ -751,24 +750,47 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
         if (buffer->file_map_handle == NULL)
             break;
 
-        // Reserve two contiguous pages of virtual memory
-        desired_addr = (rmtU8*)VirtualAlloc(0, size * 2, MEM_RESERVE, PAGE_NOACCESS);
-        if (desired_addr == NULL)
-            break;
+		
+#ifndef _UWP // NON-UWP Windows Desktop Version
 
-        // Release the range immediately but retain the address for the next sequence of code to
-        // try and map to it. In the mean-time some other OS thread may come along and allocate this
-        // address range from underneath us so multiple attempts need to be made.
-        VirtualFree(desired_addr, 0, MEM_RELEASE);
+		// Reserve two contiguous pages of virtual memory
+		desired_addr = (rmtU8*)VirtualAlloc(0, size * 2, MEM_RESERVE, PAGE_NOACCESS);
+		if (desired_addr == NULL)
+			break;
 
-        // Immediately try to point both pages at the file mapping
-        if (MapViewOfFileEx(buffer->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr) == desired_addr &&
-            MapViewOfFileEx(buffer->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr + size) == desired_addr + size)
-        {
-            buffer->ptr = desired_addr;
-            break;
-        }
+		// Release the range immediately but retain the address for the next sequence of code to
+		// try and map to it. In the mean-time some other OS thread may come along and allocate this
+		// address range from underneath us so multiple attempts need to be made.
+		VirtualFree(desired_addr, 0, MEM_RELEASE);
 
+		// Immediately try to point both pages at the file mapping		
+		if (MapViewOfFileEx(buffer->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr) == desired_addr &&
+			MapViewOfFileEx(buffer->file_map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size, desired_addr + size) == desired_addr + size)
+		{
+			buffer->ptr = desired_addr;
+			break;
+		}
+
+#else   // UWP 
+
+		// Implementation based on example from: https://docs.microsoft.com/en-us/windows/desktop/api/memoryapi/nf-memoryapi-virtualalloc2
+		//
+		// Notes
+		//  - just replaced the non-uwp functions by the uwp variants. 
+		//  - Both versions could be rewritten to not need the try-loop, see the example mentioned above. I just keep it as is for now.
+		//  - Successfully tested on Hololens
+		desired_addr = (rmtU8*) VirtualAlloc2FromApp(nullptr, nullptr, 2 * size,MEM_RESERVE | MEM_RESERVE_PLACEHOLDER,PAGE_NOACCESS,nullptr, 0);
+
+		// Split the placeholder region into two regions of equal size.
+		VirtualFree(desired_addr, size,	MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER);
+		
+		// Immediately try to point both pages at the file mapping. 
+		if(MapViewOfFile3FromApp(buffer->file_map_handle,nullptr, desired_addr, 0, size, MEM_REPLACE_PLACEHOLDER,PAGE_READWRITE,nullptr,0)==desired_addr &&
+   		   MapViewOfFile3FromApp(buffer->file_map_handle,nullptr, desired_addr+size, 0, size, MEM_REPLACE_PLACEHOLDER,PAGE_READWRITE,nullptr,0)== desired_addr + size) {
+			buffer->ptr = desired_addr;			
+			break;
+		}
+#endif
         // Failed to map the virtual pages; cleanup and try again
         CloseHandle(buffer->file_map_handle);
         buffer->file_map_handle = NULL;
@@ -928,6 +950,9 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
     #else
         if (buffer->file_map_handle != NULL)
         {
+			// FIXME, don't we need to unmap the file views obtained in VirtualMirrorBuffer_Constructor, both for uwp/non-uwp
+			// See example https://docs.microsoft.com/en-us/windows/desktop/api/memoryapi/nf-memoryapi-virtualalloc2
+	
             CloseHandle(buffer->file_map_handle);
             buffer->file_map_handle = NULL;
         }
