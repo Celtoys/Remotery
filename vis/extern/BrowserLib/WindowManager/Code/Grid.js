@@ -146,8 +146,8 @@ WM.GridRow = (function()
 		}
 
 		// Add the body node for any children
-		DOM.Node.AppendClearFloat(this.Node);
-		this.BodyNode = DOM.Node.AppendHTML(this.Node, "<div class='GridRowBody'></div>");
+		if (!this.Parent.BodyNode)
+			this.Parent.BodyNode = DOM.Node.AppendHTML(this.Parent.Node, "<div class='GridRowBody'></div>");
 
 		// Add the row to the parent
 		this.Parent.BodyNode.appendChild(this.Node);

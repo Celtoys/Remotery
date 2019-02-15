@@ -1,7 +1,7 @@
 
 
 /*
-Copyright 2014 Celtoys Ltd
+Copyright 2014-2018 Celtoys Ltd
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,6 +47,11 @@ documented just below this comment.
 #define RMT_ENABLED 1
 #endif
 
+// Help performance of the server sending data to the client by marking this machine as little-endian 
+#ifndef RMT_ASSUME_LITTLE_ENDIAN
+#define RMT_ASSUME_LITTLE_ENDIAN 0
+#endif
+
 // Used by the Celtoys TinyCRT library (not released yet)
 #ifndef RMT_USE_TINYCRT
 #define RMT_USE_TINYCRT 0
@@ -67,9 +72,38 @@ documented just below this comment.
 #define RMT_USE_OPENGL 0
 #endif
 
+// Allow Metal profiling
+#ifndef RMT_USE_METAL
+#define RMT_USE_METAL 0
+#endif
+
 // Initially use POSIX thread names to name threads instead of Thread0, 1, ...
 #ifndef RMT_USE_POSIX_THREADNAMES
 #define RMT_USE_POSIX_THREADNAMES 0
+#endif
+
+// How many times we spin data back and forth between CPU & GPU
+// to calculate average RTT (Roundtrip Time). Cannot be 0.
+// Affects OpenGL & D3D11
+#ifndef RMT_GPU_CPU_SYNC_NUM_ITERATIONS
+#define RMT_GPU_CPU_SYNC_NUM_ITERATIONS 16
+#endif
+
+// Time in seconds between each resync to compensate for drifting between GPU & CPU timers,
+// effects of power saving, etc. Resyncs can cause stutter, lag spikes, stalls.
+// Set to 0 for never.
+// Affects OpenGL & D3D11
+#ifndef RMT_GPU_CPU_SYNC_SECONDS
+#define RMT_GPU_CPU_SYNC_SECONDS 30
+#endif
+
+// Whether we should automatically resync if we detect a timer disjoint (e.g.
+// changed from AC power to battery, GPU is overheating, or throttling up/down
+// due to laptop savings events). Set it to 0 to avoid resync in such events.
+// Useful if for some odd reason a driver reports a lot of disjoints.
+// Affects D3D11
+#ifndef RMT_D3D11_RESYNC_ON_DISJOINT
+#define RMT_D3D11_RESYNC_ON_DISJOINT 1
 #endif
 
 
@@ -85,7 +119,7 @@ documented just below this comment.
 // Platform identification
 #if defined(_WINDOWS) || defined(_WIN32)
     #define RMT_PLATFORM_WINDOWS
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__FreeBSD__)
     #define RMT_PLATFORM_LINUX
     #define RMT_PLATFORM_POSIX
 #elif defined(__APPLE__)
@@ -129,9 +163,14 @@ documented just below this comment.
     #define IFDEF_RMT_USE_D3D11(t, f) f
 #endif
 #if RMT_ENABLED && RMT_USE_OPENGL
-#define IFDEF_RMT_USE_OPENGL(t, f) t
+    #define IFDEF_RMT_USE_OPENGL(t, f) t
 #else
-#define IFDEF_RMT_USE_OPENGL(t, f) f
+    #define IFDEF_RMT_USE_OPENGL(t, f) f
+#endif
+#if RMT_ENABLED && RMT_USE_METAL
+    #define IFDEF_RMT_USE_METAL(t, f) t
+#else
+    #define IFDEF_RMT_USE_METAL(t, f) f
 #endif
 
 
@@ -183,6 +222,7 @@ typedef struct Remotery Remotery;
 typedef enum rmtError
 {
     RMT_ERROR_NONE,
+    RMT_ERROR_RECURSIVE_SAMPLE,                 // Not an error but an internal message to calling code
 
     // System errors
     RMT_ERROR_MALLOC_FAIL,                      // Malloc call within remotery failed
@@ -237,7 +277,7 @@ typedef enum rmtError
     RMT_ERROR_D3D11_FAILED_TO_CREATE_QUERY,     // Failed to create query for sample
 
     // OpenGL error messages
-    RMT_ERROR_OPENGL_ERROR,                     // Generic OpenGL error, no real need to expose more detail since app will probably have an OpenGL error callback registered
+    RMT_ERROR_OPENGL_ERROR,                     // Generic OpenGL error, no need to expose detail since app will need an OpenGL error callback registered
 
     RMT_ERROR_CUDA_UNKNOWN,
 } rmtError;
@@ -246,10 +286,13 @@ typedef enum rmtError
 typedef enum rmtSampleFlags
 {
     // Default behaviour
-    RMTSF_None          = 0,
+    RMTSF_None = 0,
 
     // Search parent for same-named samples and merge timing instead of adding a new sample
-    RMTSF_Aggregate     = 1,
+    RMTSF_Aggregate = 1,
+
+    // Merge sample with parent if it's the same sample
+    RMTSF_Recursive = 2,
 } rmtSampleFlags;
 
 
@@ -312,6 +355,12 @@ typedef struct rmtSettings
 {
     // Which port to listen for incoming connections on
     rmtU16 port;
+
+    // When this server exits it can leave the port open in TIME_WAIT state for
+    // a while. This forces subsequent server bind attempts to fail when
+    // restarting. If you find restarts fail repeatedly with bind attempts, set
+    // this to true to forcibly reuse the open port.
+    rmtBool reuse_open_port;
 
     // Only allow connections on localhost?
     // For dev builds you may want to access your game from other devices but if
@@ -424,6 +473,26 @@ typedef struct rmtCUDABind
     RMT_OPTIONAL(RMT_USE_OPENGL, _rmt_EndOpenGLSample())
 
 
+#define rmt_BindMetal(command_buffer)                                       \
+    RMT_OPTIONAL(RMT_USE_METAL, _rmt_BindMetal(command_buffer));
+
+#define rmt_UnbindMetal()                                                   \
+    RMT_OPTIONAL(RMT_USE_METAL, _rmt_UnbindMetal());
+
+#define rmt_BeginMetalSample(name)                                          \
+    RMT_OPTIONAL(RMT_USE_METAL, {                                           \
+        static rmtU32 rmt_sample_hash_##name = 0;                           \
+        _rmt_BeginMetalSample(#name, &rmt_sample_hash_##name);              \
+    })
+
+#define rmt_BeginMetalSampleDynamic(namestr)                                \
+    RMT_OPTIONAL(RMT_USE_METAL, _rmt_BeginMetalSample(namestr, NULL))
+
+#define rmt_EndMetalSample()                                                \
+    RMT_OPTIONAL(RMT_USE_METAL, _rmt_EndMetalSample())
+
+
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -485,6 +554,17 @@ struct rmt_EndOpenGLSampleOnScopeExit
 };
 #endif
 
+#if RMT_USE_METAL
+extern "C" RMT_API void _rmt_EndMetalSample(void);
+struct rmt_EndMetalSampleOnScopeExit
+{
+    ~rmt_EndMetalSampleOnScopeExit()
+    {
+        _rmt_EndMetalSample();
+    }
+};
+#endif
+
 #endif
 
 
@@ -502,6 +582,9 @@ struct rmt_EndOpenGLSampleOnScopeExit
 #define rmt_ScopedOpenGLSample(name)                                                                    \
         RMT_OPTIONAL(RMT_USE_OPENGL, rmt_BeginOpenGLSample(name));                                      \
         RMT_OPTIONAL(RMT_USE_OPENGL, rmt_EndOpenGLSampleOnScopeExit rmt_ScopedOpenGLSample##name);
+#define rmt_ScopedMetalSample(name)                                                                     \
+        RMT_OPTIONAL(RMT_USE_METAL, rmt_BeginMetalSample(name));                                        \
+        RMT_OPTIONAL(RMT_USE_METAL, rmt_EndMetalSampleOnScopeExit rmt_ScopedMetalSample##name);
 
 #endif
 
@@ -553,8 +636,21 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndOpenGLSample(void);
 #endif
 
+#if RMT_USE_METAL
+RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
+RMT_API void _rmt_EndMetalSample(void);
+#endif
+
 #ifdef __cplusplus
+
 }
+#endif
+
+#if RMT_USE_METAL
+#ifdef __OBJC__
+RMT_API void _rmt_BindMetal(id command_buffer);
+RMT_API void _rmt_UnbindMetal();
+#endif
 #endif
 
 #endif  // RMT_ENABLED
