@@ -5347,7 +5347,7 @@ static void Remotery_BlockingDeleteSampleTree(Remotery* rmt, enum SampleType sam
         {
             // Wait around until the Remotery server thread has sent all sample trees
             // of this type to the client
-            while (Server_IsClientConnected(rmt->server) && sample_tree->allocator->nb_inuse > 1)
+            while (sample_tree->allocator->nb_inuse > 1)
                 msSleep(1);
 
             // Now free to delete
