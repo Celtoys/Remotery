@@ -6180,6 +6180,12 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, rmtU64* out_first_timestamp, 
         sample->us_length = sample->us_end - sample->us_start;
     }
 
+    // Sum length on the parent to track un-sampled time in the parent
+    if (sample->parent != NULL)
+    {
+        sample->parent->us_sampled_length += sample->us_length;
+    }
+
     // Get child sample times
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
