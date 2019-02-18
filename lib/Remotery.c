@@ -779,14 +779,14 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
 		//  - just replaced the non-uwp functions by the uwp variants. 
 		//  - Both versions could be rewritten to not need the try-loop, see the example mentioned above. I just keep it as is for now.
 		//  - Successfully tested on Hololens
-		desired_addr = (rmtU8*) VirtualAlloc2FromApp(nullptr, nullptr, 2 * size,MEM_RESERVE | MEM_RESERVE_PLACEHOLDER,PAGE_NOACCESS,nullptr, 0);
+		desired_addr = (rmtU8*) VirtualAlloc2FromApp(NULL, NULL, 2 * size,MEM_RESERVE | MEM_RESERVE_PLACEHOLDER,PAGE_NOACCESS,NULL, 0);
 
 		// Split the placeholder region into two regions of equal size.
 		VirtualFree(desired_addr, size,	MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER);
 		
 		// Immediately try to point both pages at the file mapping. 
-		if(MapViewOfFile3FromApp(buffer->file_map_handle,nullptr, desired_addr, 0, size, MEM_REPLACE_PLACEHOLDER,PAGE_READWRITE,nullptr,0)==desired_addr &&
-   		   MapViewOfFile3FromApp(buffer->file_map_handle,nullptr, desired_addr+size, 0, size, MEM_REPLACE_PLACEHOLDER,PAGE_READWRITE,nullptr,0)== desired_addr + size) {
+		if(MapViewOfFile3FromApp(buffer->file_map_handle,NULL, desired_addr, 0, size, MEM_REPLACE_PLACEHOLDER,PAGE_READWRITE,NULL,0)==desired_addr &&
+   		   MapViewOfFile3FromApp(buffer->file_map_handle,NULL, desired_addr+size, 0, size, MEM_REPLACE_PLACEHOLDER,PAGE_READWRITE,NULL,0)== desired_addr + size) {
 			buffer->ptr = desired_addr;			
 			break;
 		}
