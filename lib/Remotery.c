@@ -492,8 +492,7 @@ static void AtomicSub(rmtS32 volatile* value, rmtS32 sub)
 }
 
 
-// Compiler write fences
-static void WriteFence()
+static void CompilerWriteFence()
 {
 #if defined (__clang__)
     __asm__ volatile("" : : : "memory");
@@ -502,6 +501,48 @@ static void WriteFence()
 #else
     asm volatile ("" : : : "memory");
 #endif
+}
+
+
+static void CompilerReadFence()
+{
+#if defined (__clang__)
+    __asm__ volatile("" : : : "memory");
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    _ReadBarrier();
+#else
+    asm volatile ("" : : : "memory");
+#endif
+}
+
+
+static rmtU32 LoadAcquire(rmtU32* volatile address)
+{
+    rmtU32 value = *address;
+    CompilerReadFence();
+    return value;
+}
+
+
+static long* LoadAcquirePointer(long* volatile* ptr)
+{
+    long* value = *ptr;
+    CompilerReadFence();
+    return value;
+}
+
+
+static void StoreRelease(rmtU32* volatile address, rmtU32 value)
+{
+    CompilerWriteFence();
+    *address = value;
+}
+
+
+static void StoreReleasePointer(long* volatile* ptr, long* value)
+{
+    CompilerWriteFence();
+    *ptr = value;
 }
 
 
@@ -3458,6 +3499,8 @@ typedef enum MessageID
     MsgID_NotReady,
     MsgID_LogText,
     MsgID_SampleTree,
+    MsgID_None,
+    MsgID_Force32Bits = 0xFFFFFFFF,
 } MessageID;
 
 
@@ -3547,9 +3590,11 @@ static Message* rmtMessageQueue_AllocMessage(rmtMessageQueue* queue, rmtU32 payl
     for (;;)
     {
         // Check for potential overflow
+        // Order of loads means allocation failure can happen when enough space has just been freed
+        // However, incorrect overflows are not possible
         rmtU32 s = queue->size;
-        rmtU32 r = queue->read_pos;
-        rmtU32 w = queue->write_pos;
+        rmtU32 w = LoadAcquire(&queue->write_pos);
+        rmtU32 r = LoadAcquire(&queue->read_pos);
         if ((int)(w - r) > ((int)(s - write_size)))
             return NULL;
 
@@ -3574,32 +3619,33 @@ static void rmtMessageQueue_CommitMessage(Message* message, MessageID id)
 {
     assert(message != NULL);
 
-    // Ensure message writes complete before commit
-    WriteFence();
-
     // Setting the message ID signals to the consumer that the message is ready
-    assert(message->id == MsgID_NotReady);
-    message->id = id;
+    assert(LoadAcquire((rmtU32*)&message->id) == MsgID_NotReady);
+    StoreRelease((rmtU32*)&message->id, id);
 }
 
 
 Message* rmtMessageQueue_PeekNextMessage(rmtMessageQueue* queue)
 {
     Message* ptr;
-    rmtU32 r;
+    rmtU32 r, w;
+    MessageID id;
 
     assert(queue != NULL);
 
     // First check that there are bytes queued
-    if (queue->write_pos - queue->read_pos == 0)
+    w = LoadAcquire(&queue->write_pos);
+    r = queue->read_pos;
+    if (w - r == 0)
         return NULL;
 
     // Messages are in the queue but may not have been commit yet
     // Messages behind this one may have been commit but it's not reachable until
     // the next one in the queue is ready.
-    r = queue->read_pos & (queue->size - 1);
+    r = r & (queue->size - 1);
     ptr = (Message*)(queue->data->ptr + r);
-    if (ptr->id != MsgID_NotReady)
+    id = LoadAcquire((rmtU32*)&ptr->id);
+    if (id != MsgID_NotReady)
         return ptr;
 
     return NULL;
@@ -3625,9 +3671,9 @@ static void rmtMessageQueue_ConsumeNextMessage(rmtMessageQueue* queue, Message* 
     message_size = rmtMessageQueue_SizeForPayload(message->payload_size);
     memset(message, MsgID_NotReady, message_size);
 
-    // Ensure clear completes before advancing the read position
-    WriteFence();
-    queue->read_pos += message_size;
+    // Advance read position
+    rmtU32 read_pos = queue->read_pos + message_size;
+    StoreRelease(&queue->read_pos, read_pos);
 }
 
 /*
@@ -3726,7 +3772,7 @@ static void Server_DisconnectClient(Server* server)
     // NULL the variable before destroying the socket
     client_socket = server->client_socket;
     server->client_socket = NULL;
-    WriteFence();
+    CompilerWriteFence();
     Delete(WebSocket, client_socket);
 }
 
@@ -3874,7 +3920,7 @@ static void Server_Update(Server* server)
 #define SAMPLE_NAME_LEN 128
 
 
-enum SampleType
+typedef enum SampleType
 {
     SampleType_CPU,
     SampleType_CUDA,
@@ -3882,7 +3928,7 @@ enum SampleType
     SampleType_OpenGL,
     SampleType_Metal,
     SampleType_Count,
-};
+} SampleType;
 
 
 typedef struct Sample
@@ -4923,7 +4969,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     g_RemoteryCreated = RMT_TRUE;
 
     // Ensure global instance writes complete before other threads get a chance to use it
-    WriteFence();
+    CompilerWriteFence();
 
     // Create the main update thread once everything has been defined for the global remotery object
     New_2(rmtThread, rmt->thread, Remotery_ThreadMain, rmt);
@@ -5088,6 +5134,9 @@ RMT_API rmtSettings* _rmt_Settings(void)
 RMT_API rmtError _rmt_CreateGlobalInstance(Remotery** remotery)
 {
     rmtError error;
+
+    // Ensure load/acquire store/release operations match this enum size
+    assert(sizeof(MessageID) == sizeof(rmtU32));
 
     // Default-initialise if user has not set values
     rmt_Settings();
