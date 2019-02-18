@@ -4489,6 +4489,10 @@ struct Remotery
     // The main server thread
     rmtThread* thread;
 
+    // Set to trigger a map of each message on the remotery thread message queue
+    void (*map_message_queue_fn)(Remotery* rmt, Message*);
+    void* map_message_queue_data;
+
 #if RMT_USE_CUDA
     rmtCUDABind cuda;
 #endif
@@ -4781,6 +4785,37 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
 }
 
 
+static void Remotery_MapMessageQueue(Remotery* rmt)
+{
+    rmtU32 read_pos, write_pos;
+    rmtMessageQueue* queue;
+
+    assert(rmt != NULL);
+
+    // Wait until the caller sets the custom data
+    while (LoadAcquirePointer((long* volatile*)&rmt->map_message_queue_data) == NULL)
+        msSleep(1);
+
+    // Snapshot the current write position so that we're not constantly chasing other threads
+    // that can have no effect on the thread requesting the map.
+    queue = rmt->mq_to_rmt_thread;
+    write_pos = LoadAcquire(&queue->write_pos);
+
+    // Walk every message in the queue and call the map function
+    read_pos = queue->read_pos;
+    while (read_pos < write_pos)
+    {
+        rmtU32 r = read_pos & (queue->size - 1);
+        Message* message = (Message*)(queue->data->ptr + r);
+        rmtU32 message_size = rmtMessageQueue_SizeForPayload(message->payload_size);
+        rmt->map_message_queue_fn(rmt, message);
+        read_pos += message_size;
+    }
+
+    StoreReleasePointer((long* volatile*)&rmt->map_message_queue_data, NULL);
+}
+
+
 static rmtError Remotery_ThreadMain(rmtThread* thread)
 {
     Remotery* rmt = (Remotery*)thread->param;
@@ -4801,6 +4836,13 @@ static rmtError Remotery_ThreadMain(rmtThread* thread)
             rmt_EndCPUSample();
 
         rmt_EndCPUSample();
+
+        // Process any queue map requests
+        if (LoadAcquirePointer((long* volatile*)&rmt->map_message_queue_fn) != NULL)
+        {
+            Remotery_MapMessageQueue(rmt);
+            StoreReleasePointer((long* volatile*)&rmt->map_message_queue_fn, NULL);
+        }
 
         //
         // [NOTE-A]
@@ -4900,6 +4942,8 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->first_thread_sampler = NULL;
     rmt->mq_to_rmt_thread = NULL;
     rmt->thread = NULL;
+    rmt->map_message_queue_fn = NULL;
+    rmt->map_message_queue_data = NULL;
 
     #if RMT_USE_CUDA
         rmt->cuda.CtxSetCurrent = NULL;
@@ -5388,28 +5432,23 @@ RMT_API void _rmt_EndCPUSample(void)
 }
 
 #if RMT_USE_OPENGL || RMT_USE_D3D11
-static void Remotery_BlockingDeleteSampleTree(Remotery* rmt, enum SampleType sample_type)
+static void Remotery_DeleteSampleTree(Remotery* rmt, enum SampleType sample_type)
 {
     ThreadSampler* ts;
 
-    // Get the attached thread sampler
+    // Get the attached thread sampler and delete the sample tree
     assert(rmt != NULL);
     if (Remotery_GetThreadSampler(rmt, &ts) == RMT_ERROR_NONE)
     {
         SampleTree* sample_tree = ts->sample_trees[sample_type];
         if (sample_tree != NULL)
         {
-            // Wait around until the Remotery server thread has sent all sample trees
-            // of this type to the client
-            while (sample_tree->allocator->nb_inuse > 1)
-                msSleep(1);
-
-            // Now free to delete
             Delete(SampleTree, sample_tree);
             ts->sample_trees[sample_type] = NULL;
         }
     }
 }
+
 
 static rmtBool rmtMessageQueue_IsEmpty(rmtMessageQueue* queue)
 {
@@ -5417,7 +5456,77 @@ static rmtBool rmtMessageQueue_IsEmpty(rmtMessageQueue* queue)
     return queue->write_pos - queue->read_pos == 0;
 }
 
+typedef struct GatherQueuedSampleData
+{
+    SampleType sample_type;
+    Buffer* flush_samples;
+} GatherQueuedSampleData;
+
+
+static void MapMessageQueueAndWait(Remotery* rmt, void (*map_message_queue_fn)(Remotery*rmt, Message*), void* data)
+{
+    // Basic spin lock on the map function itself
+    while (AtomicCompareAndSwapPointer((long* volatile*)&rmt->map_message_queue_fn, NULL, (long*)map_message_queue_fn) == RMT_FALSE)
+        msSleep(1);
+    
+    StoreReleasePointer((long* volatile*)&rmt->map_message_queue_data, data);
+
+    // Wait until map completes
+    while (LoadAcquirePointer((long* volatile*)&rmt->map_message_queue_fn) != NULL)
+        msSleep(1);
+}
+
+
+static void GatherQueuedSamples(Remotery* rmt, Message* message)
+{
+    GatherQueuedSampleData* gather_data = (GatherQueuedSampleData*)rmt->map_message_queue_data;
+
+    // Filter sample trees
+    if (message->id == MsgID_SampleTree)
+    {
+        Msg_SampleTree* sample_tree = (Msg_SampleTree*)message->payload;
+        Sample* sample = sample_tree->root_sample;
+        if (sample->type == gather_data->sample_type)
+        {
+            // Make a copy of the entire sample tree as the remotery thread may overwrite it while
+            // the calling thread tries to delete
+            rmtU32 message_size = rmtMessageQueue_SizeForPayload(message->payload_size);
+            Buffer_Write(gather_data->flush_samples, message, message_size);
+
+            // Mark the message empty
+            message->id = MsgID_None;
+        }
+    }
+}
+
+
+static void FreePendingSampleTrees(Remotery* rmt, SampleType sample_type, Buffer* flush_samples)
+{
+    rmtU8* data;
+    rmtU8* data_end;
+
+    // Gather all sample trees currently queued for the Remotery thread
+    GatherQueuedSampleData gather_data;
+    gather_data.sample_type = sample_type;
+    gather_data.flush_samples = flush_samples;
+    MapMessageQueueAndWait(rmt, GatherQueuedSamples, &gather_data);
+
+    // Release all sample trees to their allocators
+    data = flush_samples->data;
+    data_end = data + flush_samples->bytes_used;
+    while (data < data_end)
+    {
+        Message* message = (Message*)data;
+        rmtU32 message_size = rmtMessageQueue_SizeForPayload(message->payload_size);
+        Msg_SampleTree* sample_tree = (Msg_SampleTree*)message->payload;
+        FreeSampleTree(sample_tree->root_sample, sample_tree->allocator);
+        data += message_size;
+    }
+}
+
+
 #endif
+
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -5760,6 +5869,9 @@ typedef struct D3D11
     rmtU64 first_timestamp;
     // Last time in us (CPU time, via usTimer_Get) since we last resync'ed CPU & GPU
     rmtU64 last_resync;
+
+    // Sample trees in transit in the message queue for release on shutdown
+    Buffer* flush_samples;
 } D3D11;
 
 
@@ -5781,8 +5893,16 @@ static rmtError D3D11_Create(D3D11** d3d11)
     (*d3d11)->mq_to_d3d11_main = NULL;
     (*d3d11)->first_timestamp = 0;
     (*d3d11)->last_resync = 0;
+    (*d3d11)->flush_samples = NULL;
 
     New_1(rmtMessageQueue, (*d3d11)->mq_to_d3d11_main, g_Settings.messageQueueSizeInBytes);
+    if (error != RMT_ERROR_NONE)
+    {
+        Delete(D3D11, *d3d11);
+        return error;
+    }
+
+    New_1(Buffer, (*d3d11)->flush_samples, 8 * 1024);
     if (error != RMT_ERROR_NONE)
     {
         Delete(D3D11, *d3d11);
@@ -5796,6 +5916,7 @@ static rmtError D3D11_Create(D3D11** d3d11)
 static void D3D11_Destructor(D3D11* d3d11)
 {
     assert(d3d11 != NULL);
+    Delete(Buffer, d3d11->flush_samples);
     Delete(rmtMessageQueue, d3d11->mq_to_d3d11_main);
 }
 
@@ -6132,14 +6253,17 @@ RMT_API void _rmt_UnbindD3D11(void)
         // Stall waiting for the D3D queue to empty into the Remotery queue
         while (!rmtMessageQueue_IsEmpty(d3d11->mq_to_d3d11_main))
             UpdateD3D11Frame();
-
+        
+        // There will be a whole bunch of D3D11 sample trees queued up the remotery queue that need releasing
+        FreePendingSampleTrees(g_Remotery, SampleType_D3D11, d3d11->flush_samples);
+        
         // Inform sampler to not add any more samples
         d3d11->device = NULL;
         d3d11->context = NULL;
 
         // Forcefully delete sample tree on this thread to release time stamps from
         // the same thread that created them
-        Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_D3D11);
+        Remotery_DeleteSampleTree(g_Remotery, SampleType_D3D11);
     }
 }
 
@@ -6433,6 +6557,9 @@ struct OpenGL_t
     rmtU64 first_timestamp;
     // Last time in us (CPU time, via usTimer_Get) since we last resync'ed CPU & GPU
     rmtU64 last_resync;
+
+    // Sample trees in transit in the message queue for release on shutdown
+    Buffer* flush_samples;
 };
 
 
@@ -6514,8 +6641,17 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     (*opengl)->mq_to_opengl_main = NULL;
     (*opengl)->first_timestamp = 0;
     (*opengl)->last_resync = 0;
+    (*opengl)->flush_samples = NULL;
+
+    New_1(Buffer, (*opengl)->flush_samples, 8 * 1024);
+    if (error != RMT_ERROR_NONE)
+    {
+        Delete(OpenGL, *opengl);
+        return error;
+    }
 
     New_1(rmtMessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
+
     return error;
 }
 
@@ -6524,6 +6660,7 @@ static void OpenGL_Destructor(OpenGL* opengl)
 {
     assert(opengl != NULL);
     Delete(rmtMessageQueue, opengl->mq_to_opengl_main);
+    Delete(Buffer, opengl->flush_samples);
 }
 
 static void SyncOpenGLCpuGpuTimes(rmtU64* out_first_timestamp, rmtU64* out_last_resync)
@@ -6743,9 +6880,12 @@ RMT_API void _rmt_UnbindOpenGL(void)
         while (!rmtMessageQueue_IsEmpty(opengl->mq_to_opengl_main))
             UpdateOpenGLFrame();
 
+        // There will be a whole bunch of OpenGL sample trees queued up the remotery queue that need releasing
+        FreePendingSampleTrees(g_Remotery, SampleType_OpenGL, opengl->flush_samples);
+        
         // Forcefully delete sample tree on this thread to release time stamps from
         // the same thread that created them
-        Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_OpenGL);
+        Remotery_DeleteSampleTree(g_Remotery, SampleType_OpenGL);
 
         // Release reference to the OpenGL DLL
         if (opengl->dll_handle != NULL)
