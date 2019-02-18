@@ -1233,18 +1233,13 @@ static void rmtThread_Destructor(rmtThread* thread)
 typedef int errno_t;
 #endif
 
-#if (!defined(_WIN64) && !defined(__APPLE__) && !defined(__FreeBSD__)) || (defined(__MINGW32__) && !(defined(RSIZE_T_DEFINED) || defined(_RSIZE_T_DEFINED)))
-typedef unsigned int rsize_t;
-#endif
+// rsize_t equivalent without going to the hassle of detecting if a platform has implemented C11/K3.2
+typedef unsigned int r_size_t;
 
-#if defined(RMT_PLATFORM_MACOS) && !defined(_RSIZE_T)
-typedef __darwin_size_t rsize_t;
-#endif
-
-static rsize_t
-strnlen_s (const char *dest, rsize_t dmax)
+static r_size_t
+strnlen_s (const char *dest, r_size_t dmax)
 {
-    rsize_t count;
+    r_size_t count;
 
     if (dest == NULL) {
         return RCNEGATE(0);
@@ -1270,11 +1265,11 @@ strnlen_s (const char *dest, rsize_t dmax)
 
 
 static errno_t
-strstr_s (char *dest, rsize_t dmax,
-          const char *src, rsize_t slen, char **substring)
+strstr_s (char *dest, r_size_t dmax,
+          const char *src, r_size_t slen, char **substring)
 {
-    rsize_t len;
-    rsize_t dlen;
+    r_size_t len;
+    r_size_t dlen;
     int i;
 
     if (substring == NULL) {
@@ -1350,7 +1345,7 @@ strstr_s (char *dest, rsize_t dmax,
 
 
 static errno_t
-strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
+strncat_s (char *dest, r_size_t dmax, const char *src, r_size_t slen)
 {
     const char *overlap_bumper;
 
@@ -1467,7 +1462,7 @@ strncat_s (char *dest, rsize_t dmax, const char *src, rsize_t slen)
 
 
 errno_t
-strcpy_s(char *dest, rsize_t dmax, const char *src)
+strcpy_s(char *dest, r_size_t dmax, const char *src)
 {
     const char *overlap_bumper;
 
@@ -1542,9 +1537,9 @@ strcpy_s(char *dest, rsize_t dmax, const char *src)
 /* very simple integer to hex */
 static const char* hex_encoding_table = "0123456789ABCDEF";
 
-static void itoahex_s( char *dest, rsize_t dmax, rmtS32 value )
+static void itoahex_s( char *dest, r_size_t dmax, rmtS32 value )
 {
-    rsize_t len;
+    r_size_t len;
     rmtS32 halfbytepos;
 
     halfbytepos = 8;
@@ -3033,12 +3028,12 @@ typedef struct
 static void WebSocket_Close(WebSocket* web_socket);
 
 
-static char* GetField(char* buffer, rsize_t buffer_length, rmtPStr field_name)
+static char* GetField(char* buffer, r_size_t buffer_length, rmtPStr field_name)
 {
     char* field = NULL;
     char* buffer_end = buffer + buffer_length - 1;
 
-    rsize_t field_length = strnlen_s(field_name, buffer_length);
+    r_size_t field_length = strnlen_s(field_name, buffer_length);
     if (field_length == 0)
         return NULL;
 
@@ -3143,7 +3138,7 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_NO_HOST;
     if (limit_host != NULL)
     {
-        rsize_t limit_host_len = strnlen_s(limit_host, 128);
+        r_size_t limit_host_len = strnlen_s(limit_host, 128);
         char* found = NULL;
         if (strstr_s(host, buffer_end - host, limit_host, limit_host_len, &found) != EOK)
             return RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_HOST;
