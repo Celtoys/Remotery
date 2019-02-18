@@ -6644,13 +6644,10 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 
 static void OpenGLSample_Destructor(OpenGLSample* sample)
 {
-<<<<<<< HEAD
-	Delete(OpenGLTimestamp, sample->timestamp);
-=======
     Delete(OpenGLTimestamp, sample->timestamp);
->>>>>>> 72ef25392b03a3db74dfc046c9bf4a758c619f8a
     Sample_Destructor((Sample*)sample);
 }
+
 
 RMT_API void _rmt_BindOpenGL()
 {
