@@ -5464,7 +5464,7 @@ static void MapMessageQueueAndWait(Remotery* rmt, void (*map_message_queue_fn)(R
     while (AtomicCompareAndSwapPointer((long* volatile*)&rmt->map_message_queue_fn, NULL, (long*)map_message_queue_fn) == RMT_FALSE)
         msSleep(1);
     
-    StoreReleasePointer((long* volatile*)&rmt->map_message_queue_data, data);
+    StoreReleasePointer((long* volatile*)&rmt->map_message_queue_data, (long*)data);
 
     // Wait until map completes
     while (LoadAcquirePointer((long* volatile*)&rmt->map_message_queue_fn) != NULL)
