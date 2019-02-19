@@ -41,7 +41,7 @@ WM.WindowManager = (function()
 
 			// Ensure there's space between each window for the elements inside to be sorted
 			var z = (parseInt(i) + 1) * 10;
-			wnd.SetZIndex(z);
+			wnd.Node.style.zIndex = z;
 
 			// Notify window that its z-order has changed
 			wnd.NotifyChange();

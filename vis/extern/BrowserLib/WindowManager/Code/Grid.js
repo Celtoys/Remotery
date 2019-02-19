@@ -217,40 +217,13 @@ WM.Grid = (function()
 		this.Node = DOM.Node.CreateHTML(template_html);
 		this.BodyNode = DOM.Node.FindWithClass(this.Node, "GridBody");
 
-		this.SetPosition(x, y);
-		this.SetSize(width, height);
-
-		this.WidthAnchor = null;
-		this.HeightAnchor = null;
+		DOM.Node.SetPosition(this.Node, [ x, y ]);
+		DOM.Node.SetSize(this.Node, [ width, height ]);
 
 		DOM.Event.AddHandler(this.Node, "dblclick", OnDblClick);
 
 		var mouse_wheel_event = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
 		DOM.Event.AddHandler(this.Node, mouse_wheel_event, Bind(OnMouseScroll, this));
-	}
-
-
-	Grid.prototype.SetPosition = function(x, y)
-	{
-		this.Position = [ x, y ];
-		DOM.Node.SetPosition(this.Node, this.Position);
-	}
-
-
-	Grid.prototype.SetSize = function(w, h)
-	{
-		this.Size = [ w, h ];
-		DOM.Node.SetSize(this.Node, this.Size);
-	}
-
-
-	Grid.prototype.AnchorWidthToParent = function(d)
-	{
-		this.WidthAnchor = d;
-	}
-	Grid.prototype.AnchorHeightToParent = function(d)
-	{
-		this.HeightAnchor = d;
 	}
 
 
@@ -273,7 +246,7 @@ WM.Grid = (function()
 		var mouse_state = new Mouse.State(evt);
 		self.Node.scrollTop -= mouse_state.WheelDelta * 20;
 	}
-	
+
 
 	return Grid;
 })();
