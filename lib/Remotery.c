@@ -735,7 +735,7 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
     {
         free( buffer->page_mapping );
     }
-    buffer->page_mapping = malloc( sizeof( ULONG )*buffer->page_count );
+    buffer->page_mapping = (size_t*)malloc( sizeof( ULONG )*buffer->page_count );
 
     while(nb_attempts-- > 0)
     {
