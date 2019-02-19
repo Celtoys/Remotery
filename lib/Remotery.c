@@ -3639,7 +3639,7 @@ Message* rmtMessageQueue_PeekNextMessage(rmtMessageQueue* queue)
     // the next one in the queue is ready.
     r = r & (queue->size - 1);
     ptr = (Message*)(queue->data->ptr + r);
-    id = LoadAcquire((rmtU32*)&ptr->id);
+    id = (MessageID)LoadAcquire((rmtU32*)&ptr->id);
     if (id != MsgID_NotReady)
         return ptr;
 
