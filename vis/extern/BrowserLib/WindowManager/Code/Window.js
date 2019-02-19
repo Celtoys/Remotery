@@ -4,15 +4,16 @@ namespace("WM");
 
 WM.Window = (function()
 {
-	var template_html = "																								\
-		<div class='Window'>																							\
-			<div class='WindowTitleBar'>																				\
-				<div class='WindowTitleBarText notextsel' style='float:left'>Window Title Bar</div>						\
-				<div class='WindowTitleBarClose notextsel' style='float:right'>O</div>									\
-			</div>																										\
-			<div class='WindowBody'>																					\
-			</div>																										\
-		</div>";
+	var template_html = multiline(function(){/*																								\
+		<div class='Window'>
+			<div class='WindowTitleBar'>
+				<div class='WindowTitleBarText notextsel' style='float:left'>Window Title Bar</div>
+				<div class='WindowTitleBarClose notextsel' style='float:right'>O</div>
+			</div>
+			<div class='WindowBody'>
+			</div>
+		</div>
+	*/});
 
 
 	function Window(manager, title, x, y, width, height, parent_node)

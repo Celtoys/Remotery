@@ -1,0 +1,11 @@
+// Place your settings in this file to overwrite default and user settings.
+{
+    "typescript.tsdk": "C:\\Program Files (x86)\\Microsoft SDKs\\TypeScript\\2.0\\",
+    "editor.fontSize": 13,
+    "editor.lineHeight": 15,
+    "editor.autoClosingBrackets": false,
+    "editor.renderWhitespace": "all",
+    "editor.quickSuggestions": true,        // This disables string suggestions but ALSO disables local variables so keep it on
+    "editor.wordBasedSuggestions": false,   // Disable world-based suggestions being annoying in string editing (still some active)
+    "editor.snippetSuggestions": "none"     // This combined with above seems to completely eliminate string suggestions
+}

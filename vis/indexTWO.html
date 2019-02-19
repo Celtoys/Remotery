@@ -1,0 +1,94 @@
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+	<head>
+
+		<title>Remotery Viewer</title>
+
+		<!-- Style Sheets -->
+		<link rel="stylesheet" type="text/css" href="extern/BrowserLib/WindowManager/Styles/WindowManager.css" />
+		<link rel="stylesheet" type="text/css" href="Styles/Remotery.css" />
+
+		<!-- Utilities -->
+        <script type="text/javascript" src="../typescript/remotery.js"></script>
+
+	</head>
+
+	<body>
+
+		<div style="width: 100%; height: 10px;"></div>
+		<div style="float: left; width: 1020px; height: 10px;"></div>
+		<textarea id="website" rows="20" cols="24">Window Layout</textarea>
+		<div style="clear: both;"/>
+		<div style="width: 100%; height: 5px;"></div>
+		<div style="float: left; width: 1020px; height: 10px;"></div>
+		<button id="load-button" data-copytarget="#website">Load</button>
+		<button id="save-button" data-copytarget="#website">Save</button>
+
+		<script type="text/javascript">
+
+			//var remotery = new Remotery();
+			var Container = TestAll();
+
+			// event handler
+			function copy(e)
+			{
+				// find target element
+				var
+					t = e.target,
+					c = t.dataset.copytarget,
+					inp = (c ? document.querySelector(c) : null);
+
+				// Save container and write to text area
+				inp.value = WM.SaveContainer(Container);
+
+				// Commit to localstore
+				if (typeof(localStorage) !== "undefined")
+					localStorage.layout = inp.value;
+
+				// is element selectable?
+				if (inp && inp.select)
+				{
+					// select text
+					inp.select();
+
+					try
+					{
+						// copy text
+						document.execCommand('copy');
+						inp.blur();
+					}
+					catch (err)
+					{
+						alert('please press Ctrl/Cmd+C to copy');
+					}
+				}
+			}
+
+			function load(e)
+			{
+				// find target element
+				var
+					t = e.target,
+					c = t.dataset.copytarget,
+					inp = (c ? document.querySelector(c) : null);
+				
+				WM.LoadContainer(Container, inp.value);
+			}
+
+			// click events
+			$("#save-button").Element.addEventListener('click', copy, true);
+			$("#load-button").Element.addEventListener('click', load, true);
+
+			// Load existing layout from user's local store
+			if (typeof(Storage) !== "undefined" && localStorage.layout)
+			{
+				$("#website").Element.value  = localStorage.layout;
+				WM.LoadContainer(Container, localStorage.layout);
+			}
+
+		</script>
+
+	</body>
+
+</html>
