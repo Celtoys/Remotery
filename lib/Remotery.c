@@ -3649,7 +3649,7 @@ Message* rmtMessageQueue_PeekNextMessage(rmtMessageQueue* queue)
 
 static void rmtMessageQueue_ConsumeNextMessage(rmtMessageQueue* queue, Message* message)
 {
-    rmtU32 message_size;
+    rmtU32 message_size, read_pos;
 
     assert(queue != NULL);
     assert(message != NULL);
@@ -3667,7 +3667,7 @@ static void rmtMessageQueue_ConsumeNextMessage(rmtMessageQueue* queue, Message* 
     memset(message, MsgID_NotReady, message_size);
 
     // Advance read position
-    rmtU32 read_pos = queue->read_pos + message_size;
+    read_pos = queue->read_pos + message_size;
     StoreRelease(&queue->read_pos, read_pos);
 }
 
