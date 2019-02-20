@@ -47,6 +47,10 @@ Compiling
 * Linux (GCC) - add the source in lib folder. Compilation of the code requires -pthreads for
   library linkage. For example to compile the same run: cc lib/Remotery.c sample/sample.c
   -I lib -pthread -lm
+  
+* FreeBSD - the easiest way is to take a look at the official port 
+  ([devel/remotery](https://www.freshports.org/devel/remotery/)) and modify the port's 
+  Makefile if needed. There is also a package available via `pkg install remotery`.
 
 You can define some extra macros to modify what features are compiled into Remotery:
 
