@@ -2910,11 +2910,13 @@ static rmtU32 rotl32(rmtU32 x, rmtS8 r)
 }
 
 
-// Block read - if your platform needs to do endian-swapping or can only
-// handle aligned reads, do the conversion here
+// Block read - if your platform needs to do endian-swapping, do the conversion here
 static rmtU32 getblock32(const rmtU32* p, int i)
 {
-    return p[i];
+    rmtU32 result;
+    const rmtU8 *src = ((const rmtU8 *)p) + i * sizeof(rmtU32);
+    memcpy(&result, src, sizeof(result));
+    return result;
 }
 
 
