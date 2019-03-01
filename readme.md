@@ -11,6 +11,7 @@ A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in
 Supported Platforms:
 
 * Windows
+* Windows UWP (Hololens)
 * Linux
 * OSX
 * iOS
