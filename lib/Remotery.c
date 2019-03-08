@@ -1771,9 +1771,10 @@ typedef struct
     rmtU32 alloc_granularity;
 
     rmtU32 bytes_allocated;
-    rmtU32 bytes_used;
+    rmtU32 bytes_used;	
 
     rmtU8* data;
+	rmtU8* data_back;
 } Buffer;
 
 
@@ -1783,6 +1784,7 @@ static rmtError Buffer_Constructor(Buffer* buffer, rmtU32 alloc_granularity)
     buffer->alloc_granularity = alloc_granularity;
     buffer->bytes_allocated = 0;
     buffer->bytes_used = 0;
+	buffer->data_back = NULL;
     buffer->data = NULL;
     return RMT_ERROR_NONE;
 }
@@ -1797,6 +1799,11 @@ static void Buffer_Destructor(Buffer* buffer)
         rmtFree(buffer->data);
         buffer->data = NULL;
     }
+	if (buffer->data_back != NULL)
+	{
+		rmtFree(buffer->data_back);
+		buffer->data_back = NULL;
+	}
 }
 
 
@@ -1805,12 +1812,23 @@ static rmtError Buffer_Grow(Buffer* buffer, rmtU32 length)
     // Calculate size increase rounded up to the requested allocation granularity
     rmtU32 granularity = buffer->alloc_granularity;
     rmtU32 allocate = buffer->bytes_allocated + length;
-    allocate = allocate + ((granularity - 1) - ((allocate - 1) % granularity));
+    allocate = allocate + ((granularity - 1) - ((allocate - 1) % granularity));    
+    
+    // Allocate new buffer and copy contents over
+    rmtU8 *newData = rmtMalloc(allocate);
+    if(newData==NULL) 
+        return RMT_ERROR_MALLOC_FAIL;	
+    memcpy(newData, buffer->data, buffer->bytes_allocated);
+    
+    // Free previous back buffer and save new one.
+    if(buffer->data_back) 
+        rmtFree(buffer->data_back);
+    buffer->data_back=buffer->data;
 
-    buffer->bytes_allocated = allocate;
-    buffer->data = (rmtU8*)rmtRealloc(buffer->data, buffer->bytes_allocated);
-    if (buffer->data == NULL)
-        return RMT_ERROR_MALLOC_FAIL;
+    // Make visible
+    buffer->data = newData;
+    buffer->bytes_allocated = allocate;	
+
 
     return RMT_ERROR_NONE;
 }
@@ -1822,7 +1840,7 @@ static rmtError Buffer_Write(Buffer* buffer, const void* data, rmtU32 length)
 
     // Reallocate the buffer on overflow
     if (buffer->bytes_used + length > buffer->bytes_allocated)
-    {
+    {		
         rmtError error = Buffer_Grow(buffer, length);
         if (error != RMT_ERROR_NONE)
             return error;
