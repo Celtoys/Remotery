@@ -4738,6 +4738,9 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
                 error = Remotery_SendSampleTreeMessage(rmt, message);
                 rmt_EndCPUSample();
                 break;
+
+            default:
+                break;
         }
 
         // Consume the message before reacting to any errors
@@ -4775,6 +4778,9 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
                 FreeSampleTree(sample_tree->root_sample, sample_tree->allocator);
                 break;
             }
+
+            default:
+                break;
         }
 
         rmtMessageQueue_ConsumeNextMessage(rmt->mq_to_rmt_thread, message);
