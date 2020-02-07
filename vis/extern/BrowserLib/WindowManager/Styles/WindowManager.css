@@ -133,6 +133,10 @@ body
 	cursor: default;
 }
 
+.WindowTitleBarClose:hover {
+    color: #bbb;
+}
+
 .WindowResizeHandle 
 {
     color: #999999;
@@ -633,7 +637,11 @@ body
 	box-shadow: 1px 1px 1px #222, 1px 1px 1px #777 inset;
 }
 
-.ButtonHeld
+.Button:hover {
+    background-color: #616161;
+}
+
+.Button.ButtonHeld
 {
 	/* Reset the gradient to a full-colour background */
 	background:#383838;

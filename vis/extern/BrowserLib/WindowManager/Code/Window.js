@@ -8,7 +8,7 @@ WM.Window = (function()
 		<div class='Window'>
 			<div class='WindowTitleBar'>
 				<div class='WindowTitleBarText notextsel' style='float:left'>Window Title Bar</div>
-				<div class='WindowTitleBarClose notextsel' style='float:right'>O</div>
+				<div class='WindowTitleBarClose notextsel' style='float:right'>&#10005;</div>
 			</div>
 			<div class='WindowBody'>
 			</div>
@@ -84,9 +84,9 @@ WM.Window = (function()
 	}
 
 
-	Window.prototype.Hide = function()
+	Window.prototype.Hide = function(evt)
 	{
-		if (this.Node.parentNode == this.ParentNode)
+		if (this.Node.parentNode == this.ParentNode && evt.button == 0)
 		{
 			if (this.AnimatedShow)
 			{
