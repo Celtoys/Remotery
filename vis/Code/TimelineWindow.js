@@ -134,6 +134,11 @@ TimelineWindow = (function()
 		return self.TimelineContainer.Size[0] - (ROW_START_SIZE + ROW_END_SIZE);
 	}
 
+	function OnUserResize(self, evt)
+	{
+		ResizeInternals(self);
+	}
+
 	function ResizeInternals(self)
 	{
 		// Resize controls
@@ -271,11 +276,6 @@ TimelineWindow = (function()
 		}
 
 		self.LastMouseState = mouse_state;
-	}
-
-	function OnUserResize(self, evt)
-	{
-		ResizeInternals(self);
 	}
 
 
