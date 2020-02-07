@@ -16,7 +16,7 @@ SampleWindow = (function()
         this.Visible = true;
 
         // Create a grid that's indexed by the unique sample ID
-        this.Grid = this.Window.AddControlNew(new WM.Grid(0, 0, 380, "calc( 100% - 17px )"));
+        this.Grid = this.Window.AddControlNew(new WM.Grid());
         var cell_data =
         {
             Name: "Samples",
