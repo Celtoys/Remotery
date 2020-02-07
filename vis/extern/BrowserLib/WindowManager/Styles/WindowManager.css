@@ -133,6 +133,17 @@ body
 	cursor: default;
 }
 
+.WindowResizeHandle 
+{
+    color: #999999;
+    font: 17px Verdana;
+    padding: 3px;
+    cursor: se-resize;
+    position: absolute;
+    bottom: -7px;
+    right: -3px;
+}
+
 .WindowBody
 {
 	/* Turns this node into a "positioned node" so that its children can be placed relative to it */
