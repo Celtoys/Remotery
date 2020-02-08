@@ -278,8 +278,8 @@ WM.Window = (function()
 
 	Window.prototype.SetSize = function(w, h)
 	{
-		w = (w < 80) ? 80 : w;
-		h = (h < 15) ? 15 : h;
+		w = Math.max(80, w);
+		h = Math.max(15, h);
 		this.Size = [ w, h ];
 		DOM.Node.SetSize(this.Node, this.Size);
 	}
