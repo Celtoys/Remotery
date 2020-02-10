@@ -37,6 +37,8 @@ Console = (function()
 		this.Server = server;
 		server.SetConsole(this);
 		server.AddMessageHandler("LOGM", Bind(OnLog, this));
+		
+		this.Window.SetOnResize(Bind(OnUserResize, this));
 	}
 
 
@@ -53,16 +55,7 @@ Console = (function()
 		this.Window.SetPosition(BORDER, height - BORDER - 200);
 		this.Window.SetSize(width - 2 * BORDER, HEIGHT);
 
-		// Place controls
-		var parent_size = this.Window.Size;
-		var mid_w = parent_size[0] / 3;
-		this.UserInput.SetPosition(BORDER, parent_size[1] - 2 * BORDER - 30);
-		this.UserInput.SetSize(parent_size[0] - 100, 18);
-		var output_height = this.UserInput.Position[1] - 2 * BORDER;
-		this.PageContainer.SetPosition(BORDER, BORDER);
-		this.PageContainer.SetSize(mid_w - 2 * BORDER, output_height);
-		this.AppContainer.SetPosition(mid_w, BORDER);
-		this.AppContainer.SetSize(parent_size[0] - mid_w - BORDER, output_height);
+		ResizeInternals(this);
 	}
 
 
@@ -97,6 +90,25 @@ Console = (function()
 			existing_text = existing_text.substr(len - max_len, max_len);
 
 		return existing_text;
+	}
+
+	function OnUserResize(self, evt)
+	{
+		ResizeInternals(self);
+	}
+
+	function ResizeInternals(self)
+	{
+		// Place controls
+		var parent_size = self.Window.Size;
+		var mid_w = parent_size[0] / 3;
+		self.UserInput.SetPosition(BORDER, parent_size[1] - 2 * BORDER - 30);
+		self.UserInput.SetSize(parent_size[0] - 100, 18);
+		var output_height = self.UserInput.Position[1] - 2 * BORDER;
+		self.PageContainer.SetPosition(BORDER, BORDER);
+		self.PageContainer.SetSize(mid_w - 2 * BORDER, output_height);
+		self.AppContainer.SetPosition(mid_w, BORDER);
+		self.AppContainer.SetSize(parent_size[0] - mid_w - BORDER, output_height);
 	}
 
 
