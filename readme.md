@@ -48,9 +48,9 @@ Compiling
 * Linux (GCC) - add the source in lib folder. Compilation of the code requires -pthreads for
   library linkage. For example to compile the same run: cc lib/Remotery.c sample/sample.c
   -I lib -pthread -lm
-  
-* FreeBSD - the easiest way is to take a look at the official port 
-  ([devel/remotery](https://www.freshports.org/devel/remotery/)) and modify the port's 
+
+* FreeBSD - the easiest way is to take a look at the official port
+  ([devel/remotery](https://www.freshports.org/devel/remotery/)) and modify the port's
   Makefile if needed. There is also a package available via `pkg install remotery`.
 
 You can define some extra macros to modify what features are compiled into Remotery:
@@ -145,8 +145,7 @@ ensure the current thread has the context you specify in rmtCUDABind.context.
 Sampling Direct3D 11 GPU activity
 ---------------------------------
 
-Remotery allows sampling of GPU activity on your main D3D11 context. After initialising Remotery, you need
-to bind it to D3D11 with a single call from the thread that owns the device context:
+Remotery allows sampling of D3D11 GPU activity on multiple devices on multiple threads. After initialising Remotery, you need to bind it to D3D11 with a single call from the thread that owns the device context:
 
     // Parameters are ID3D11Device* and ID3D11DeviceContext*
     rmt_BindD3D11(d3d11_device, d3d11_context);
@@ -166,8 +165,7 @@ Sampling is then a simple case of:
         // ... D3D code ...
     }
 
-Support for multiple contexts can be added pretty easily if there is demand for the feature. When you shutdown
-your D3D11 device and context, ensure you notify Remotery before shutting down Remotery itself:
+Subsequent sampling calls from the same thread will use that device/context combination. When you shutdown your D3D11 device and context, ensure you notify Remotery before shutting down Remotery itself:
 
     rmt_UnbindD3D11();
 
