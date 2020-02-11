@@ -12,7 +12,7 @@ SampleWindow = (function()
 
         this.XPos = 10 + offset * 410;
         this.Window = wm.AddWindow(name, 100, 100, 100, 100);
-        this.Window.Show();
+        this.Window.ShowNoAnim();
         this.Visible = true;
 
         // Create a grid that's indexed by the unique sample ID
