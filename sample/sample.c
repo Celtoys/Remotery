@@ -2,7 +2,7 @@
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
-#include "..\lib\Remotery.h"
+#include "../lib/Remotery.h"
 
 void aggregateFunction() {
     rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);    
