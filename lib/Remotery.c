@@ -1,4 +1,5 @@
 //
+//
 // Copyright 2014-2018 Celtoys Ltd
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -4295,8 +4296,16 @@ typedef struct Msg_SampleTree
 } Msg_SampleTree;
 
 
+#ifdef SAMPLETREE_CAPTURE
+static void AddSampleTreeMessageHook(rmtMessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name, struct ThreadSampler* thread_sampler);
+#endif
+
 static void AddSampleTreeMessage(rmtMessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name, struct ThreadSampler* thread_sampler)
 {
+    #ifdef SAMPLETREE_CAPTURE
+    AddSampleTreeMessageHook(queue, sample, allocator, thread_name, thread_sampler);
+    #endif
+
     Msg_SampleTree* payload;
 
     // Attempt to allocate a message for sending the tree to the viewer
@@ -4315,8 +4324,6 @@ static void AddSampleTreeMessage(rmtMessageQueue* queue, Sample* sample, ObjectA
     payload->thread_name = thread_name;
     rmtMessageQueue_CommitMessage(message, MsgID_SampleTree);
 }
-
-
 
 
 /*
