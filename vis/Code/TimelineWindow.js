@@ -185,7 +185,7 @@ TimelineWindow = (function()
 
 	function OnMouseDown(self, evt)
 	{
-		// Only manipulate the timelime when paused
+		// Only manipulate the timeline when paused
 		if (!self.Settings.IsPaused)
 			return;
 
@@ -198,7 +198,7 @@ TimelineWindow = (function()
 
 	function OnMouseUp(self, evt)
 	{
-		// Only manipulate the timelime when paused
+		// Only manipulate the timeline when paused
 		if (!self.Settings.IsPaused)
 			return;
 
@@ -230,7 +230,7 @@ TimelineWindow = (function()
 
 	function OnMouseMove(self, evt)
 	{
-		// Only manipulate the timelime when paused
+		// Only manipulate the timeline when paused
 		if (!self.Settings.IsPaused)
 			return;
 
