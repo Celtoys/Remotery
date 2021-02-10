@@ -3380,6 +3380,7 @@ static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32* msg
 typedef enum MessageID
 {
     MsgID_NotReady,
+    MsgID_AddToStringTable,
     MsgID_LogText,
     MsgID_SampleTree,
     MsgID_None,
@@ -4129,8 +4130,8 @@ typedef struct Msg_SampleTree
     rmtPStr thread_name;
 } Msg_SampleTree;
 
-static void AddSampleTreeMessage(rmtMessageQueue* queue, Sample* sample, ObjectAllocator* allocator,
-                                 rmtPStr thread_name, struct ThreadSampler* thread_sampler)
+static void QueueSampleTree(rmtMessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name,
+                            struct ThreadSampler* thread_sampler)
 {
     Msg_SampleTree* payload;
 
@@ -4149,6 +4150,32 @@ static void AddSampleTreeMessage(rmtMessageQueue* queue, Sample* sample, ObjectA
     payload->allocator = allocator;
     payload->thread_name = thread_name;
     rmtMessageQueue_CommitMessage(message, MsgID_SampleTree);
+}
+
+typedef struct Msg_AddToStringTable
+{
+    rmtU32 hash;
+} Msg_AddToStringTable;
+
+static rmtBool QueueAddToStringTable(rmtMessageQueue* queue, rmtU32 hash, const char* string, size_t length, struct ThreadSampler* thread_sampler)
+{
+    Msg_AddToStringTable* payload;
+
+    // Attempt to allocate a message om the queue
+    size_t string_size = length + 1;
+    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_AddToStringTable) + string_size, thread_sampler);
+    if (message == NULL)
+    {
+        return RMT_FALSE;
+    }
+
+    // Populate and commit
+    payload = (Msg_AddToStringTable*)message->payload;
+    payload->hash = hash;
+    memcpy(payload + 1, string, string_size);
+    rmtMessageQueue_CommitMessage(message, MsgID_AddToStringTable);
+
+    return RMT_TRUE;
 }
 
 /*
@@ -4173,9 +4200,6 @@ typedef struct ThreadSampler
     // Store a unique sample tree for each type
     SampleTree* sample_trees[SampleType_Count];
 
-    // Table of all sample names encountered on this thread
-    StringTable* names;
-
 #if RMT_USE_D3D11
     D3D11* d3d11;
 #endif
@@ -4195,7 +4219,6 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
     // Set defaults
     for (i = 0; i < SampleType_Count; i++)
         thread_sampler->sample_trees[i] = NULL;
-    thread_sampler->names = NULL;
     thread_sampler->next = NULL;
 #if RMT_USE_D3D11
     thread_sampler->d3d11 = NULL;
@@ -4220,11 +4243,6 @@ static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
     if (error != RMT_ERROR_NONE)
         return error;
 
-    // Create sample name string table
-    New_0(StringTable, thread_sampler->names);
-    if (error != RMT_ERROR_NONE)
-        return error;
-
 #if RMT_USE_D3D11
     error = D3D11_Create(&thread_sampler->d3d11);
     if (error != RMT_ERROR_NONE)
@@ -4243,8 +4261,6 @@ static void ThreadSampler_Destructor(ThreadSampler* ts)
 #if RMT_USE_D3D11
     Delete(D3D11, ts->d3d11);
 #endif
-
-    Delete(StringTable, ts->names);
 
     for (i = 0; i < SampleType_Count; i++)
         Delete(SampleTree, ts->sample_trees[i]);
@@ -4268,7 +4284,7 @@ static rmtBool ThreadSampler_Pop(ThreadSampler* ts, rmtMessageQueue* queue, Samp
         root->first_child = NULL;
         root->last_child = NULL;
         root->nb_children = 0;
-        AddSampleTreeMessage(queue, sample, tree->allocator, ts->name, ts);
+        QueueSampleTree(queue, sample, tree->allocator, ts->name, ts);
 
         return RMT_TRUE;
     }
@@ -4276,29 +4292,36 @@ static rmtBool ThreadSampler_Pop(ThreadSampler* ts, rmtMessageQueue* queue, Samp
     return RMT_FALSE;
 }
 
-static rmtU32 ThreadSampler_GetNameHash(ThreadSampler* ts, rmtPStr name, rmtU32* hash_cache)
+static rmtU32 ThreadSampler_GetNameHash(ThreadSampler* ts, rmtMessageQueue* queue, rmtPStr name, rmtU32* hash_cache)
 {
-    rmtU32 name_hash = 0;
+    size_t name_len;
+    rmtU32 name_hash;
 
     // Hash cache provided?
     if (hash_cache != NULL)
     {
         // Calculate the hash first time round only
-        if (*hash_cache == 0)
+        name_hash = *hash_cache;
+        if (name_hash == 0)
         {
             assert(name != NULL);
-            *hash_cache = MurmurHash3_x86_32(name, (int)strnlen_s(name, 256), 0);
+            name_len = strnlen_s(name, 256);
+            name_hash = MurmurHash3_x86_32(name, name_len, 0);
 
-            // Also add to the string table on its first encounter
-            StringTable_Insert(ts->names, *hash_cache, name);
+            // Queue the string for the string table and only cache the hash if it succeeds
+            if (QueueAddToStringTable(queue, name_hash, name, name_len, ts) == RMT_TRUE)
+            {
+                *hash_cache = name_hash;
+            }
         }
 
-        return *hash_cache;
+        return name_hash;
     }
 
     // Have to recalculate and speculatively insert the name every time when no cache storage exists
-    name_hash = MurmurHash3_x86_32(name, (int)strnlen_s(name, 256), 0);
-    StringTable_Insert(ts->names, name_hash, name);
+    name_len = strnlen_s(name, 256);
+    name_hash = MurmurHash3_x86_32(name, name_len, 0);
+    QueueAddToStringTable(queue, name_hash, name, name_len, ts);
     return name_hash;
 }
 
@@ -4339,6 +4362,9 @@ struct Remotery
 
     // The main server thread
     rmtThread* thread;
+
+    // String table shared by all threads
+    StringTable* string_table;
 
     // Set to trigger a map of each message on the remotery thread message queue
     void (*map_message_queue_fn)(Remotery* rmt, Message*);
@@ -4421,16 +4447,31 @@ static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samp
 
 static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
 {
-    Buffer* bin_buf;
+    rmtError error = RMT_ERROR_NONE;
 
-    assert(rmt != NULL);
-    assert(message != NULL);
+    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
+    {
+        Buffer* bin_buf;
 
-    bin_buf = rmt->server->bin_buf;
-    WebSocket_PrepareBuffer(bin_buf);
-    Buffer_Write(bin_buf, message->payload, message->payload_size);
+        assert(rmt != NULL);
+        assert(message != NULL);
 
-    return Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 20);
+        bin_buf = rmt->server->bin_buf;
+        WebSocket_PrepareBuffer(bin_buf);
+        Buffer_Write(bin_buf, message->payload, message->payload_size);
+
+        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 20);
+    }
+
+    return error;
+}
+
+static rmtError Remotery_AddToStringTable(Remotery* rmt, Message* message)
+{
+    Msg_AddToStringTable* payload = (Msg_AddToStringTable*)message->payload;
+    const char* name = (const char*)(payload + 1);
+    StringTable_Insert(rmt->string_table, payload->hash, name);
+    return RMT_ERROR_NONE;
 }
 
 static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
@@ -4486,10 +4527,10 @@ static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
 
 static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 {
-    Msg_SampleTree* sample_tree;
     rmtError error = RMT_ERROR_NONE;
+    
+    Msg_SampleTree* sample_tree;
     Sample* sample;
-    Buffer* bin_buf;
 
     assert(rmt != NULL);
     assert(message != NULL);
@@ -4509,8 +4550,8 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
         rmt_EndCPUSample();
         if (!are_samples_ready)
         {
-            AddSampleTreeMessage(rmt->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
-                                 message->thread_sampler);
+            QueueSampleTree(rmt->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
+                                message->thread_sampler);
             return RMT_ERROR_NONE;
         }
 
@@ -4521,20 +4562,23 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     }
 #endif
 
-    // Reset the buffer for sending a websocket message
-    bin_buf = rmt->server->bin_buf;
-    WebSocket_PrepareBuffer(bin_buf);
-
-    // Serialise the sample tree and send to the viewer with a reasonably long timeout as the size
-    // of the sample data may be large
-    rmt_BeginCPUSample(bin_SampleTree, RMTSF_Aggregate);
-    error = bin_SampleTree(bin_buf, sample_tree);
-    rmt_EndCPUSample();
-    if (error == RMT_ERROR_NONE)
+    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
     {
-        rmt_BeginCPUSample(Server_Send, RMTSF_Aggregate);
-        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50000);
+        // Reset the buffer for sending a websocket message
+        Buffer* bin_buf = rmt->server->bin_buf;
+        WebSocket_PrepareBuffer(bin_buf);
+
+        // Serialise the sample tree and send to the viewer with a reasonably long timeout as the size
+        // of the sample data may be large
+        rmt_BeginCPUSample(bin_SampleTree, RMTSF_Aggregate);
+        error = bin_SampleTree(bin_buf, sample_tree);
         rmt_EndCPUSample();
+        if (error == RMT_ERROR_NONE)
+        {
+            rmt_BeginCPUSample(Server_Send, RMTSF_Aggregate);
+            error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50000);
+            rmt_EndCPUSample();
+        }
     }
 
     // Release the sample tree back to its allocator
@@ -4549,10 +4593,6 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
     const rmtU32 maxNbMessagesPerUpdate = g_Settings.maxNbMessagesPerUpdate;
 
     assert(rmt != NULL);
-
-    // Absorb as many messages in the queue while disconnected
-    if (Server_IsClientConnected(rmt->server) == RMT_FALSE)
-        return RMT_ERROR_NONE;
 
     // Loop reading the max number of messages for this update
     while (nb_messages_sent++ < maxNbMessagesPerUpdate)
@@ -4570,6 +4610,9 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
                 break;
 
             // Dispatch to message handler
+            case MsgID_AddToStringTable:
+                error = Remotery_AddToStringTable(rmt, message);
+                break;
             case MsgID_LogText:
                 error = Remotery_SendLogTextMessage(rmt, message);
                 break;
@@ -4607,6 +4650,7 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
         {
             // These can be safely ignored
             case MsgID_NotReady:
+            case MsgID_AddToStringTable:
             case MsgID_LogText:
                 break;
 
@@ -4725,8 +4769,6 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
         }
 
         case FOURCC('G', 'S', 'M', 'P'): {
-            ThreadSampler* ts;
-
             // Convert name hash to integer
             rmtU32 name_hash = 0;
             const char* cur = message_data + 4;
@@ -4734,26 +4776,23 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
             while (cur < end)
                 name_hash = name_hash * 10 + *cur++ - '0';
 
-            // Search all threads for a matching string hash
-            for (ts = rmt->first_thread_sampler; ts != NULL; ts = ts->next)
+            // Search for a matching string hash
+            rmtPStr name = StringTable_Find(rmt->string_table, name_hash);
+            if (name != NULL)
             {
-                rmtPStr name = StringTable_Find(ts->names, name_hash);
-                if (name != NULL)
-                {
-                    rmtU32 name_length;
+                rmtU32 name_length;
 
-                    // Construct a response message containing the matching name
-                    Buffer* bin_buf = rmt->server->bin_buf;
-                    WebSocket_PrepareBuffer(bin_buf);
-                    Buffer_Write(bin_buf, "SSMP", 4);
-                    Buffer_WriteU32(bin_buf, name_hash);
-                    name_length = (rmtU32)strnlen_s(name, 256 - 12);
-                    Buffer_WriteU32(bin_buf, name_length);
-                    Buffer_Write(bin_buf, (void*)name, name_length);
+                // Construct a response message containing the matching name
+                Buffer* bin_buf = rmt->server->bin_buf;
+                WebSocket_PrepareBuffer(bin_buf);
+                Buffer_Write(bin_buf, "SSMP", 4);
+                Buffer_WriteU32(bin_buf, name_hash);
+                name_length = (rmtU32)strnlen_s(name, 256 - 12);
+                Buffer_WriteU32(bin_buf, name_length);
+                Buffer_Write(bin_buf, (void*)name, name_length);
 
-                    // Send back immediately as we're on the server thread
-                    return Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 10);
-                }
+                // Send back immediately as we're on the server thread
+                return Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 10);
             }
 
             break;
@@ -4777,6 +4816,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->first_thread_sampler = NULL;
     rmt->mq_to_rmt_thread = NULL;
     rmt->thread = NULL;
+    rmt->string_table = NULL;
     rmt->map_message_queue_fn = NULL;
     rmt->map_message_queue_data = NULL;
 
@@ -4816,6 +4856,11 @@ static rmtError Remotery_Constructor(Remotery* rmt)
 
     // Create the main message thread with only one page
     New_1(rmtMessageQueue, rmt->mq_to_rmt_thread, g_Settings.messageQueueSizeInBytes);
+    if (error != RMT_ERROR_NONE)
+        return error;
+
+    // Create sample name string table
+    New_0(StringTable, rmt->string_table);
     if (error != RMT_ERROR_NONE)
         return error;
 
@@ -4865,6 +4910,7 @@ static void Remotery_Destructor(Remotery* rmt)
     Delete(Metal, rmt->metal);
 #endif
 
+    Delete(StringTable, rmt->string_table);
     Delete(rmtMessageQueue, rmt->mq_to_rmt_thread);
 
     Remotery_DestroyThreadSamplers(rmt);
@@ -5214,7 +5260,7 @@ RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32 flags, rmtU32* hash_cache)
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
+        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
         if (ThreadSampler_Push(ts->sample_trees[SampleType_CPU], name_hash, flags, &sample) == RMT_ERROR_NONE)
         {
             // If this is an aggregate sample, store the time in 'end' as we want to preserve 'start'
@@ -5580,7 +5626,7 @@ RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream
     {
         rmtError error;
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
+        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the CUDA tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a CUDA binding is not yet available.
@@ -6104,7 +6150,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
         if (d3d11->device == NULL || d3d11->context == NULL)
             return;
 
-        name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
+        name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the D3D11 tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a D3D11 binding is not yet available.
@@ -6223,7 +6269,7 @@ static void UpdateD3D11Frame(ThreadSampler* ts)
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
-        AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
+        QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
                              message->thread_sampler);
         rmtMessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
     }
@@ -6711,7 +6757,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
+        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the OpenGL tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a OpenGL binding is not yet available.
@@ -6805,7 +6851,7 @@ static void UpdateOpenGLFrame(void)
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
-        AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
+        QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
                              message->thread_sampler);
         rmtMessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
     }
@@ -7014,7 +7060,7 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
     if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
     {
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, name, hash_cache);
+        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the Metal tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a Metal binding is not yet available.
@@ -7096,7 +7142,7 @@ static void UpdateMetalFrame(void)
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
-        AddSampleTreeMessage(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
+        QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
                              message->thread_sampler);
         rmtMessageQueue_ConsumeNextMessage(metal->mq_to_metal_main, message);
     }
