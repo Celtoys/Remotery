@@ -1,0 +1,7 @@
+BasedOnStyle: Microsoft
+
+PointerAlignment: Left
+
+IndentCaseLabels: true
+
+AlignEscapedNewlines: Left
