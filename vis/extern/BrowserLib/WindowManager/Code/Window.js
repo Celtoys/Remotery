@@ -106,9 +106,19 @@ WM.Window = (function()
 	
 	Window.prototype.HideNoAnim = function()
 	{
-		// Remove node
-		this.ParentNode.removeChild(this.Node);
-		this.Visible = false;
+		if (this.Node.parentNode == this.ParentNode)
+		{
+			// Remove node
+			this.ParentNode.removeChild(this.Node);
+			this.Visible = false;
+		}
+	}
+
+
+	Window.prototype.Close = function()
+	{
+		this.HideNoAnim();
+		this.Manager.RemoveWindow(this);
 	}
 
 
@@ -145,6 +155,15 @@ WM.Window = (function()
 		control.ParentNode = this.BodyNode;
 		this.BodyNode.appendChild(control.Node);
 		return control;
+	}
+
+
+	Window.prototype.RemoveControl = function(control)
+	{
+		if (control.ParentNode == this.BodyNode)
+		{
+			control.ParentNode.removeChild(control.Node);
+		}
 	}
 
 

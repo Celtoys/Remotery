@@ -92,6 +92,30 @@ Remotery = (function()
     }
 
 
+    function Clear(self)
+    {
+        // Clear timeline
+        self.TimelineWindow.Clear();
+
+        // Close and clear all sample windows
+        for (var i in self.SampleWindows)
+        {
+            var sample_window = self.SampleWindows[i];
+            sample_window.Close();
+        }
+        self.NbSampleWindows = 0;
+        self.SampleWindows = { };
+
+        // Clear runtime data
+        self.FrameHistory = { };
+        self.SelectedFrames = { };
+        self.NameMap = { };
+
+        // Resize everything to fit new layout
+        OnResizeWindow(self);
+    }
+
+
     function AutoConnect(self)
     {
         // Only attempt to connect if there isn't already a connection or an attempt to connect
@@ -108,9 +132,7 @@ Remotery = (function()
         // Connection address has been validated
         LocalStore.Set("App", "Global", "ConnectionAddress", self.ConnectionAddress);
 
-        // Clear the name map for new connections as older connections may not have received names for a given hash yet
-        // Their request message will also have been sent into oblivion with the previous connection
-        self.NameMap = { };
+        Clear(self);
     }
 
 
@@ -281,7 +303,9 @@ Remotery = (function()
         {
             var sample_window = self.SampleWindows[i];
             if (sample_window.Visible)
+            {
                 sample_window.SetXPos(xpos++, self.TimelineWindow.Window, self.Console.Window);
+            }
         }
     }
 

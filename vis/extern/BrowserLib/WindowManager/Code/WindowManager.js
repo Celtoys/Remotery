@@ -24,6 +24,17 @@ WM.WindowManager = (function()
 	}
 
 
+	WindowManager.prototype.RemoveWindow = function(window)
+	{
+		// Remove from managed window list
+		var index = this.Windows.indexOf(window);
+		if (index != -1)
+		{
+			this.Windows.splice(index, 1);
+		}
+	}
+
+
 	WindowManager.prototype.SetTopWindow = function(top_wnd)
 	{
 		// Bring the window to the top of the window list

@@ -18,12 +18,28 @@ TimelineWindow = (function()
 	{
 		this.Settings = settings;
 
+		// Create timeline window
+		this.Window = wm.AddWindow("Timeline", 10, 20, 100, 100);
+		this.Window.ShowNoAnim();
+
+		this.Clear();
+
+		this.CheckHandler = check_handler;
+	}
+
+
+	TimelineWindow.prototype.Clear = function()
+	{
+		// Remove old timeline containers
+		if (this.TimelineContainer !== undefined)
+		{
+			this.Window.RemoveControl(this.TimelineContainer);
+		}
+
 		// Ordered list of thread rows on the timeline
 		this.ThreadRows = [ ];
 
-		// Create window and containers
-		this.Window = wm.AddWindow("Timeline", 10, 20, 100, 100);
-		this.Window.ShowNoAnim();
+		// Create timeline container
 		this.TimelineContainer = this.Window.AddControlNew(new WM.Container(10, 10, 800, 160));
 		DOM.Node.AddClass(this.TimelineContainer.Node, "TimelineContainer");
 
@@ -42,9 +58,7 @@ TimelineWindow = (function()
 
 		// Set time range AFTER the window has been created, as it uses the window to determine pixel coverage
 		this.TimeRange = new PixelTimeRange(0, 200 * 1000, RowWidth(this));
-
-		this.CheckHandler = check_handler;
-
+		
 		this.Window.SetOnResize(Bind(OnUserResize, this));
 	}
 
