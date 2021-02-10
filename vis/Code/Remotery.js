@@ -107,6 +107,10 @@ Remotery = (function()
     {
         // Connection address has been validated
         LocalStore.Set("App", "Global", "ConnectionAddress", self.ConnectionAddress);
+
+        // Clear the name map for new connections as older connections may not have received names for a given hash yet
+        // Their request message will also have been sent into oblivion with the previous connection
+        self.NameMap = { };
     }
 
 
