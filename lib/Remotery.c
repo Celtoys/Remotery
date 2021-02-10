@@ -4769,6 +4769,8 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
         }
 
         case FOURCC('G', 'S', 'M', 'P'): {
+            rmtPStr name;
+
             // Convert name hash to integer
             rmtU32 name_hash = 0;
             const char* cur = message_data + 4;
@@ -4777,7 +4779,7 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
                 name_hash = name_hash * 10 + *cur++ - '0';
 
             // Search for a matching string hash
-            rmtPStr name = StringTable_Find(rmt->string_table, name_hash);
+            name = StringTable_Find(rmt->string_table, name_hash);
             if (name != NULL)
             {
                 rmtU32 name_length;
@@ -5089,6 +5091,8 @@ typedef struct tagTHREADNAME_INFO
 static void SetDebuggerThreadName(const char* name)
 {
 #ifdef RMT_PLATFORM_WINDOWS
+    THREADNAME_INFO info;
+    
     // See if SetThreadDescription is available in this version of Windows
     // Introduced in Windows 10 build 1607
     HANDLE kernel32 = GetModuleHandleA("Kernel32.dll");
@@ -5114,7 +5118,6 @@ static void SetDebuggerThreadName(const char* name)
         }
     }
 
-    THREADNAME_INFO info;
     info.dwType = 0x1000;
     info.szName = name;
     info.dwThreadID = (DWORD)-1;
