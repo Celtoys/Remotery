@@ -5095,7 +5095,7 @@ static void SetDebuggerThreadName(const char* name)
     
     // See if SetThreadDescription is available in this version of Windows
     // Introduced in Windows 10 build 1607
-    HANDLE kernel32 = GetModuleHandleA("Kernel32.dll");
+    HMODULE kernel32 = GetModuleHandleA("Kernel32.dll");
     if (kernel32 != NULL)
     {
         typedef HRESULT(WINAPI* SETTHREADDESCRIPTION)(HANDLE hThread, PCWSTR lpThreadDescription);
