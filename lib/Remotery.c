@@ -5043,6 +5043,31 @@ typedef struct tagTHREADNAME_INFO
 static void SetDebuggerThreadName(const char* name)
 {
 #ifdef RMT_PLATFORM_WINDOWS
+    // See if SetThreadDescription is available in this version of Windows
+    // Introduced in Windows 10 build 1607
+    HANDLE kernel32 = GetModuleHandleA("Kernel32.dll");
+    if (kernel32 != NULL)
+    {
+        typedef HRESULT(WINAPI* SETTHREADDESCRIPTION)(HANDLE hThread, PCWSTR lpThreadDescription);
+        SETTHREADDESCRIPTION SetThreadDescription = (SETTHREADDESCRIPTION)GetProcAddress(kernel32, "SetThreadDescription");
+        if (SetThreadDescription != NULL)
+        {
+            // Create a wide-string version of the thread name
+            size_t wlen = mbstowcs(NULL, name, INT_MAX);
+            if (wlen >= 1 && wlen <= MAX_PATH)
+            {
+                wchar_t* wstr = (wchar_t*)(malloc((wlen + 1) * sizeof(wchar_t)));
+                if (mbstowcs(wstr, name, wlen + 1) == wlen)
+                {
+                    // Set and return, leaving a fall-through for any failure cases to use the old exception method
+                    SetThreadDescription(GetCurrentThread(), wstr);
+                    free(wstr);
+                    return;
+                }
+            }
+        }
+    }
+
     THREADNAME_INFO info;
     info.dwType = 0x1000;
     info.szName = name;
