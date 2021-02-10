@@ -2404,9 +2404,9 @@ static int TCPTryAgain()
     return error == WSAEWOULDBLOCK;
 #else
 #if EAGAIN == EWOULDBLOCK
-    return error == EAGAIN;
+    return errno == EAGAIN;
 #else
-    return error == EAGAIN || error == EWOULDBLOCK;
+    return errno == EAGAIN || errno == EWOULDBLOCK;
 #endif
 #endif
 }
