@@ -1557,6 +1557,28 @@ static void itoahex_s(char* dest, r_size_t dmax, rmtS32 value)
     }
 }
 
+static const char* itoa_s(rmtS32 value)
+{
+    static char temp_dest[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    int pos = 10;
+
+    // Work back with the absolute value
+    rmtS32 abs_value = abs(value);
+    while (abs_value > 0)
+    {
+        temp_dest[pos--] = '0' + (abs_value % 10);
+        abs_value /= 10;
+    }
+
+    // Place the negative
+    if (value < 0)
+    {
+        temp_dest[pos--] = '-';
+    }
+
+    return temp_dest + pos + 1;
+}
+
 #endif
 
 /*
@@ -4155,6 +4177,7 @@ static void QueueSampleTree(rmtMessageQueue* queue, Sample* sample, ObjectAlloca
 typedef struct Msg_AddToStringTable
 {
     rmtU32 hash;
+    rmtU32 length;
 } Msg_AddToStringTable;
 
 static rmtBool QueueAddToStringTable(rmtMessageQueue* queue, rmtU32 hash, const char* string, size_t length, struct ThreadSampler* thread_sampler)
@@ -4162,8 +4185,8 @@ static rmtBool QueueAddToStringTable(rmtMessageQueue* queue, rmtU32 hash, const 
     Msg_AddToStringTable* payload;
 
     // Attempt to allocate a message om the queue
-    size_t string_size = length + 1;
-    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_AddToStringTable) + string_size, thread_sampler);
+    size_t nb_string_bytes = length + 1;
+    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_AddToStringTable) + nb_string_bytes, thread_sampler);
     if (message == NULL)
     {
         return RMT_FALSE;
@@ -4172,7 +4195,8 @@ static rmtBool QueueAddToStringTable(rmtMessageQueue* queue, rmtU32 hash, const 
     // Populate and commit
     payload = (Msg_AddToStringTable*)message->payload;
     payload->hash = hash;
-    memcpy(payload + 1, string, string_size);
+    payload->length = length;
+    memcpy(payload + 1, string, nb_string_bytes);
     rmtMessageQueue_CommitMessage(message, MsgID_AddToStringTable);
 
     return RMT_TRUE;
@@ -4366,6 +4390,9 @@ struct Remotery
     // String table shared by all threads
     StringTable* string_table;
 
+    // Open logfile handle to append events to
+    FILE* logfile;
+
     // Set to trigger a map of each message on the remotery thread message queue
     void (*map_message_queue_fn)(Remotery* rmt, Message*);
     void* map_message_queue_data;
@@ -4448,19 +4475,23 @@ static void GetSampleDigest(Sample* sample, rmtU32* digest_hash, rmtU32* nb_samp
 static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
 {
     rmtError error = RMT_ERROR_NONE;
+    Buffer* bin_buf;
 
+    // Build the buffer as if it's being sent to the server
+    assert(rmt != NULL);
+    assert(message != NULL);
+    bin_buf = rmt->server->bin_buf;
+    WebSocket_PrepareBuffer(bin_buf);
+    Buffer_Write(bin_buf, message->payload, message->payload_size);
+
+    // Pass to either the server or the log file
     if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
     {
-        Buffer* bin_buf;
-
-        assert(rmt != NULL);
-        assert(message != NULL);
-
-        bin_buf = rmt->server->bin_buf;
-        WebSocket_PrepareBuffer(bin_buf);
-        Buffer_Write(bin_buf, message->payload, message->payload_size);
-
         error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 20);
+    }
+    if (rmt->logfile != NULL)
+    {
+        fwrite(bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE, 1, rmt->logfile);
     }
 
     return error;
@@ -4468,9 +4499,25 @@ static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
 
 static rmtError Remotery_AddToStringTable(Remotery* rmt, Message* message)
 {
+    // Add to the string table
     Msg_AddToStringTable* payload = (Msg_AddToStringTable*)message->payload;
     const char* name = (const char*)(payload + 1);
     StringTable_Insert(rmt->string_table, payload->hash, name);
+
+    // Emit to log file if one is open
+    if (rmt->logfile != NULL)
+    {
+        Buffer* bin_buf = rmt->server->bin_buf;
+        bin_buf->bytes_used = 0;
+
+        Buffer_WriteU32(bin_buf, MsgID_AddToStringTable);
+        Buffer_WriteU32(bin_buf, payload->hash);
+        Buffer_WriteU32(bin_buf, payload->length);
+        Buffer_Write(bin_buf, name, payload->length);
+
+        fwrite(bin_buf->data, bin_buf->bytes_used, 1, rmt->logfile);
+    }
+
     return RMT_ERROR_NONE;
 }
 
@@ -4531,6 +4578,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     
     Msg_SampleTree* sample_tree;
     Sample* sample;
+    Buffer* bin_buf;
 
     assert(rmt != NULL);
     assert(message != NULL);
@@ -4562,27 +4610,36 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     }
 #endif
 
-    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
-    {
-        // Reset the buffer for sending a websocket message
-        Buffer* bin_buf = rmt->server->bin_buf;
-        WebSocket_PrepareBuffer(bin_buf);
+    // Reset the buffer for sending a websocket message
+    bin_buf = rmt->server->bin_buf;
+    WebSocket_PrepareBuffer(bin_buf);
 
-        // Serialise the sample tree and send to the viewer with a reasonably long timeout as the size
-        // of the sample data may be large
-        rmt_BeginCPUSample(bin_SampleTree, RMTSF_Aggregate);
-        error = bin_SampleTree(bin_buf, sample_tree);
-        rmt_EndCPUSample();
-        if (error == RMT_ERROR_NONE)
-        {
-            rmt_BeginCPUSample(Server_Send, RMTSF_Aggregate);
-            error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50000);
-            rmt_EndCPUSample();
-        }
-    }
+    // Serialise the sample tree
+    rmt_BeginCPUSample(bin_SampleTree, RMTSF_Aggregate);
+    error = bin_SampleTree(bin_buf, sample_tree);
+    rmt_EndCPUSample();
 
     // Release the sample tree back to its allocator
     FreeSampleTree(sample, sample_tree->allocator);
+
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+
+    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
+    {
+        // Send to the viewer with a reasonably long timeout as the size of the sample data may be large
+        rmt_BeginCPUSample(Server_Send, RMTSF_Aggregate);
+        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50000);
+        rmt_EndCPUSample();
+    }
+
+    if (rmt->logfile != NULL)
+    {
+        // Write the data after the websocket header
+        fwrite(bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE, 1, rmt->logfile);
+    }
 
     return error;
 }
@@ -4819,6 +4876,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->mq_to_rmt_thread = NULL;
     rmt->thread = NULL;
     rmt->string_table = NULL;
+    rmt->logfile = NULL;
     rmt->map_message_queue_fn = NULL;
     rmt->map_message_queue_data = NULL;
 
@@ -4865,6 +4923,41 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     New_0(StringTable, rmt->string_table);
     if (error != RMT_ERROR_NONE)
         return error;
+    
+    if (g_Settings.logPath != NULL)
+    {
+        // Start the log path off
+        char filename[512] = { 0 };
+        strncat_s(filename, sizeof(filename), g_Settings.logPath, 512);
+        strncat_s(filename, sizeof(filename), "/remotery-log-", 14);
+
+        // Append current date and time
+        rmtU64 now = time(NULL);
+        struct tm* now_tm = _gmtime64(&now);
+        strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_year + 1900), 11);
+        strncat_s(filename, sizeof(filename), "-", 1);
+        strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_mon + 1), 11);
+        strncat_s(filename, sizeof(filename), "-", 1);
+        strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_mday), 11);
+        strncat_s(filename, sizeof(filename), "-", 1);
+        strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_hour), 11);
+        strncat_s(filename, sizeof(filename), "-", 1);
+        strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_min), 11);
+        strncat_s(filename, sizeof(filename), "-", 1);
+        strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_sec), 11);
+
+        // Just append a custom extension
+        strncat_s(filename, sizeof(filename), ".rbin", 5);
+
+        // Open and assume any failure simply sets NULL and the file isn't written
+        rmt->logfile = fopen(filename, "w");
+        
+        // Write the header
+        if (rmt->logfile != NULL)
+        {
+            fwrite("RMTBLOGF", 1, 8, rmt->logfile);
+        }
+    }
 
 #if RMT_USE_OPENGL
     error = OpenGL_Create(&rmt->opengl);
@@ -4911,6 +5004,11 @@ static void Remotery_Destructor(Remotery* rmt)
 #if RMT_USE_METAL
     Delete(Metal, rmt->metal);
 #endif
+
+    if (rmt->logfile != NULL)
+    {
+        fclose(rmt->logfile);
+    }
 
     Delete(StringTable, rmt->string_table);
     Delete(rmtMessageQueue, rmt->mq_to_rmt_thread);
@@ -5023,15 +5121,15 @@ RMT_API rmtSettings* _rmt_Settings(void)
         g_Settings.port = 0x4597;
         g_Settings.reuse_open_port = RMT_FALSE;
         g_Settings.limit_connections_to_localhost = RMT_FALSE;
-        g_Settings.msSleepBetweenServerUpdates = 10;
-        g_Settings.messageQueueSizeInBytes = 128 * 1024;
-        g_Settings.maxNbMessagesPerUpdate = 10;
+        g_Settings.msSleepBetweenServerUpdates = 4;
+        g_Settings.messageQueueSizeInBytes = 1024 * 1024;
+        g_Settings.maxNbMessagesPerUpdate = 50;
         g_Settings.malloc = CRTMalloc;
         g_Settings.free = CRTFree;
         g_Settings.realloc = CRTRealloc;
         g_Settings.input_handler = NULL;
         g_Settings.input_handler_context = NULL;
-        g_Settings.logFilename = "rmtLog.txt";
+        g_Settings.logPath = NULL;
 
         g_SettingsInitialized = RMT_TRUE;
     }

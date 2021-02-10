@@ -393,7 +393,7 @@ typedef struct rmtSettings
     // Context pointer that gets sent to Remotery console callback function
     void* input_handler_context;
 
-    rmtPStr logFilename;
+    rmtPStr logPath;
 } rmtSettings;
 
 
