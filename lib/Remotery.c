@@ -2397,14 +2397,17 @@ static rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket** cl
     return RMT_ERROR_NONE;
 }
 
-static int TCPSocketWouldBlock()
+static int TCPTryAgain()
 {
 #ifdef RMT_PLATFORM_WINDOWS
     DWORD error = WSAGetLastError();
-    return (error == WSAEWOULDBLOCK);
+    return error == WSAEWOULDBLOCK;
 #else
-    int error = errno;
-    return (error == EAGAIN || error == EWOULDBLOCK);
+#if EAGAIN == EWOULDBLOCK
+    return error == EAGAIN;
+#else
+    return error == EAGAIN || error == EWOULDBLOCK;
+#endif
 #endif
 }
 
@@ -2451,7 +2454,7 @@ static rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 l
         if (bytes_sent == SOCKET_ERROR || bytes_sent == 0)
         {
             // Close the connection if sending fails for any other reason other than blocking
-            if (bytes_sent != 0 && !TCPSocketWouldBlock())
+            if (bytes_sent != 0 && !TCPTryAgain())
                 return RMT_ERROR_SOCKET_SEND_FAIL;
 
             // First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
@@ -2517,7 +2520,7 @@ static rmtError TCPSocket_Receive(TCPSocket* tcp_socket, void* data, rmtU32 leng
         if (bytes_received == SOCKET_ERROR || bytes_received == 0)
         {
             // Close the connection if receiving fails for any other reason other than blocking
-            if (bytes_received != 0 && !TCPSocketWouldBlock())
+            if (bytes_received != 0 && !TCPTryAgain())
                 return RMT_ERROR_SOCKET_RECV_FAILED;
 
             // First check for tick-count overflow and reset, giving a slight hitch every 49.7 days
