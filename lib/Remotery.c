@@ -95,6 +95,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
     #include <assert.h>
     #include <stdio.h>
+    #include <time.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
         #include <winsock2.h>
@@ -109,7 +110,6 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #endif
 
     #ifdef RMT_PLATFORM_LINUX
-        #include <time.h>
         #if defined(__FreeBSD__) || defined(__OpenBSD__)
             #include <pthread_np.h>
         #else
@@ -4927,14 +4927,16 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     
     if (g_Settings.logPath != NULL)
     {
+        // Get current time
+        rmtU64 now = time(NULL);
+        struct tm* now_tm = _gmtime64(&now);
+
         // Start the log path off
         char filename[512] = { 0 };
         strncat_s(filename, sizeof(filename), g_Settings.logPath, 512);
         strncat_s(filename, sizeof(filename), "/remotery-log-", 14);
 
         // Append current date and time
-        rmtU64 now = time(NULL);
-        struct tm* now_tm = _gmtime64(&now);
         strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_year + 1900), 11);
         strncat_s(filename, sizeof(filename), "-", 1);
         strncat_s(filename, sizeof(filename), itoa_s(now_tm->tm_mon + 1), 11);
