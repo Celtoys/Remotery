@@ -121,15 +121,15 @@ WebSocketConnection = (function()
 
 	function OnMessage(self, event)
 	{
-	    var data_view = new DataView(event.data);
+	    let data_view = new DataView(event.data);
+		let data_view_reader = new DataViewReader(data_view, 0);
+		self.CallMessageHandlers(data_view_reader);
+	}
 
-	    var id = String.fromCharCode(
-            data_view.getInt8(0),
-            data_view.getInt8(1),
-            data_view.getInt8(2),
-            data_view.getInt8(3));
-
-        CallMessageHandlers(self, id, data_view);
+	WebSocketConnection.prototype.CallMessageHandlers = function(data_view_reader)
+	{
+		let id = data_view_reader.GetStringOfLength(4);
+		CallMessageHandlers(this, id, data_view_reader);
 	}
 
 

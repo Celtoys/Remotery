@@ -60,9 +60,18 @@ Remotery = (function()
         // Create required windows
         this.TitleWindow = new TitleWindow(this.WindowManager, this.Settings, this.Server, this.ConnectionAddress);
         this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
-        this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Settings, this.Server, Bind(OnTimelineCheck, this));
+        this.TimelineWindow = new TimelineWindow(this.WindowManager, this.Settings, Bind(OnTimelineCheck, this));
         this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
         this.TimelineWindow.SetOnSelected(Bind(OnSampleSelected, this));
+
+        // Setup global drop zone
+        this.DropNode = DOM.Node.CreateHTML("<div id='DropZone' class='DropZone'>Load Remotery Log</div>");
+        document.body.appendChild(this.DropNode);
+        DOM.Event.AddHandler(window, "dragenter", Bind(ShowDropZone, this));
+        DOM.Event.AddHandler(this.DropNode, "dragenter", Bind(AllowDrag, this));
+        DOM.Event.AddHandler(this.DropNode, "dragover", Bind(AllowDrag, this));
+        DOM.Event.AddHandler(this.DropNode, "dragleave", Bind(HideDropZone, this));
+        DOM.Event.AddHandler(this.DropNode, "drop", Bind(OnDrop, this));
 
         this.NbSampleWindows = 0;
         this.SampleWindows = { };
@@ -91,6 +100,78 @@ Remotery = (function()
         })();
     }
 
+
+    function ShowDropZone(self, evt)
+    {
+        self.DropNode.style.display = "flex";
+    }
+
+    function HideDropZone(self, evt)
+    {
+        self.DropNode.style.display = "none";
+    }
+
+
+    function AllowDrag(self, evt)
+    {
+        evt.dataTransfer.dropEffect = "copy";
+
+        // Prevent the default drag handler kicking in
+        DOM.Event.StopDefaultAction(evt);
+    }
+
+    function OnDrop(self, evt)
+    {
+        // Prevent the default drop handler kicking in
+        DOM.Event.StopDefaultAction(evt);
+
+        HideDropZone(self, evt);
+
+        // Get the file that was dropped
+        let files = DOM.Event.GetDropFiles(evt);
+        if (files.length == 0)
+        {
+            alert("No files dropped");
+            return;
+        }
+        if (files.length > 1)
+        {
+            alert("Too many files dropped");
+            return;
+        }
+
+        // Check file type
+        let file = files[0];
+        if (!file.name.endsWith(".rbin"))
+        {
+            alert("Not the correct .rbin file type");
+            return;
+        }
+
+        // Background-load the file
+        let file_reader = new FileReader();
+        file_reader.onload = function(e2)
+        {
+            // Create the data reader and verify the header
+            let data_view = new DataView(this.result);
+            let data_view_reader = new DataViewReader(data_view, 0);
+            let header = data_view_reader.GetStringOfLength(8);
+            if (header != "RMTBLOGF")
+            {
+                alert("Not a valid Remotery Log File");
+                return;
+            }
+
+            Clear(self);
+
+            // Forward all recorded events to message handlers
+            while (!data_view_reader.AtEnd())
+            {
+                self.Server.CallMessageHandlers(data_view_reader);
+            }
+        };
+        file_reader.readAsArrayBuffer(file);
+    }
 
     function Clear(self)
     {
@@ -225,7 +306,8 @@ Remotery = (function()
     function DecodeSamples(self, data_view_reader)
     {
         // Message-specific header
-        var message = { };
+        let message = { };
+        message.sample_tree_bytes = data_view_reader.GetUInt32();
         message.thread_name = data_view_reader.GetString();
         message.nb_samples = data_view_reader.GetUInt32();
         message.sample_digest = data_view_reader.GetUInt32();
@@ -238,14 +320,14 @@ Remotery = (function()
     }
 
 
-    function OnSamples(self, socket, data_view)
+    function OnSamples(self, socket, data_view_reader)
     {
         // Discard any new samples while paused
         if (self.Settings.IsPaused)
             return;
 
         // Binary decode incoming sample data
-        var message = DecodeSamples(self, new DataViewReader(data_view, 8));
+        var message = DecodeSamples(self, data_view_reader);
         var name = message.thread_name;
 
         // Add to frame history for this thread
@@ -276,13 +358,21 @@ Remotery = (function()
     }
 
 
-    function OnSampleName(self, socket, data_view)
+    function OnSampleName(self, socket, data_view_reader)
     {
         // Add any names sent by the server to the local map
-        var data_view_reader = new DataViewReader(data_view, 4);
         var name_hash = data_view_reader.GetUInt32();
         var name = data_view_reader.GetString();
-        self.NameMap[name_hash].string = name;
+        
+        var sample_name = self.NameMap[name_hash];
+        if (sample_name == undefined)
+        {
+            self.NameMap[name_hash] = { "string" : name };
+        }
+        else
+        {
+            sample_name.string = name;
+        }
     }
 
 

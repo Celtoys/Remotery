@@ -11,6 +11,11 @@ DataViewReader = (function ()
         this.Offset = offset;
     }
 
+    DataViewReader.prototype.AtEnd = function()
+    {
+        return this.Offset >= this.DataView.byteLength;
+    }
+
     DataViewReader.prototype.GetUInt32 = function ()
     {
         var v = this.DataView.getUint32(this.Offset, true);

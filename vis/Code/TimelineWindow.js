@@ -14,7 +14,7 @@ TimelineWindow = (function()
 
 	var box_template = "<div class='TimelineBox'></div>";
 
-	function TimelineWindow(wm, settings, server, check_handler)
+	function TimelineWindow(wm, settings, check_handler)
 	{
 		this.Settings = settings;
 

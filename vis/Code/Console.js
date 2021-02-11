@@ -59,9 +59,8 @@ Console = (function()
 	}
 
 
-	function OnLog(self, socket, data_view)
+	function OnLog(self, socket, data_view_reader)
 	{
-		var data_view_reader = new DataViewReader(data_view, 4);
 		var text = data_view_reader.GetString();
 		self.AppTextBuffer = LogText(self.AppTextBuffer, text);
 		self.AppTextUpdatePending = true;

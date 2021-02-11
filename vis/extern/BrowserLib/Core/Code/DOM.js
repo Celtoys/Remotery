@@ -427,6 +427,33 @@ DOM.Event.GetMousePosition = function(evt)
 }
 
 
+//
+// Get the list of files attached to a drop event
+//
+DOM.Event.GetDropFiles = function(evt)
+{
+	let files = [];
+	if (evt.dataTransfer.items)
+	{
+		for (let i = 0; i < evt.dataTransfer.items.length; i++)
+		{
+			if (evt.dataTransfer.items[i].kind === 'file')
+			{
+				files.push(evt.dataTransfer.items[i].getAsFile());
+			}
+		}
+	}
+	else
+	{
+		for (let i = 0; i < evt.dataTransfer.files.length; i++)
+		{
+			files.push(evt.dataTransfer.files[i]);
+		}
+	}
+	return files;
+}
+
+
 
 //
 // =====================================================================================================================

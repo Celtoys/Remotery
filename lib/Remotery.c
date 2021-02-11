@@ -4537,6 +4537,18 @@ static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
     return error;
 }
 
+static rmtError bin_SampleName(Buffer* buffer, const char* name, rmtU32 name_hash, rmtU32 name_length)
+{
+    rmtError error;
+
+    BIN_ERROR_CHECK(Buffer_Write(buffer, "SSMP", 4));
+    BIN_ERROR_CHECK(Buffer_WriteU32(buffer, name_hash));
+    BIN_ERROR_CHECK(Buffer_WriteU32(buffer, name_length));
+    BIN_ERROR_CHECK(Buffer_Write(buffer, (void*)name, name_length));
+
+    return RMT_ERROR_NONE;
+}
+
 static rmtError Remotery_AddToStringTable(Remotery* rmt, Message* message)
 {
     // Add to the string table
@@ -4547,13 +4559,11 @@ static rmtError Remotery_AddToStringTable(Remotery* rmt, Message* message)
     // Emit to log file if one is open
     if (rmt->logfile != NULL)
     {
+        rmtError error;
+
         Buffer* bin_buf = rmt->server->bin_buf;
         bin_buf->bytes_used = 0;
-
-        Buffer_WriteU32(bin_buf, MsgID_AddToStringTable);
-        Buffer_WriteU32(bin_buf, payload->hash);
-        Buffer_WriteU32(bin_buf, payload->length);
-        Buffer_Write(bin_buf, name, payload->length);
+        BIN_ERROR_CHECK(bin_SampleName(bin_buf, name, payload->hash, payload->length));
 
         rmtWriteFile(rmt->logfile, bin_buf->data, bin_buf->bytes_used);
     }
@@ -4879,16 +4889,12 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
             name = StringTable_Find(rmt->string_table, name_hash);
             if (name != NULL)
             {
-                rmtU32 name_length;
+                rmtU32 name_length = (rmtU32)strnlen_s_safe_c(name, 256 - 12);
 
                 // Construct a response message containing the matching name
                 Buffer* bin_buf = rmt->server->bin_buf;
                 WebSocket_PrepareBuffer(bin_buf);
-                Buffer_Write(bin_buf, "SSMP", 4);
-                Buffer_WriteU32(bin_buf, name_hash);
-                name_length = (rmtU32)strnlen_s(name, 256 - 12);
-                Buffer_WriteU32(bin_buf, name_length);
-                Buffer_Write(bin_buf, (void*)name, name_length);
+                bin_SampleName(bin_buf, name, name_hash, name_length);
 
                 // Send back immediately as we're on the server thread
                 return Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 10);
