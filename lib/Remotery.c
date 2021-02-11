@@ -332,7 +332,15 @@ static void msSleep(rmtU32 time_ms)
 static struct tm* TimeDateNow()
 {
     time_t time_now = time(NULL);
+
+#if defined(RMT_PLATFORM_WINDOWS) && !defined(RMT_USE_TINYCRT)
+    // Discard the thread-safety benefit of gmtime_s
+    static tm tm_now;
+    gmtime_s(&tm_now, &time_now);
+    return &tm_now;
+#else
     return gmtime(&time_now);
+#endif
 }
 
 /*
