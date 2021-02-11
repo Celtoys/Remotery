@@ -360,7 +360,7 @@ static struct tm* TimeDateNow()
 
 #if defined(RMT_PLATFORM_WINDOWS) && !RMT_USE_TINYCRT
     // Discard the thread-safety benefit of gmtime_s
-    static tm tm_now;
+    static struct tm tm_now;
     gmtime_s(&tm_now, &time_now);
     return &tm_now;
 #else
