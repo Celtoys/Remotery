@@ -35,6 +35,26 @@ TitleWindow = (function()
 		ResizeInternals(this);
 	}
 
+	TitleWindow.prototype.Pause = function()
+	{
+		if (!this.Settings.IsPaused)
+		{
+			this.PauseButton.SetText("Paused");
+			this.PauseButton.SetState(true);
+			this.Settings.IsPaused = true;
+		}
+	}
+
+	TitleWindow.prototype.Unpause = function()
+	{
+		if (this.Settings.IsPaused)
+		{
+			this.PauseButton.SetText("Pause");
+			this.PauseButton.SetState(false);
+			this.Settings.IsPaused = false;
+		}
+	}
+
 	function OnUserResize(self, evt)
 	{
 		ResizeInternals(self);
@@ -48,11 +68,14 @@ TitleWindow = (function()
 
 	function OnPausePressed(self)
 	{
-		self.Settings.IsPaused = self.PauseButton.IsPressed();
-		if (self.Settings.IsPaused)
-			self.PauseButton.SetText("Paused");
+		if (self.PauseButton.IsPressed())
+		{
+			self.Pause();
+		}
 		else
-			self.PauseButton.SetText("Pause");
+		{
+			self.Unpause();
+		}
 	}
 
 

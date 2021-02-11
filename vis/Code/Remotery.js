@@ -53,6 +53,7 @@ Remotery = (function()
 
         this.Server = new WebSocketConnection();
         this.Server.AddConnectHandler(Bind(OnConnect, this));
+        this.Server.AddDisconnectHandler(Bind(OnDisconnect, this));
 
         // Create the console up front as everything reports to it
         this.Console = new Console(this.WindowManager, this.Server);
@@ -169,6 +170,8 @@ Remotery = (function()
             {
                 self.Server.CallMessageHandlers(data_view_reader);
             }
+
+            self.TitleWindow.Pause();
         };
         file_reader.readAsArrayBuffer(file);
     }
@@ -214,6 +217,15 @@ Remotery = (function()
         LocalStore.Set("App", "Global", "ConnectionAddress", self.ConnectionAddress);
 
         Clear(self);
+
+        // Ensure the viewer is ready for realtime updates
+        self.TitleWindow.Unpause();
+    }
+
+    function OnDisconnect(self)
+    {
+        // Pause so the user can inspect the trace
+        self.TitleWindow.Pause();
     }
 
 
@@ -322,8 +334,9 @@ Remotery = (function()
 
     function OnSamples(self, socket, data_view_reader)
     {
-        // Discard any new samples while paused
-        if (self.Settings.IsPaused)
+        // Discard any new samples while paused and connected
+        // Otherwise this stops a paused Remotery from loading new samples from disk
+        if (self.Settings.IsPaused && self.Server.Connected())
             return;
 
         // Binary decode incoming sample data
