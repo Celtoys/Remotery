@@ -164,11 +164,23 @@ Remotery = (function()
             }
 
             Clear(self);
-
-            // Forward all recorded events to message handlers
-            while (!data_view_reader.AtEnd())
+            
+            try
             {
-                self.Server.CallMessageHandlers(data_view_reader);
+                // Forward all recorded events to message handlers
+                while (!data_view_reader.AtEnd())
+                {
+                    self.Server.CallMessageHandlers(data_view_reader);
+                }
+            }
+            catch (e)
+            {
+                // The last message may be partially written due to process exit
+                // Catch this safely as it's a valid state for the file to be in
+                if (e instanceof RangeError)
+                {
+                    console.log("Aborted reading last message");
+                }
             }
 
             self.TitleWindow.Pause();
