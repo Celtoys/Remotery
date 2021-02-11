@@ -6032,6 +6032,7 @@ static rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
     D3D11_QUERY_DESC disjoint_desc;
     ID3D11Device* device;
     HRESULT* last_error;
+    rmtError rmt_error;
 
     assert(stamp != NULL);
 
@@ -6044,7 +6045,11 @@ static rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
     stamp->cpu_timestamp = 0;
 
     assert(g_Remotery != NULL);
-    assert(Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE);
+    rmt_error = Remotery_GetThreadSampler(g_Remotery, &ts);
+    if (rmt_error != RMT_ERROR_NONE)
+    {
+        return rmt_error;
+    }
     assert(ts->d3d11 != NULL);
     device = ts->d3d11->device;
     last_error = &ts->d3d11->last_error;
