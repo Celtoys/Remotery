@@ -59,11 +59,22 @@ Console = (function()
 	}
 
 
+	Console.prototype.TriggerUpdate = function()
+	{
+		this.AppTextUpdatePending = true;
+	}
+
+
 	function OnLog(self, socket, data_view_reader)
 	{
 		var text = data_view_reader.GetString();
 		self.AppTextBuffer = LogText(self.AppTextBuffer, text);
-		self.AppTextUpdatePending = true;
+
+		// Don't register text as updating if disconnected as this implies a trace is being loaded, which we want to speed up
+		if (self.Server.Connected())
+		{
+			self.AppTextUpdatePending = true;
+		}
 	}
 
 

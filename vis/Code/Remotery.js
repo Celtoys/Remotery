@@ -183,6 +183,10 @@ Remotery = (function()
                 }
             }
 
+            // The console won't update while disconnected, to speed up loading, so trigger an update after loading completes
+            self.Console.TriggerUpdate();
+
+            // Pause for viewing
             self.TitleWindow.Pause();
         };
         file_reader.readAsArrayBuffer(file);
