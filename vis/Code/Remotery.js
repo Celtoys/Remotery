@@ -280,7 +280,10 @@ Remotery = (function()
             // Meanwhile, store the hash as the name
             sample.name = { "string": sample.name_hash };
             self.NameMap[sample.name_hash] = sample.name;
-            self.Server.Send("GSMP" + sample.name_hash);
+            if (self.Server.Connected())
+            {
+                self.Server.Send("GSMP" + sample.name_hash);
+            }
         }
 
         // Get the rest of the sample data
