@@ -5224,6 +5224,42 @@ typedef struct tagTHREADNAME_INFO
 #pragma pack(pop)
 #endif
 
+wchar_t* MakeWideString(const char* string)
+{
+    size_t wlen;
+    wchar_t* wstr;
+
+    // First get the converted length
+#if defined(RMT_PLATFORM_WINDOWS) && !RMT_USE_TINYCRT
+    if (mbstowcs_s(&wlen, NULL, 0, string, INT_MAX) != 0)
+    {
+        return NULL;
+    }
+#else
+    wlen = mbstowcs(NULL, string, INT_MAX);
+#endif
+
+    // Allocate enough words for the converted result
+    wstr = (wchar_t*)(rmtMalloc((wlen + 1) * sizeof(wchar_t)));
+    if (wstr == NULL)
+    {
+        return NULL;
+    }
+
+    // Convert
+#if defined(RMT_PLATFORM_WINDOWS) && !RMT_USE_TINYCRT
+    if (mbstowcs_s(&wlen, wstr, wlen + 1, string, wlen) != 0)
+#else
+    if (mbstowcs(wstr, string, wlen + 1) != wlen)
+#endif
+    {
+        rmtFree(wstr);
+        return NULL;
+    }
+
+    return  wstr;
+}
+
 static void SetDebuggerThreadName(const char* name)
 {
 #ifdef RMT_PLATFORM_WINDOWS
@@ -5239,17 +5275,13 @@ static void SetDebuggerThreadName(const char* name)
         if (SetThreadDescription != NULL)
         {
             // Create a wide-string version of the thread name
-            size_t wlen = mbstowcs(NULL, name, INT_MAX);
-            if (wlen >= 1 && wlen <= MAX_PATH)
+            wchar_t* wstr = MakeWideString(name);
+            if (wstr != NULL)
             {
-                wchar_t* wstr = (wchar_t*)(malloc((wlen + 1) * sizeof(wchar_t)));
-                if (mbstowcs(wstr, name, wlen + 1) == wlen)
-                {
-                    // Set and return, leaving a fall-through for any failure cases to use the old exception method
-                    SetThreadDescription(GetCurrentThread(), wstr);
-                    free(wstr);
-                    return;
-                }
+                // Set and return, leaving a fall-through for any failure cases to use the old exception method
+                SetThreadDescription(GetCurrentThread(), wstr);
+                rmtFree(wstr);
+                return;
             }
         }
     }
