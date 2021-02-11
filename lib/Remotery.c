@@ -177,6 +177,31 @@ static void rmtFree(void* ptr)
     g_Settings.free(g_Settings.mm_context, ptr);
 }
 
+// File system functions
+static FILE* rmtOpenFile(const char* filename, const char* mode)
+{
+#if defined(RMT_PLATFORM_WINDOWS) && !RMT_USE_TINYCRT
+    FILE* fp;
+    return fopen_s(&fp, filename, mode) == 0 ? fp : NULL;
+#else
+    return fopen(filename, mode);
+#endif
+}
+
+void rmtCloseFile(FILE* fp)
+{
+    if (fp != NULL)
+    {
+        fclose(fp);
+    }
+}
+
+rmtBool rmtWriteFile(FILE* fp, const void* data, rmtU32 size)
+{
+    assert(fp != NULL);
+    return fwrite(data, size, 1, fp) == size ? RMT_TRUE : RMT_FALSE;
+}
+
 #if RMT_USE_OPENGL
 // DLL/Shared Library functions
 
@@ -333,7 +358,7 @@ static struct tm* TimeDateNow()
 {
     time_t time_now = time(NULL);
 
-#if defined(RMT_PLATFORM_WINDOWS) && !defined(RMT_USE_TINYCRT)
+#if defined(RMT_PLATFORM_WINDOWS) && !RMT_USE_TINYCRT
     // Discard the thread-safety benefit of gmtime_s
     static tm tm_now;
     gmtime_s(&tm_now, &time_now);
@@ -4506,7 +4531,7 @@ static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
     }
     if (rmt->logfile != NULL)
     {
-        fwrite(bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE, 1, rmt->logfile);
+        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
     }
 
     return error;
@@ -4530,7 +4555,7 @@ static rmtError Remotery_AddToStringTable(Remotery* rmt, Message* message)
         Buffer_WriteU32(bin_buf, payload->length);
         Buffer_Write(bin_buf, name, payload->length);
 
-        fwrite(bin_buf->data, bin_buf->bytes_used, 1, rmt->logfile);
+        rmtWriteFile(rmt->logfile, bin_buf->data, bin_buf->bytes_used);
     }
 
     return RMT_ERROR_NONE;
@@ -4653,7 +4678,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     if (rmt->logfile != NULL)
     {
         // Write the data after the websocket header
-        fwrite(bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE, 1, rmt->logfile);
+        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
     }
 
     return error;
@@ -4966,12 +4991,12 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         strncat_s(filename, sizeof(filename), ".rbin", 5);
 
         // Open and assume any failure simply sets NULL and the file isn't written
-        rmt->logfile = fopen(filename, "w");
+        rmt->logfile = rmtOpenFile(filename, "w");
         
         // Write the header
         if (rmt->logfile != NULL)
         {
-            fwrite("RMTBLOGF", 1, 8, rmt->logfile);
+            rmtWriteFile(rmt->logfile, "RMTBLOGF", 8);
         }
     }
 
@@ -5021,10 +5046,7 @@ static void Remotery_Destructor(Remotery* rmt)
     Delete(Metal, rmt->metal);
 #endif
 
-    if (rmt->logfile != NULL)
-    {
-        fclose(rmt->logfile);
-    }
+    rmtCloseFile(rmt->logfile);
 
     Delete(StringTable, rmt->string_table);
     Delete(rmtMessageQueue, rmt->mq_to_rmt_thread);
