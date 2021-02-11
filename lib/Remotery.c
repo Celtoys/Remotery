@@ -5236,7 +5236,7 @@ wchar_t* MakeWideString(const char* string)
         return NULL;
     }
 #else
-    wlen = mbstowcs(NULL, string, INT_MAX);
+    wlen = mbstowcs(NULL, string, 256);
 #endif
 
     // Allocate enough words for the converted result
