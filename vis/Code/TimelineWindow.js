@@ -24,6 +24,8 @@ TimelineWindow = (function()
 
 		this.Clear();
 
+		this.OnHoverHandler = null;
+		this.OnSelectedHandler = null;
 		this.CheckHandler = check_handler;
 	}
 
@@ -50,8 +52,6 @@ TimelineWindow = (function()
 		this.MouseDown = false;
 		this.LastMouseState = null;
 		this.TimelineMoved = false;
-		this.OnHoverHandler = null;
-		this.OnSelectedHandler = null;
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousedown", Bind(OnMouseDown, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mouseup", Bind(OnMouseUp, this));
 		DOM.Event.AddHandler(this.TimelineContainer.Node, "mousemove", Bind(OnMouseMove, this));		
