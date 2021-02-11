@@ -329,6 +329,12 @@ static void msSleep(rmtU32 time_ms)
 #endif
 }
 
+static struct tm* TimeDateNow()
+{
+    time_t time_now = time(NULL);
+    return gmtime(&time_now);
+}
+
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -4927,9 +4933,8 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     
     if (g_Settings.logPath != NULL)
     {
-        // Get current time
-        rmtU64 now = time(NULL);
-        struct tm* now_tm = _gmtime64(&now);
+        // Get current date/time
+        struct tm* now_tm = TimeDateNow();
 
         // Start the log path off
         char filename[512] = { 0 };
