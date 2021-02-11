@@ -29,14 +29,20 @@ body
 }
 
 
+@font-face
+{
+    font-family: "LocalFiraCode";
+    src:url("Fonts/FiraCode/FiraCode-Regular.ttf");
+}
 
 .ConsoleText
 {
     overflow:auto;
     color: #BBB;
-    font: 9px Verdana;
-    margin: 2px;
+    font: 10px LocalFiraCode;
+    margin: 3px;
     white-space: pre;
+    line-height:14px;
 }
 
 
