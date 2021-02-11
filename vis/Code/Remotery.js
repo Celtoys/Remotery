@@ -183,8 +183,25 @@ Remotery = (function()
                 }
             }
 
-            // The console won't update while disconnected, to speed up loading, so trigger an update after loading completes
+            // After loading completes, populate the UI which wasn't updated during loading
+
             self.Console.TriggerUpdate();
+
+            // Set frame history for each timeline thread
+            for (let name in self.FrameHistory)
+            {
+                let frame_history = self.FrameHistory[name];
+                self.TimelineWindow.OnSamples(name, frame_history);
+            }
+            
+            // Set the last frame of each thread sample history on the sample windows
+            for (let name in self.SampleWindows)
+            {
+                let sample_window = self.SampleWindows[name];
+                let frame_history = self.FrameHistory[name];
+                let frame = frame_history[frame_history.length - 1];
+                sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+            }
 
             // Pause for viewing
             self.TitleWindow.Pause();
@@ -384,9 +401,12 @@ Remotery = (function()
             MoveSampleWindows(this);
         }
 
-        // Set on the window and timeline
-        self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
-        self.TimelineWindow.OnSamples(name, frame_history);
+        // Set on the window and timeline if connected as this implies a trace is being loaded, which we want to speed up
+        if (self.Server.Connected())
+        {
+            self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
+            self.TimelineWindow.OnSamples(name, frame_history);
+        }
     }
 
 
