@@ -65,14 +65,7 @@ Remotery = (function()
         this.TimelineWindow.SetOnHover(Bind(OnSampleHover, this));
         this.TimelineWindow.SetOnSelected(Bind(OnSampleSelected, this));
 
-        // Setup global drop zone
-        this.DropNode = DOM.Node.CreateHTML("<div id='DropZone' class='DropZone'>Load Remotery Log</div>");
-        document.body.appendChild(this.DropNode);
-        DOM.Event.AddHandler(window, "dragenter", Bind(ShowDropZone, this));
-        DOM.Event.AddHandler(this.DropNode, "dragenter", Bind(AllowDrag, this));
-        DOM.Event.AddHandler(this.DropNode, "dragover", Bind(AllowDrag, this));
-        DOM.Event.AddHandler(this.DropNode, "dragleave", Bind(HideDropZone, this));
-        DOM.Event.AddHandler(this.DropNode, "drop", Bind(OnDrop, this));
+        this.TraceDrop = new TraceDrop(this);
 
         this.NbSampleWindows = 0;
         this.SampleWindows = { };
@@ -102,134 +95,27 @@ Remotery = (function()
     }
 
 
-    function ShowDropZone(self, evt)
-    {
-        self.DropNode.style.display = "flex";
-    }
-
-    function HideDropZone(self, evt)
-    {
-        self.DropNode.style.display = "none";
-    }
-
-
-    function AllowDrag(self, evt)
-    {
-        evt.dataTransfer.dropEffect = "copy";
-
-        // Prevent the default drag handler kicking in
-        DOM.Event.StopDefaultAction(evt);
-    }
-
-    function OnDrop(self, evt)
-    {
-        // Prevent the default drop handler kicking in
-        DOM.Event.StopDefaultAction(evt);
-
-        HideDropZone(self, evt);
-
-        // Get the file that was dropped
-        let files = DOM.Event.GetDropFiles(evt);
-        if (files.length == 0)
-        {
-            alert("No files dropped");
-            return;
-        }
-        if (files.length > 1)
-        {
-            alert("Too many files dropped");
-            return;
-        }
-
-        // Check file type
-        let file = files[0];
-        if (!file.name.endsWith(".rbin"))
-        {
-            alert("Not the correct .rbin file type");
-            return;
-        }
-
-        // Background-load the file
-        let file_reader = new FileReader();
-        file_reader.onload = function(e2)
-        {
-            // Create the data reader and verify the header
-            let data_view = new DataView(this.result);
-            let data_view_reader = new DataViewReader(data_view, 0);
-            let header = data_view_reader.GetStringOfLength(8);
-            if (header != "RMTBLOGF")
-            {
-                alert("Not a valid Remotery Log File");
-                return;
-            }
-
-            Clear(self);
-            
-            try
-            {
-                // Forward all recorded events to message handlers
-                while (!data_view_reader.AtEnd())
-                {
-                    self.Server.CallMessageHandlers(data_view_reader);
-                }
-            }
-            catch (e)
-            {
-                // The last message may be partially written due to process exit
-                // Catch this safely as it's a valid state for the file to be in
-                if (e instanceof RangeError)
-                {
-                    console.log("Aborted reading last message");
-                }
-            }
-
-            // After loading completes, populate the UI which wasn't updated during loading
-
-            self.Console.TriggerUpdate();
-
-            // Set frame history for each timeline thread
-            for (let name in self.FrameHistory)
-            {
-                let frame_history = self.FrameHistory[name];
-                self.TimelineWindow.OnSamples(name, frame_history);
-            }
-            
-            // Set the last frame of each thread sample history on the sample windows
-            for (let name in self.SampleWindows)
-            {
-                let sample_window = self.SampleWindows[name];
-                let frame_history = self.FrameHistory[name];
-                let frame = frame_history[frame_history.length - 1];
-                sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
-            }
-
-            // Pause for viewing
-            self.TitleWindow.Pause();
-        };
-        file_reader.readAsArrayBuffer(file);
-    }
-
-    function Clear(self)
+    Remotery.prototype.Clear = function()
     {
         // Clear timeline
-        self.TimelineWindow.Clear();
+        this.TimelineWindow.Clear();
 
         // Close and clear all sample windows
-        for (var i in self.SampleWindows)
+        for (var i in this.SampleWindows)
         {
-            var sample_window = self.SampleWindows[i];
+            var sample_window = this.SampleWindows[i];
             sample_window.Close();
         }
-        self.NbSampleWindows = 0;
-        self.SampleWindows = { };
+        this.NbSampleWindows = 0;
+        this.SampleWindows = { };
 
         // Clear runtime data
-        self.FrameHistory = { };
-        self.SelectedFrames = { };
-        self.NameMap = { };
+        this.FrameHistory = { };
+        this.SelectedFrames = { };
+        this.NameMap = { };
 
         // Resize everything to fit new layout
-        OnResizeWindow(self);
+        OnResizeWindow(this);
     }
 
 
@@ -249,7 +135,7 @@ Remotery = (function()
         // Connection address has been validated
         LocalStore.Set("App", "Global", "ConnectionAddress", self.ConnectionAddress);
 
-        Clear(self);
+        self.Clear();
 
         // Ensure the viewer is ready for realtime updates
         self.TitleWindow.Unpause();
