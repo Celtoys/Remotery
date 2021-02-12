@@ -103,7 +103,7 @@ class TraceDrop
             remotery.Console.TriggerUpdate();
 
             // Set frame history for each timeline thread
-            for (let name in self.FrameHistory)
+            for (let name in remotery.FrameHistory)
             {
                 let frame_history = remotery.FrameHistory[name];
                 remotery.TimelineWindow.OnSamples(name, frame_history);
