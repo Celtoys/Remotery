@@ -223,20 +223,28 @@ body
 }
 .TimelineRowLabel
 {
-    /* Pull .TimelineRowCanvas to the right of the label */
     float:left;
 
     width: 140px;
     height: 14px;
 }
-.TimelineRowCanvas
-{
-}
 
-/* enable vertical scrollbar in TimelineContainer (useful for many threads) */
 .TimelineContainer
 {
-    overflow-y: auto;
+}
+.TimelineLabels
+{
+    padding: 0;
+    margin: 0;
+    border: 0;
+    overflow-y: hidden;
+}
+.TimelineLabelScrollClipper
+{
+    padding: 0;
+    margin: 0;
+    border: 0;
+    overflow-y: hidden;
 }
 
 .DropZone

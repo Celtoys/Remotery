@@ -197,12 +197,15 @@ Remotery = (function()
         if (sample.name == undefined)
         {
             // Meanwhile, store the hash as the name
-            sample.name = { "string": sample.name_hash };
+            sample.name = { "string": sample.name_hash.toString() };
             self.NameMap[sample.name_hash] = sample.name;
             if (self.Server.Connected())
             {
                 self.Server.Send("GSMP" + sample.name_hash);
             }
+
+            // On first encounter, add to the text buffer
+            sample.name.textEntry = self.TimelineWindow.textBuffer.AddText(sample.name.string);
         }
 
         // Get the rest of the sample data
@@ -213,6 +216,13 @@ Remotery = (function()
         sample.us_self = data_view_reader.GetUInt64();
         sample.call_count = data_view_reader.GetUInt32();
         sample.recurse_depth = data_view_reader.GetUInt32();
+
+        // TODO(don): Get the profiler to pass these directly instead of hex colour
+        const colour = parseInt(sample.colour.slice(1), 16);
+        const r = (colour >> 16) & 255;
+        const g = (colour >> 8) & 255;
+        const b = colour & 255;
+        sample.rgbColour = [ r, g, b ];
 
         // Calculate dependent properties
         sample.ms_length = (sample.us_length / 1000.0).toFixed(3);
@@ -305,12 +315,16 @@ Remotery = (function()
         var sample_name = self.NameMap[name_hash];
         if (sample_name == undefined)
         {
-            self.NameMap[name_hash] = { "string" : name };
+            sample_name = { "string" : name };
+            self.NameMap[name_hash] = sample_name;
         }
         else
         {
             sample_name.string = name;
         }
+        
+        // Add the text entry lookup to the sample name so it can be patched later
+        sample_name.textEntry = self.TimelineWindow.textBuffer.AddText(sample_name.string);
     }
 
 
@@ -340,25 +354,29 @@ Remotery = (function()
 
     function OnSampleHover(self, thread_name, hover)
     {
-        // Hover only changes sample window contents when paused
-        var sample_window = self.SampleWindows[thread_name];
-        if (sample_window && self.Settings.IsPaused)
+        if (!self.Settings.IsPaused)
         {
-            if (hover == null)
-            {
-                // When there's no hover, go back to the selected frame
-                if (self.SelectedFrames[thread_name])
-                {
-                    var frame = self.SelectedFrames[thread_name];
-                    sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
-                }
-            }
+            return;
+        }
 
-            else
+        for (let window_thread_name in self.SampleWindows)
+        {
+            let sample_window = self.SampleWindows[window_thread_name];
+
+            if (window_thread_name == thread_name && hover != null)
             {
                 // Populate with sample under hover
-                var frame = hover[0];
+                let frame = hover[0];
                 sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+            }
+            else
+            {
+                // When there's no hover, go back to the selected frame
+                if (self.SelectedFrames[window_thread_name])
+                {
+                    const frame = self.SelectedFrames[window_thread_name];
+                    sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+                }
             }
         }
     }

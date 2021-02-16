@@ -10,11 +10,11 @@ class TraceDrop
         document.body.appendChild(this.DropNode);
 
         // Attach drop handlers
-        window.addEventListener("dragenter", this.ShowDropZone.bind(this));
-        this.DropNode.addEventListener("dragenter", this.AllowDrag.bind(this));
-        this.DropNode.addEventListener("dragover", this.AllowDrag.bind(this));
-        this.DropNode.addEventListener("dragleave", this.HideDropZone.bind(this));
-        this.DropNode.addEventListener("drop", this.OnDrop.bind(this));
+        window.addEventListener("dragenter", () => this.ShowDropZone());
+        this.DropNode.addEventListener("dragenter", (e) => this.AllowDrag(e));
+        this.DropNode.addEventListener("dragover", (e) => this.AllowDrag(e));
+        this.DropNode.addEventListener("dragleave", () => this.HideDropZone());
+        this.DropNode.addEventListener("drop", (e) => this.OnDrop(e));
     }
     
     ShowDropZone()

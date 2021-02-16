@@ -30,5 +30,19 @@ WM.Container = (function()
 	}
 
 
+	Container.prototype.AddControlNew = function(control)
+	{
+		control.ParentNode = this.Node;
+		this.Node.appendChild(control.Node);
+		return control;
+	}
+
+
+	Container.prototype.ClearControls = function()
+	{
+		this.Node.innerHTML = "";
+	}
+
+
 	return Container;
 })();
