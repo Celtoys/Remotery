@@ -1,7 +1,7 @@
 
 class glFont
 {
-    constructor()
+    constructor(gl)
     {
         // Offscreen canvas for rendering individual characters
         this.charCanvas = document.createElement("canvas");
@@ -44,7 +44,7 @@ class glFont
             }
 
             // Create the atlas texture and store it in the destination object
-            self.atlasTexture = glCreateTexture(atlas_canvas.width, atlas_canvas.height, atlas_canvas);
+            self.atlasTexture = glCreateTexture(gl, atlas_canvas.width, atlas_canvas.height, atlas_canvas);
         });
     }
 
@@ -68,11 +68,11 @@ class glFont
 
 class glTextBuffer
 {
-    constructor(font)
+    constructor(gl, font)
     {
         this.font = font;
         this.textMap = {};
-        this.textBuffer = new glDynamicBuffer(gl.BYTE, 1, 8, glDynamicBufferType.Texture);
+        this.textBuffer = new glDynamicBuffer(gl, gl.BYTE, 1, 8, glDynamicBufferType.Texture);
         this.textBufferPos = 0;
         this.textEncoder = new TextEncoder();
     }
@@ -109,11 +109,11 @@ class glTextBuffer
         this.textBuffer.UploadDirtyData();
     }
 
-    SetAsUniform(program, name, index)
+    SetAsUniform(gl, program, name, index)
     {
-        glSetUniform(program, name, this.textBuffer.texture, index);
-		glSetUniform(program, "inTextBufferDesc.fontWidth", this.font.fontWidth);
-		glSetUniform(program, "inTextBufferDesc.fontHeight", this.font.fontHeight);
-		glSetUniform(program, "inTextBufferDesc.textBufferLength", this.textBuffer.nbEntries);
+        glSetUniform(gl, program, name, this.textBuffer.texture, index);
+		glSetUniform(gl, program, "inTextBufferDesc.fontWidth", this.font.fontWidth);
+		glSetUniform(gl, program, "inTextBufferDesc.fontHeight", this.font.fontHeight);
+		glSetUniform(gl, program, "inTextBufferDesc.textBufferLength", this.textBuffer.nbEntries);
     }
 }

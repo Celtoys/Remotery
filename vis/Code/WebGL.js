@@ -1,9 +1,4 @@
 
-// Global GL object.
-// Consciously not allowing multiple GL contexts as there is an upper limit in browsers and it's far more efficient to use a
-// full-page context and render into that using scissoring.
-let gl = null;
-
 function assert(condition, message)
 {
     if (!condition)
@@ -12,7 +7,7 @@ function assert(condition, message)
     }
 }
 
-function glCompileShader(type, name, source)
+function glCompileShader(gl, type, name, source)
 {
     console.log("Compiling " + name);
 
@@ -32,7 +27,7 @@ function glCompileShader(type, name, source)
     return shader;
 }
 
-function glCreateProgram(vshader, fshader)
+function glCreateProgram(gl, vshader, fshader)
 {
     // Attach shaders and link
     let program = gl.createProgram();
@@ -50,7 +45,7 @@ function glCreateProgram(vshader, fshader)
     return program;
 }
 
-function glSetUniform(program, name, value, index)
+function glSetUniform(gl, program, name, value, index)
 {
     // Get location
     const location = gl.getUniformLocation(program, name);
@@ -77,7 +72,7 @@ function glSetUniform(program, name, value, index)
     }
 }
 
-function glCreateTexture(width, height, data)
+function glCreateTexture(gl, width, height, data)
 {
     const texture = gl.createTexture();
 
@@ -100,8 +95,9 @@ const glDynamicBufferType = Object.freeze({
 
 class glDynamicBuffer
 {
-    constructor(element_type, nb_elements, nb_entries, buffer_type)
+    constructor(gl, element_type, nb_elements, nb_entries, buffer_type)
     {
+        this.gl = gl;
         this.elementType = element_type;
         this.nbElements = nb_elements;
         this.bufferType = buffer_type == undefined ? glDynamicBufferType.Buffer : buffer_type;
@@ -114,7 +110,9 @@ class glDynamicBuffer
     {
         assert(this.bufferType == glDynamicBufferType.Buffer, "Can only call BindAsInstanceAttribute with Buffer types");
 
-		gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+        let gl = this.gl;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
 
         // The attribute referenced in the program
         const attrib_location = gl.getAttribLocation(program, attrib_name);
@@ -128,6 +126,8 @@ class glDynamicBuffer
 
     UploadData()
     {
+        let gl = this.gl;
+
         switch (this.bufferType)
         {
             case glDynamicBufferType.Buffer:
@@ -167,6 +167,8 @@ class glDynamicBuffer
 
     Resize(nb_entries)
     {
+        let gl = this.gl;
+
         this.nbEntries = nb_entries;
 
         // Create the CPU array

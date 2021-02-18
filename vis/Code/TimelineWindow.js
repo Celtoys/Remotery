@@ -58,15 +58,16 @@ TimelineWindow = (function()
 		this.glCanvas.style.top = 0;
 		this.glCanvas.style.left = 0;
 
-		// This is as the global GL object (for now)
-		gl = this.glCanvas.getContext("webgl2");
+		// For now a gl context per timeline
+		let gl = this.glCanvas.getContext("webgl2");
+		this.gl = gl;
 
-		const vshader = glCompileShader(gl.VERTEX_SHADER, "TimelineVShader", TimelineVShader);
-		const fshader = glCompileShader(gl.FRAGMENT_SHADER, "TimelineFShader", TimelineFShader);
-		this.Program = glCreateProgram(vshader, fshader);
+		const vshader = glCompileShader(gl, gl.VERTEX_SHADER, "TimelineVShader", TimelineVShader);
+		const fshader = glCompileShader(gl, gl.FRAGMENT_SHADER, "TimelineFShader", TimelineFShader);
+		this.Program = glCreateProgram(gl, vshader, fshader);
 
-		this.font = new glFont();
-		this.textBuffer = new glTextBuffer(this.font);
+		this.font = new glFont(gl);
+		this.textBuffer = new glTextBuffer(gl, this.font);
 
 		this.Window.SetOnResize(Bind(OnUserResize, this));
 
@@ -136,7 +137,7 @@ TimelineWindow = (function()
 		// If this thread has not been seen before, add a new row to the list and re-sort
 		if (thread_index == -1)
 		{
-			var row = new TimelineRow(thread_name, this, frame_history, this.CheckHandler);
+			var row = new TimelineRow(this.gl, thread_name, this, frame_history, this.CheckHandler);
 			this.ThreadRows.push(row);
 		}
 	}
@@ -160,24 +161,26 @@ TimelineWindow = (function()
 
 	TimelineWindow.prototype.DrawAllRows = function()
 	{
+		let gl = this.gl;
+
 		gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
         gl.useProgram(this.Program);
 
         // Set viewport parameters
-        glSetUniform(this.Program, "inViewport.width", gl.canvas.width);
-        glSetUniform(this.Program, "inViewport.height", gl.canvas.height);
+        glSetUniform(gl, this.Program, "inViewport.width", gl.canvas.width);
+        glSetUniform(gl, this.Program, "inViewport.height", gl.canvas.height);
 
 		// Set time range parameters
 		const time_range = this.TimeRange;
-        time_range.SetAsUniform(this.Program);
+        time_range.SetAsUniform(gl, this.Program);
 
         // Set text rendering resources
 		// Note it might not be loaded yet so we need the null check
 		if (this.font.atlasTexture != null)
 		{
-			glSetUniform(this.Program, "inFontAtlasTextre", this.font.atlasTexture, 0);
-        	this.textBuffer.SetAsUniform(this.Program, "inTextBuffer", 1);
+			glSetUniform(gl, this.Program, "inFontAtlasTextre", this.font.atlasTexture, 0);
+        	this.textBuffer.SetAsUniform(gl, this.Program, "inTextBuffer", 1);
 		}
 
 		const draw_text = this.Settings.IsPaused;
@@ -185,7 +188,7 @@ TimelineWindow = (function()
 		{
 			var thread_row = this.ThreadRows[i];
 			thread_row.SetVisibleFrames(time_range);
-			thread_row.Draw(draw_text, this.yScrollOffset);
+			thread_row.Draw(gl, draw_text, this.yScrollOffset);
 		}
 
 		// Render last so that each thread row uses any new time ranges

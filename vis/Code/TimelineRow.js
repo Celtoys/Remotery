@@ -24,7 +24,7 @@ TimelineRow = (function()
     var SAMPLE_Y_SPACING = SAMPLE_HEIGHT + SAMPLE_BORDER * 2;
 
 
-    function TimelineRow(name, timeline, frame_history, check_handler)
+    function TimelineRow(gl, name, timeline, frame_history, check_handler)
     {
         this.Name = name;
         this.timeline = timeline;
@@ -69,8 +69,8 @@ TimelineRow = (function()
         this.SelectSampleInfo = null;
 
         // Create WebGL sample buffers
-        this.sampleBuffer = new glDynamicBuffer(gl.FLOAT, 4, 8);
-        this.colourBuffer = new glDynamicBuffer(gl.FLOAT, 4, 8);
+        this.sampleBuffer = new glDynamicBuffer(gl, gl.FLOAT, 4, 8);
+        this.colourBuffer = new glDynamicBuffer(gl, gl.FLOAT, 4, 8);
         
 		// Create a vertex array for these buffers
 		this.vertexArrayObject = gl.createVertexArray();
@@ -196,7 +196,7 @@ TimelineRow = (function()
     }
 
 
-    TimelineRow.prototype.Draw = function(draw_text, y_scroll_offset)
+    TimelineRow.prototype.Draw = function(gl, draw_text, y_scroll_offset)
     {
         let samples_per_depth = [];
 
@@ -266,7 +266,7 @@ TimelineRow = (function()
         this.timeline.textBuffer.UploadData();
 
         // Set row parameters
-        glSetUniform(this.timeline.Program, "inRow.yOffset", this.YOffset() + y_scroll_offset);
+        glSetUniform(gl, this.timeline.Program, "inRow.yOffset", this.YOffset() + y_scroll_offset);
 
         gl.bindVertexArray(this.vertexArrayObject);
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nb_samples);

@@ -53,12 +53,12 @@ class PixelTimeRange
 		return new PixelTimeRange(this.Start_us, this.Span_us, this.Span_px);
 	}
 
-	SetAsUniform(program)
+	SetAsUniform(gl, program)
 	{
-		glSetUniform(program, "inTimeRange.pxSpan", this.Span_px);
-		glSetUniform(program, "inTimeRange.usStart", this.Start_us);
-		glSetUniform(program, "inTimeRange.usSpan", this.Span_us);
-		glSetUniform(program, "inTimeRange.usEnd", this.End_us);
-		glSetUniform(program, "inTimeRange.usPerPixel", this.usPerPixel);
+		glSetUniform(gl, program, "inTimeRange.pxSpan", this.Span_px);
+		glSetUniform(gl, program, "inTimeRange.usStart", this.Start_us);
+		glSetUniform(gl, program, "inTimeRange.usSpan", this.Span_us);
+		glSetUniform(gl, program, "inTimeRange.usEnd", this.End_us);
+		glSetUniform(gl, program, "inTimeRange.usPerPixel", this.usPerPixel);
 	}
 }
