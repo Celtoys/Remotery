@@ -1,14 +1,17 @@
 
+// TODO(don): Separate all knowledge of threads from this timeline
+
 TimelineWindow = (function()
 {
 	var BORDER = 10;
 
-	function TimelineWindow(wm, settings, check_handler)
+	function TimelineWindow(wm, name, settings, check_handler)
 	{
 		this.Settings = settings;
 
 		// Create timeline window
 		this.Window = wm.AddWindow("Timeline", 10, 20, 100, 100);
+		this.Window.SetTitle(name);
 		this.Window.ShowNoAnim();
 
 		this.timelineMarkers = new TimelineMarkers(this);
@@ -75,6 +78,7 @@ TimelineWindow = (function()
 
 		this.OnHoverHandler = null;
 		this.OnSelectedHandler = null;
+		this.OnMovedHandler = null;
 		this.CheckHandler = check_handler;
 
 		this.yScrollOffset = 0;
@@ -104,11 +108,18 @@ TimelineWindow = (function()
 		this.OnSelectedHandler = handler;
 	}
 
-	TimelineWindow.prototype.WindowResized = function(width, height, top_window)
+
+	TimelineWindow.prototype.SetOnMoved = function(handler)
+	{
+		this.OnMovedHandler = handler;
+	}
+
+
+	TimelineWindow.prototype.WindowResized = function(x, width, top_window)
 	{
 		// Resize window
 		var top = top_window.Position[1] + top_window.Size[1] + 10;
-		this.Window.SetPosition(10, top);
+		this.Window.SetPosition(x, top);
 		this.Window.SetSize(width - 2 * 10, 260);
 
 		ResizeInternals(this);
@@ -256,8 +267,19 @@ TimelineWindow = (function()
 		self.TimeRange.Set(time_start_us * scale + time_us, self.TimeRange.Span_us * scale);
 		self.DrawAllRows();
 
+		if (self.OnMovedHandler)
+		{
+			self.OnMovedHandler(self);
+		}
+
 		// Prevent vertical scrolling on mouse-wheel
 		DOM.Event.StopDefaultAction(evt);
+	}
+
+
+	TimelineWindow.prototype.SetTimeRange = function(start_us, span_us)
+	{
+		this.TimeRange.Set(start_us, span_us);
 	}
 
 
@@ -412,6 +434,11 @@ TimelineWindow = (function()
 			{
 				self.DrawAllRows();
 				self.TimelineMoved = true;
+
+				if (self.OnMovedHandler)
+				{
+					self.OnMovedHandler(self);
+				}
 			}
 		}
 

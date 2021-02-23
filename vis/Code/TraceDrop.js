@@ -106,9 +106,16 @@ class TraceDrop
             for (let name in remotery.FrameHistory)
             {
                 let frame_history = remotery.FrameHistory[name];
-                remotery.TimelineWindow.OnSamples(name, frame_history);
+                remotery.SampleTimelineWindow.OnSamples(name, frame_history);
             }
-            remotery.TimelineWindow.DrawAllRows();
+            remotery.SampleTimelineWindow.DrawAllRows();
+
+            for (let name in remotery.ProcessorFrameHistory)
+            {
+                let frame_history = remotery.ProcessorFrameHistory[name];
+                remotery.ProcessorTimelineWindow.OnSamples(name, frame_history);
+            }
+            remotery.ProcessorTimelineWindow.DrawAllRows();
             
             // Set the last frame of each thread sample history on the sample windows
             for (let name in remotery.SampleWindows)

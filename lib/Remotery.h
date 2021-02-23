@@ -217,12 +217,13 @@ typedef const char* rmtPStr;
 // Handle to the main remotery instance
 typedef struct Remotery Remotery;
 
-
 // All possible error codes
+// clang-format off
 typedef enum rmtError
 {
     RMT_ERROR_NONE,
     RMT_ERROR_RECURSIVE_SAMPLE,                 // Not an error but an internal message to calling code
+    RMT_ERROR_UNKNOWN,                          // An error with a message yet to be defined, only for internal error handling
 
     // System errors
     RMT_ERROR_MALLOC_FAIL,                      // Malloc call within remotery failed
@@ -281,6 +282,7 @@ typedef enum rmtError
 
     RMT_ERROR_CUDA_UNKNOWN,
 } rmtError;
+// clang-format off
 
 
 typedef enum rmtSampleFlags

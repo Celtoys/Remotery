@@ -17,6 +17,10 @@ TitleWindow = (function()
 		this.PauseButton = this.Window.AddControlNew(new WM.Button("Pause", 5, 5, { toggle: true }));
 		this.PauseButton.SetOnClick(Bind(OnPausePressed, this));
 
+		this.SyncButton = this.Window.AddControlNew(new WM.Button("Sync Timelines", 5, 5, { toggle: true}));
+		this.SyncButton.SetOnClick(Bind(OnSyncPressed, this));
+		this.SyncButton.SetState(this.Settings.SyncTimelines);
+
 		server.AddMessageHandler("PING", Bind(OnPing, this));
 		
 		this.Window.SetOnResize(Bind(OnUserResize, this));
@@ -63,6 +67,7 @@ TitleWindow = (function()
 	function ResizeInternals(self)
 	{
 		self.PauseButton.SetPosition(self.Window.Size[0] - 60, 5);
+		self.SyncButton.SetPosition(self.Window.Size[0] - 155, 5);
 	}
 
 
@@ -76,6 +81,12 @@ TitleWindow = (function()
 		{
 			self.Unpause();
 		}
+	}
+
+
+	function OnSyncPressed(self)
+	{
+		self.Settings.SyncTimelines = self.SyncButton.IsPressed();
 	}
 
 

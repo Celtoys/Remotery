@@ -21,6 +21,8 @@
     @TIMERS:        Platform-specific timers
     @TLS:           Thread-Local Storage
     @ATOMIC:        Atomic Operations
+    @RNG:           Random Number Generator
+    @LFSR:          Galois Linear-feedback Shift Register
     @VMBUFFER:      Mirror Buffer using Virtual Memory for auto-wrap
     @NEW:           New/Delete operators with error values for simplifying object create/destroy
     @THREADS:       Threads
@@ -39,6 +41,7 @@
     @SAMPLE:        Base Sample Description (CPU by default)
     @SAMPLETREE:    A tree of samples with their allocator
     @TSAMPLER:      Per-Thread Sampler
+    @TWATCHER:      Thread Watcher
     @REMOTERY:      Remotery
     @CUDA:          CUDA event sampling
     @D3D11:         Direct3D 11 event sampling
@@ -136,17 +139,17 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
 #endif
 
-#if defined(_MSC_VER) && !defined(__clang__)
-    #define RMT_UNREFERENCED_PARAMETER(i) (i)
-#else
-    #define RMT_UNREFERENCED_PARAMETER(i) (void)(1 ? (void)0 : ((void)i))
-#endif
-
 #if RMT_USE_CUDA
     #include <cuda.h>
 #endif
 
 // clang-format on
+
+#if defined(_MSC_VER) && !defined(__clang__)
+    #define RMT_UNREFERENCED_PARAMETER(i) (i)
+#else
+    #define RMT_UNREFERENCED_PARAMETER(i) (void)(1 ? (void)0 : ((void)i))
+#endif
 
 static rmtU8 minU8(rmtU8 a, rmtU8 b)
 {
@@ -155,6 +158,10 @@ static rmtU8 minU8(rmtU8 a, rmtU8 b)
 static rmtU16 maxU16(rmtU16 a, rmtU16 b)
 {
     return a > b ? a : b;
+}
+static rmtU32 minU32(rmtU32 a, rmtU32 b)
+{
+    return a < b ? a : b;
 }
 static rmtS64 maxS64(rmtS64 a, rmtS64 b)
 {
@@ -554,6 +561,139 @@ static void StoreReleasePointer(long* volatile* ptr, long* value)
 {
     CompilerWriteFence();
     *ptr = value;
+}
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @RNG: Random Number Generator
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+//
+// WELL: Well Equidistributed Long-period Linear
+// These algorithms produce numbers with better equidistrib ution than MT19937 and improve upon “bit-mixing” properties. They are
+// fast, come in many sizes, and produce higher quality random numbers.
+//
+// This implementation has a period of 2^512, or 10^154.
+//
+// Implementation from: Game Programming Gems 7, Random Number Generation Chris Lomont
+// Documentation: http://www.lomont.org/Math/Papers/2008/Lomont_PRNG_2008.pdf
+//
+
+// Global RNG state for now
+// Far better than interfering with the user's rand()
+#define Well512_StateSize 16
+static rmtU32 Well512_State[Well512_StateSize];
+static rmtU32 Well512_Index;
+
+static void Well512_Init(rmtU32 seed)
+{
+    // Generate initial state from seed
+    Well512_State[0] = seed;
+    for (rmtU32 i = 1; i < Well512_StateSize; i++)
+    {
+        rmtU32 prev = Well512_State[i - 1];
+        Well512_State[i] = (1812433253 * (prev ^ (prev >> 30)) + i);
+    }
+    Well512_Index = 0;
+}
+
+static rmtU32 Well512_RandomU32()
+{
+    rmtU32 a, b, c, d;
+
+    a = Well512_State[Well512_Index];
+    c = Well512_State[(Well512_Index + 13) & 15];
+    b = a ^ c ^ (a << 16) ^ (c << 15);
+    c = Well512_State[(Well512_Index + 9) & 15];
+    c ^= (c >> 11);
+    a = Well512_State[Well512_Index] = b ^ c;
+    d = a ^ ((a << 5) & 0xDA442D24UL);
+    Well512_Index = (Well512_Index + 15) & 15;
+    a = Well512_State[Well512_Index];
+    Well512_State[Well512_Index] = a ^ b ^ d ^ (a << 2) ^ (b << 18) ^ (c << 28);
+    return Well512_State[Well512_Index];
+}
+
+static rmtU32 Well512_RandomOpenLimit(rmtU32 limit)
+{
+    // Using % to modulo with range is just masking out the higher bits, leaving a result that's objectively biased.
+    // Dividing by RAND_MAX is better but leads to increased repetition at low ranges due to very large bucket sizes.
+    // Instead use multiple passes with smaller bucket sizes, rejecting results that don't fit into this smaller range.
+    rmtU32 bucket_size = UINT32_MAX / limit;
+    rmtU32 bucket_limit = bucket_size * limit;
+    rmtU32 r;
+    do
+    {
+        r = Well512_RandomU32();
+    } while(r >= bucket_limit);
+
+    return r / bucket_size;
+}
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @LFSR: Galois Linear-feedback Shift Register
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+static rmtU32 Log2i(rmtU32 x)
+{
+	static const rmtU32 MultiplyDeBruijnBitPosition[32] =
+	{
+		0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
+		8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
+	};
+
+    // First round down to one less than a power of two
+	x |= x >> 1;
+	x |= x >> 2;
+	x |= x >> 4;
+	x |= x >> 8;
+	x |= x >> 16;
+
+	return MultiplyDeBruijnBitPosition[(rmtU32)(x * 0x07C4ACDDU) >> 27];
+}
+
+static rmtU32 GaloisLFSRMask(rmtU32 table_size_log2)
+{
+    // Taps for 4 to 8 bit ranges
+    static const rmtU32 XORMasks[] =
+    {
+        ((1 << 0) | (1 << 1)),                          // 2
+        ((1 << 1) | (1 << 2)),                          // 3
+        ((1 << 2) | (1 << 3)),                          // 4
+        ((1 << 2) | (1 << 4)),                          // 5
+        ((1 << 4) | (1 << 5)),                          // 6
+        ((1 << 5) | (1 << 6)),                          // 7
+        ((1 << 3) | (1 << 4) | (1 << 5) | (1 << 7)),    // 8
+    };
+
+    // Map table size to required XOR mask
+    assert(table_size_log2 >= 2);
+    assert(table_size_log2 <= 8);
+    return XORMasks[table_size_log2 - 2];
+}
+
+static rmtU32 GaloisLFSRNext(rmtU32 value, rmtU32 xor_mask)
+{
+    // Output bit
+    rmtU32 lsb = value & 1;
+
+    // Apply the register shift
+    value >>= 1;
+
+    // Apply toggle mask if the output bit is set
+    if (lsb != 0)
+    {
+        value ^= xor_mask;
+    }
+
+    return value;
 }
 
 /*
@@ -1028,6 +1168,14 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
 ------------------------------------------------------------------------------------------------------------------------
 */
 
+typedef void* rmtThreadHandle;
+
+#ifdef RMT_PLATFORM_WINDOWS
+typedef CONTEXT rmtCpuContext;
+#else
+typedef int rmtCpuContext;
+#endif
+
 typedef struct Thread_t rmtThread;
 typedef rmtError (*ThreadProc)(rmtThread* thread);
 
@@ -1158,6 +1306,73 @@ static void rmtThread_Destructor(rmtThread* thread)
         thread->handle = NULL;
 #endif
     }
+}
+
+static rmtU32 rmtGetNbProcessors()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return system_info.dwNumberOfProcessors;
+#else
+    // TODO: get_nprocs_conf / get_nprocs
+    return 0;
+#endif
+}
+
+static rmtU32 rmtGetCurrentThreadId()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    return GetCurrentThreadId();
+#endif
+
+    return 0;
+}
+
+static rmtBool rmtSuspendThread(rmtThreadHandle thread_handle)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    // SuspendThread is an async call to the scheduler and upon return the thread is not guaranteed to be suspended.
+    // Calling GetThreadContext will serialise that.
+    // See: https://github.com/mono/mono/blob/master/mono/utils/mono-threads-windows.c#L203
+    return SuspendThread(thread_handle) == 0 ? RMT_TRUE : RMT_FALSE;
+#else
+    return RMT_FALSE;
+#endif
+}
+
+static void rmtResumeThread(rmtThreadHandle thread_handle)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    ResumeThread(thread_handle);
+#endif
+}
+
+static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context, rmtU32 flags)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    // Request thread context with exception reporting
+    context->ContextFlags = flags | CONTEXT_EXCEPTION_REQUEST;
+    if (GetThreadContext(thread, context) == 0)
+    {
+        return RMT_FALSE;
+    }
+
+    // Context on WoW64 is only valid and can only be set if the thread isn't in kernel mode
+    // Typical reference to this appears to be: http://zachsaw.blogspot.com/2010/11/wow64-bug-getthreadcontext-may-return.html
+    // Confirmed by MS here: https://social.msdn.microsoft.com/Forums/vstudio/en-US/aa176c36-6624-4776-9380-1c9cf37a314e/getthreadcontext-returns-stale-register-values-on-wow64?forum=windowscompatibility
+    LONG kernel_mode_mask = CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE | CONTEXT_SERVICE_ACTIVE;
+    return (context->ContextFlags & kernel_mode_mask) == CONTEXT_EXCEPTION_REPORTING ? RMT_TRUE : RMT_FALSE;
+#else
+    return RMT_FALSE;
+#endif
+}
+
+static void rmtSetThreadContext(rmtThreadHandle thread_handle, rmtCpuContext* context)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    SetThreadContext(thread_handle, context);
+#endif
 }
 
 /*
@@ -1994,7 +2209,7 @@ static rmtError Buffer_WriteStringWithLength(Buffer* buffer, rmtPStr string)
 ------------------------------------------------------------------------------------------------------------------------
 */
 
-#define RMT_NOT_FOUND 0xFFFFFFFF
+#define RMT_NOT_FOUND 0xffffffffffffffff
 
 typedef struct
 {
@@ -2002,14 +2217,14 @@ typedef struct
     rmtU32 key;
 
     // Value that's not equal to RMT_NOT_FOUND
-    rmtU32 value;
+    rmtU64 value;
 } HashSlot;
 
 typedef struct
 {
     // Stats
-    rmtU32 max_nb_slots;
-    rmtU32 nb_slots;
+    rmtU32 maxNbSlots;
+    rmtU32 nbSlots;
 
     // Data
     HashSlot* slots;
@@ -2019,14 +2234,16 @@ static rmtError rmtHashTable_Constructor(rmtHashTable* table, rmtU32 max_nb_slot
 {
     // Default initialise
     assert(table != NULL);
-    table->max_nb_slots = max_nb_slots;
-    table->nb_slots = 0;
+    table->maxNbSlots = max_nb_slots;
+    table->nbSlots = 0;
 
     // Allocate and clear the hash slots
-    table->slots = (HashSlot*)rmtMalloc(table->max_nb_slots * sizeof(HashSlot));
+    table->slots = (HashSlot*)rmtMalloc(table->maxNbSlots * sizeof(HashSlot));
     if (table->slots == NULL)
+    {
         return RMT_ERROR_MALLOC_FAIL;
-    memset(table->slots, 0, table->max_nb_slots * sizeof(HashSlot));
+    }
+    memset(table->slots, 0, table->maxNbSlots * sizeof(HashSlot));
 
     return RMT_ERROR_NONE;
 }
@@ -2044,13 +2261,13 @@ static void rmtHashTable_Destructor(rmtHashTable* table)
 
 static rmtError rmtHashTable_Resize(rmtHashTable* table);
 
-static rmtError rmtHashTable_Insert(rmtHashTable* table, rmtU32 key, rmtU32 value)
+static rmtError rmtHashTable_Insert(rmtHashTable* table, rmtU32 key, rmtU64 value)
 {
     HashSlot* slot = NULL;
     rmtError error = RMT_ERROR_NONE;
 
     // Calculate initial slot location for this key
-    rmtU32 index_mask = table->max_nb_slots - 1;
+    rmtU32 index_mask = table->maxNbSlots - 1;
     rmtU32 index = key & index_mask;
 
     assert(key != 0);
@@ -2063,7 +2280,7 @@ static rmtError rmtHashTable_Insert(rmtHashTable* table, rmtU32 key, rmtU32 valu
         if (table->slots[index].key == key)
         {
             // Counter occupied slot increments below
-            table->nb_slots--;
+            table->nbSlots--;
             break;
         }
 
@@ -2071,52 +2288,62 @@ static rmtError rmtHashTable_Insert(rmtHashTable* table, rmtU32 key, rmtU32 valu
     }
 
     // Just verify that I've got no errors in the code above
-    assert(index < table->max_nb_slots);
+    assert(index < table->maxNbSlots);
 
     // Add to the table
     slot = table->slots + index;
     slot->key = key;
     slot->value = value;
-    table->nb_slots++;
+    table->nbSlots++;
 
     // Resize when load factor is greater than 2/3
-    if (table->nb_slots > (table->max_nb_slots * 2) / 3)
+    if (table->nbSlots > (table->maxNbSlots * 2) / 3)
+    {
         error = rmtHashTable_Resize(table);
+    }
 
     return error;
 }
 
 static rmtError rmtHashTable_Resize(rmtHashTable* table)
 {
-    rmtU32 old_max_nb_slots = table->max_nb_slots;
+    rmtU32 old_max_nb_slots = table->maxNbSlots;
     HashSlot* new_slots = NULL;
     HashSlot* old_slots = table->slots;
     rmtU32 i;
 
     // Increase the table size
-    rmtU32 new_max_nb_slots = table->max_nb_slots;
+    rmtU32 new_max_nb_slots = table->maxNbSlots;
     if (new_max_nb_slots < 8192 * 4)
+    {
         new_max_nb_slots *= 4;
+    }
     else
+    {
         new_max_nb_slots *= 2;
+    }
 
     // Allocate and clear a new table
     new_slots = (HashSlot*)rmtMalloc(new_max_nb_slots * sizeof(HashSlot));
     if (new_slots == NULL)
+    {
         return RMT_ERROR_MALLOC_FAIL;
+    }
     memset(new_slots, 0, new_max_nb_slots * sizeof(HashSlot));
 
     // Update fields of the table after successful allocation only
     table->slots = new_slots;
-    table->max_nb_slots = new_max_nb_slots;
-    table->nb_slots = 0;
+    table->maxNbSlots = new_max_nb_slots;
+    table->nbSlots = 0;
 
     // Reinsert all objects into the new table
     for (i = 0; i < old_max_nb_slots; i++)
     {
         HashSlot* slot = old_slots + i;
         if (slot->key != 0)
+        {
             rmtHashTable_Insert(table, slot->key, slot->value);
+        }
     }
 
     rmtFree(old_slots);
@@ -2124,10 +2351,10 @@ static rmtError rmtHashTable_Resize(rmtHashTable* table)
     return RMT_ERROR_NONE;
 }
 
-static rmtU32 rmtHashTable_Find(rmtHashTable* table, rmtU32 key)
+static rmtU64 rmtHashTable_Find(rmtHashTable* table, rmtU32 key)
 {
     // Calculate initial slot location for this key
-    rmtU32 index_mask = table->max_nb_slots - 1;
+    rmtU32 index_mask = table->maxNbSlots - 1;
     rmtU32 index = key & index_mask;
 
     // Linear probe for matching hash
@@ -2136,7 +2363,9 @@ static rmtU32 rmtHashTable_Find(rmtHashTable* table, rmtU32 key)
         HashSlot* slot = table->slots + index;
 
         if (slot->key == key)
+        {
             return slot->value;
+        }
 
         index = (index + 1) & index_mask;
     }
@@ -2193,16 +2422,18 @@ static void StringTable_Destructor(StringTable* table)
 
 static rmtPStr StringTable_Find(StringTable* table, rmtU32 name_hash)
 {
-    rmtU32 text_offset = rmtHashTable_Find(table->text_map, name_hash);
+    rmtU64 text_offset = rmtHashTable_Find(table->text_map, name_hash);
     if (text_offset != RMT_NOT_FOUND)
+    {
         return (rmtPStr)(table->text->data + text_offset);
+    }
     return NULL;
 }
 
 static void StringTable_Insert(StringTable* table, rmtU32 name_hash, rmtPStr name)
 {
     // Only add to the buffer if the string isn't already there
-    rmtU32 text_offset = rmtHashTable_Find(table->text_map, name_hash);
+    rmtU64 text_offset = rmtHashTable_Find(table->text_map, name_hash);
     if (text_offset == RMT_NOT_FOUND)
     {
         // TODO: Allocation errors aren't being passed on to the caller
@@ -3445,6 +3676,8 @@ typedef enum MessageID
     MsgID_AddToStringTable,
     MsgID_LogText,
     MsgID_SampleTree,
+    MsgID_ProcessorThreads,
+    MsgID_ThreadName,
     MsgID_None,
     MsgID_Force32Bits = 0xFFFFFFFF,
 } MessageID;
@@ -3962,7 +4195,7 @@ static void Sample_Prepare(Sample* sample, rmtU32 name_hash, Sample* parent)
             return error;            \
     }
 
-static rmtError bin_SampleArray(Buffer* buffer, Sample* first_sample);
+static rmtError bin_SampleArray(Buffer* buffer, Sample* parent_sample);
 
 static rmtError bin_Sample(Buffer* buffer, Sample* sample)
 {
@@ -4389,6 +4622,611 @@ static rmtU32 ThreadSampler_GetNameHash(ThreadSampler* ts, rmtMessageQueue* queu
     return name_hash;
 }
 
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @TWATCHER: Thread Watcher
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+typedef struct WatchedThread
+{
+    // OS thread ID
+    rmtU32 threadId;
+
+    rmtU64 registerBackup0;
+    rmtU64 registerBackup1;
+    
+    // Index of the processor the thread was last seen running on
+    rmtU32 processorIndex;
+    rmtU32 lastProcessorIndex;
+
+    // Used to schedule callbacks taking into account some threads may be sleeping
+    rmtU32 nbSamplesWithoutCallback;
+
+    rmtThreadHandle threadHandle;
+
+    // Thread name stored for sending to the viewer
+    char threadName[64];
+    rmtU32 threadNameHash;
+} WatchedThread;
+
+typedef struct ThreadWatcher
+{
+    // Timer shared with Remotery threads
+    usTimer* timer;
+
+    // Queue between clients and main remotery thread
+    rmtMessageQueue* mqToRmtThread;
+
+    // Array of Watched Threads that the thread gatherer has authority over
+    WatchedThread watchedThreads[256];
+    rmtU32 nbWatchedThreads;
+    rmtU32 maxNbWatchedThreads;
+
+    // Periodic thread sampling thread
+    rmtThread* threadSampleThread;
+
+    // Periodic thread to processor gatherer
+    rmtThread* threadGatherThread;
+} ThreadWatcher;
+
+#ifdef RMT_PLATFORM_WINDOWS
+
+DWORD GetThreadStartAddress(rmtThreadHandle thread_handle)
+{
+    // Get NtQueryInformationThread from ntdll
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (ntdll != NULL)
+    {
+        typedef NTSTATUS (WINAPI *NTQUERYINFOMATIONTHREAD)(HANDLE, LONG, PVOID, ULONG, PULONG);
+        NTQUERYINFOMATIONTHREAD NtQueryInformationThread = (NTQUERYINFOMATIONTHREAD)GetProcAddress(ntdll, "NtQueryInformationThread");
+
+        // Use it to query the start address
+        DWORD start_address;
+        NTSTATUS status = NtQueryInformationThread(thread_handle, 9, &start_address, sizeof(DWORD), NULL);
+        if (status == 0)
+        {
+            return start_address;
+        }
+    }
+
+    return 0;
+}
+ 
+
+const char* GetStartAddressModuleName(DWORD start_address)
+{
+    BOOL success;
+    MODULEENTRY32 module_entry;
+ 
+    // Snapshot the modules
+    HANDLE handle = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        return NULL;
+    }
+
+    module_entry.dwSize = sizeof(MODULEENTRY32);
+    module_entry.th32ModuleID = 1;
+
+    // Enumerate modules checking start address against their loaded address range
+    success = Module32First(handle, &module_entry);
+    while (success == TRUE)
+    {
+        if (start_address >= (DWORD)module_entry.modBaseAddr && start_address <= ((DWORD)module_entry.modBaseAddr + module_entry.modBaseSize))
+        {
+            static char name[256];
+            strncpy(name, module_entry.szModule, sizeof(name));
+            CloseHandle(handle);
+            return name;
+        }
+
+        success = Module32Next(handle, &module_entry);
+    }
+ 
+    CloseHandle(handle);
+
+    return NULL;
+}
+#endif
+
+
+static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle, char* out_thread_name, rmtU32 thread_name_size)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    // Use the new Windows 10 GetThreadDescription function
+    HMODULE kernel32 = GetModuleHandleA("Kernel32.dll");
+    if (kernel32 != NULL)
+    {
+        typedef HRESULT(WINAPI* GETTHREADDESCRIPTION)(HANDLE hThread, PWSTR *ppszThreadDescription);
+        GETTHREADDESCRIPTION GetThreadDescription = (GETTHREADDESCRIPTION)GetProcAddress(kernel32, "GetThreadDescription");
+        if (GetThreadDescription != NULL)
+        {
+            WCHAR* thread_name_w;
+            GetThreadDescription(thread_handle, &thread_name_w);
+
+            // Returned size is the byte size, so will be 1 for a null-terminated strings
+            int size = WideCharToMultiByte(CP_ACP, 0, thread_name_w, -1, out_thread_name, thread_name_size, NULL, NULL);
+            if (size > 1)
+            {
+                return RMT_TRUE;
+            }
+        }
+    }
+
+    // At this point GetThreadDescription hasn't returned anything so let's get the thread module name and use that
+    DWORD address = GetThreadStartAddress(thread_handle);
+    if (address == 0)
+    {
+        return RMT_FALSE;
+    }
+    const char* module_name = GetStartAddressModuleName(address);
+    if (module_name == NULL)
+    {
+        return RMT_FALSE;
+    }
+
+    // Concatenate thread name with then thread ID as that will be unique, whereas the start address won't be
+    memset(out_thread_name, 0, thread_name_size);
+    strncpy(out_thread_name, module_name, thread_name_size);
+    strncat_s(out_thread_name, thread_name_size, "!", 1);
+    rmtU32 len = strlen(out_thread_name);
+    itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
+
+    return RMT_TRUE;
+#endif
+
+    return RMT_FALSE;
+}
+
+static rmtError QueueThreadName(rmtMessageQueue* queue, const char* name)
+{
+    Message* message;
+    rmtU32 name_length;
+
+    assert(queue != NULL);
+
+    // Allocate some space for the message
+    name_length = strnlen_s(name, 64);
+    message = rmtMessageQueue_AllocMessage(queue, sizeof(rmtU32) * 2 + name_length, NULL);
+    if (message == NULL)
+    {
+        return RMT_ERROR_UNKNOWN;
+    }
+
+    // Copy and commit
+    U32ToByteArray(message->payload, MurmurHash3_x86_32(name, name_length, 0));
+    U32ToByteArray(message->payload + sizeof(rmtU32), name_length);
+    memcpy(message->payload + sizeof(rmtU32) * 2, name, name_length);
+    rmtMessageQueue_CommitMessage(message, MsgID_ThreadName);
+
+    return RMT_ERROR_NONE;
+}
+
+
+#ifdef RMT_PLATFORM_WINDOWS
+// tlhelp32.h, kernel32.lib
+EXTERN_C WINBASEAPI HANDLE WINAPI CreateToolhelp32Snapshot(DWORD dwFlags, DWORD th32ProcessID);
+EXTERN_C WINBASEAPI BOOL WINAPI Thread32First(HANDLE hSnapshot, LPTHREADENTRY32 lpte);
+EXTERN_C WINBASEAPI BOOL WINAPI Thread32Next( HANDLE hSnapshot, LPTHREADENTRY32 lpte);
+#endif
+
+static void GatherThreads(ThreadWatcher* watcher)
+{
+    assert(watcher != NULL);
+
+#ifdef RMT_PLATFORM_WINDOWS
+
+    // Create the snapshot - this is a slow call
+    HANDLE handle = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        BOOL success;
+
+        THREADENTRY32 thread_entry;
+        thread_entry.dwSize = sizeof(thread_entry);
+
+        // Loop through all threads owned by this process
+        success = Thread32First(handle, &thread_entry);
+        while (success == TRUE)
+        {
+            if (thread_entry.th32OwnerProcessID == GetCurrentProcessId())
+            {
+                // Search and see if we already know about this thread
+                WatchedThread* thread = NULL;
+                for (rmtU32 i = 0; i < watcher->nbWatchedThreads; i++)
+                {
+                    if (watcher->watchedThreads[i].threadId == thread_entry.th32ThreadID)
+                    {
+                        thread = &watcher->watchedThreads[i];
+                        break;
+                    }
+                }
+
+                // Allocate a new one at the end if this is the first time we've seen this thread
+                if (thread == NULL)
+                {
+                    assert(watcher->nbWatchedThreads < watcher->maxNbWatchedThreads);
+                    thread = &watcher->watchedThreads[watcher->nbWatchedThreads];
+
+                    // Initialise in the callback-ready state
+                    thread->threadId = thread_entry.th32ThreadID;
+                    thread->nbSamplesWithoutCallback = 0;
+                    thread->processorIndex = -1;
+                    thread->lastProcessorIndex = -1;
+
+                    // Pre-open the thread with required access rights to get the thread handle
+                    thread->threadHandle = OpenThread(
+                        THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME | THREAD_SET_CONTEXT | THREAD_GET_CONTEXT, FALSE,
+                        thread->threadId);
+                    if (thread->threadHandle != NULL)
+                    {
+                        // Increment count for consume by the thread sampler
+                        StoreRelease(&watcher->nbWatchedThreads, watcher->nbWatchedThreads + 1);
+
+                        // Send a thread name notification immediately
+                        // Users can override this at a later point with the Remotery thread name API
+                        if (rmtGetThreadName(thread->threadId, thread->threadHandle, thread->threadName, sizeof(thread->threadName)) == RMT_TRUE)
+                        {
+                            rmtU32 name_length = strnlen_s(thread->threadName, 64);
+                            thread->threadNameHash = MurmurHash3_x86_32(thread->threadName, name_length, 0);
+                            QueueThreadName(watcher->mqToRmtThread, thread->threadName);
+                        }
+                    }
+                }
+            }
+
+            success = Thread32Next(handle, &thread_entry);
+        }
+    }
+
+#endif
+}
+
+static rmtError GatherThreadsLoop(rmtThread* thread)
+{
+    ThreadWatcher* watcher = (ThreadWatcher*)thread->param;
+    rmtU32 sleep_time = 100;
+
+    assert(watcher != NULL);
+    
+    rmt_SetCurrentThreadName("RemoteryGatherThreads");
+
+    while (thread->request_exit == RMT_FALSE)
+    {
+        // We want a long period of time between scanning for new threads as the process is a little expensive (~30ms here).
+        // However not too long so as to miss potentially detailed process startup data.
+        // Use reduced sleep time at startup to catch as many early thread creations as possible.
+        // TODO(don): We could get processes to register themselves to ensure no startup data is lost but the scan must still
+        // be present, to catch threads in a process that the user doesn't create (e.g. graphics driver threads).
+        GatherThreads(watcher);
+        msSleep(sleep_time);
+        sleep_time = minU32(sleep_time * 2, 2000);
+    }
+
+    return RMT_ERROR_NONE;
+}
+
+typedef struct Processor
+{
+    // Current thread running on this processor
+    WatchedThread* thread;
+
+    rmtU32 sampleCount;
+    rmtU64 sampleTime;
+} Processor;
+
+typedef struct Msg_ProcessorThreads
+{
+    // Running index of processor messages
+    rmtU64 messageIndex;
+
+    // Processor array, leaking into the memory behind the struct
+    rmtU32 nbProcessors;
+    Processor processors[1];
+} Msg_ProcessorThreads;
+
+static void QueueProcessorThreads(rmtMessageQueue* queue, rmtU64 message_index, rmtU32 nb_processors, Processor* processors)
+{
+    Msg_ProcessorThreads* payload;
+
+    // Attempt to allocate a message for sending processors to the viewer
+    rmtU32 array_size = (nb_processors - 1) * sizeof(Processor);
+    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_ProcessorThreads) + array_size, NULL);
+    if (message == NULL)
+    {
+        return;
+    }
+
+    // Populate and commit
+    payload = (Msg_ProcessorThreads*)message->payload;
+    payload->messageIndex = message_index;
+    payload->nbProcessors = nb_processors;
+    memcpy(payload->processors, processors, nb_processors * sizeof(Processor));
+    rmtMessageQueue_CommitMessage(message, MsgID_ProcessorThreads);
+}
+
+__declspec(naked) static void SampleCallback()
+{
+    //
+    // It's important to realise that this call can be pre-empted by the scheduler and shifted to another processor *while we are
+    // sampling which processor this thread is on*.
+    //
+    // This has two very important implications:
+    //
+    //    * What we are sampling here is an *approximation* of the path of threads across processors.
+    //    * These samples can't be used to "open" and "close" sample periods on a processor as it's highly likely you'll get many
+    //      open events without a close, or vice versa.
+    //
+    // As such, we can only choose a sampling period and for each sample register which threads are on which processor.
+    //
+    // This is very different to hooking up the Event Tracing API (requiring Administrator elevation), which raises events for
+    // each context switch, directly from the kernel.
+    //
+
+    __asm
+    {
+        // Push the EIP return address used by the final ret instruction
+        push eax
+
+        // We might be in the middle of something like a cmp/jmp instruction pair so preserve EFLAGS
+        // (Classic example which seems to pop up regularly is _RTC_CheckESP, with cmp/call/jne)
+        pushfd
+
+        // Save registers used by cpuid (eax and edi are restored via thread pointer)
+        push ebx
+        push ecx
+        push edx
+
+        // Get the current processor index.
+        // Function 1 to return APIC-ID: https://c9x.me/x86/html/file_module_x86_id_45.html
+        // TODO(don): Needs further refinement, see https://wiki.osdev.org/Detecting_CPU_Topology_(80x86)
+        mov eax, 1
+        cpuid
+        shr ebx, 24
+        mov [edi].processorIndex, ebx
+
+        // Mark as ready for scheduling another callback
+        // Intel x86 store release
+        mov [edi].nbSamplesWithoutCallback, 0
+
+        // Restore preserved register state
+        pop edx
+        pop ecx
+        pop ebx
+
+        // Restore registers used to provide parameters to the callback
+        mov eax, dword ptr [edi].registerBackup0
+        mov edi, dword ptr [edi].registerBackup1
+
+        // Restore EFLAGS
+        popfd
+
+        // Pops the original EIP of the stack and jmps to origin suspend point in the thread
+        ret
+    }
+}
+
+static rmtError InitThreadSampling(ThreadWatcher* watcher)
+{
+    rmtError error;
+
+    rmt_SetCurrentThreadName("RemoterySampleThreads");
+
+    // Make an initial gather so that we have something to work with
+    GatherThreads(watcher);
+
+    // Kick-off the background thread that watches for new threads
+    New_2(rmtThread, watcher->threadGatherThread, GatherThreadsLoop, watcher);
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+
+#ifdef RMT_PLATFORM_WINDOWS
+    // Ensure we can wake up every millisecond
+    if (timeBeginPeriod(1) != TIMERR_NOERROR)
+    {
+        return RMT_ERROR_UNKNOWN;
+    }
+#endif
+
+    // We're going to be shuffling thread visits to avoid the scheduler trying to predict a work-load based on sampling
+    // Use the global RNG with a random seed to start the shuffle
+    Well512_Init((rmtU32)time(NULL));
+
+    return RMT_ERROR_NONE;
+}
+
+static rmtError SampleThreadsLoop(rmtThread* thread)
+{
+    ThreadWatcher* watcher = (ThreadWatcher*)thread->param;
+
+    rmtError error = InitThreadSampling(watcher);
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+
+    // If we can't figure out how many processors there are then we are running on an unsupported platform
+    rmtU32 nb_processors = rmtGetNbProcessors();
+    if (nb_processors == 0)
+    {
+        return RMT_ERROR_UNKNOWN;
+    }
+
+    // An array entry for each processor
+    Processor* processors = (Processor*)rmtMalloc(nb_processors * sizeof(Processor));
+    for (rmtU32 i = 0; i < nb_processors; i++)
+    {
+        processors[i].thread = NULL;
+        processors[i].sampleTime = 0;
+    }
+
+    rmtCpuContext context;
+    rmtU32 processor_message_index = 0;
+    while (thread->request_exit == RMT_FALSE)
+    {
+        // Query how many threads the gather knows about this time round
+        rmtU32 nb_watched_threads = LoadAcquire(&watcher->nbWatchedThreads);
+
+        // Calculate table size log2 required to fit count entries. Normally we would adjust the log2 input by -1 so that
+        // power-of-2 counts map to their exact bit offset and don't require a twice larger table. You can iterate indices
+        // 0 to (1<<b)-1 and efficiently store the whole range.
+        //
+        // However, the LFSR will never return 0. If you have a table count of 7 then it will return indices 1 to 7 within the
+        // 3=bit range required. Normally this is fine as subtracting one for your index iterates the complete indices 0 to 6.
+        //
+        // This becomes a problem when your table size is 8 (or any other power-of-2). With the log2 -1 adjustment a count of 8
+        // calculates a table size of 8. LFSR iteration will only return 1-7, visiting indices 0-6, missing out the last one.
+        //
+        // So to counter that let an input count of 8 require a table size of 16. LFSR iteration will return 1-15, visiting
+        // indices 0-14 and the required range test will limit that visit to 0-7.
+        //
+        // Implementation playground: https://godbolt.org/z/qG8T4E
+        rmtU32 highest_bit_set = Log2i(nb_watched_threads);
+        rmtU32 table_size_log2 = highest_bit_set + 1;
+        rmtU32 xor_mask = GaloisLFSRMask(table_size_log2);
+
+        // Use a LFSR to visit threads in shuffled order
+        uint32_t lfsr_seed = Well512_RandomOpenLimit(nb_watched_threads);
+        uint32_t lfsr_value = lfsr_seed;
+        do
+        {
+            lfsr_value = GaloisLFSRNext(lfsr_value, xor_mask);
+
+            // Apply the value-to-index bias and see if this index is within range before processing
+            uint32_t thread_index = lfsr_value - 1;
+            if (thread_index >= nb_watched_threads)
+            {
+                continue;
+            }
+
+            // Ignore our own thread
+            rmtU32 thread_id = rmtGetCurrentThreadId();
+            WatchedThread* watched_thread = watcher->watchedThreads + thread_index;
+            if (watched_thread->threadId == thread_id)
+            {
+                continue;
+            }
+
+            // Suspend the thread so we can insert a callback
+            rmtThreadHandle thread_handle = watched_thread->threadHandle;
+            if (rmtSuspendThread(thread_handle) == RMT_FALSE)
+            {
+                continue;
+            }
+
+            // Mark the processor this thread was last recorded as running on.
+            // Note that a thread might be pre-empted multiple times in-between sampling. Given a sampling rate equal to the
+            // scheduling quantum, this doesn't happen too often. However in such cases, whoever marks the processor last is
+            // the one that gets recorded.
+            rmtU32 sample_count = AtomicAdd(&watched_thread->nbSamplesWithoutCallback, 1);
+            rmtU32 processor_index = watched_thread->processorIndex;
+            processors[processor_index].thread = watched_thread;
+            processors[processor_index].sampleCount = sample_count;
+            processors[processor_index].sampleTime = usTimer_Get(watcher->timer);
+
+            // Is this thread ready to schedule a callback?
+            if (sample_count == 0)
+            {
+                // SuspendThread is an async call to the scheduler and upon return the thread is not guaranteed to be suspended.
+                // Calling GetThreadContext will serialise that.
+                // See: https://github.com/mono/mono/blob/master/mono/utils/mono-threads-windows.c#L203
+                if (rmtGetUserModeThreadContext(thread_handle, &context, CONTEXT_CONTROL | CONTEXT_INTEGER) == RMT_TRUE)
+                {
+                #ifdef RMT_PLATFORM_WINDOWS
+                    watched_thread->registerBackup0 = context.Eax;
+                    watched_thread->registerBackup1 = context.Edi;
+                    context.Eax = context.Eip;
+                    context.Edi = (rmtU32)watched_thread;
+                    context.Eip = (DWORD)&SampleCallback;
+                #endif
+
+                    rmtSetThreadContext(thread_handle, &context);
+                }
+                else
+                {
+                    AtomicAdd(&watched_thread->nbSamplesWithoutCallback, -1);
+                }
+            }
+
+            rmtResumeThread(thread_handle);
+
+        } while (lfsr_value != lfsr_seed);
+
+        // Filter all processor samples made in this pass
+        for (rmtU32 i = 0; i < nb_processors; i++)
+        {
+            Processor* processor = processors + i;
+            WatchedThread* thread = processor->thread;
+
+            if (thread != NULL)
+            {
+                // If this thread was on another processor on a previous pass and that processor is still tracking that thread,
+                // remove the thread from it.
+                rmtU32 last_processor_index = thread->lastProcessorIndex;
+                if (last_processor_index != -1 && last_processor_index != i)
+                {
+                    if (processors[last_processor_index].thread == thread)
+                    {
+                        processors[last_processor_index].thread = NULL;
+                    }
+                }
+
+                // When the thread is still on the same processor, check to see if it hasn't triggered the callback within another
+                // pass. This suggests the thread has gone to sleep and is no longer assigned to any thread.
+                else if (processor->sampleCount > 1)
+                {
+                    processor->thread = NULL;
+                }
+
+                thread->lastProcessorIndex = thread->processorIndex;
+            }
+        }
+
+        // Send current processor state off to remotery
+        QueueProcessorThreads(watcher->mqToRmtThread, processor_message_index++, nb_processors, processors);
+    }
+
+#ifdef RMT_PLATFORM_WINDOWS
+    timeEndPeriod(1);
+#endif
+
+    return RMT_ERROR_NONE;
+}
+
+static rmtError ThreadWatcher_Constructor(ThreadWatcher* watcher, usTimer* timer, rmtMessageQueue* mq_to_rmt_thread)
+{
+    rmtError error;
+
+    // Set default state
+    watcher->timer = timer;
+    watcher->mqToRmtThread = mq_to_rmt_thread;
+    watcher->nbWatchedThreads = 0;
+    watcher->maxNbWatchedThreads = sizeof(watcher->watchedThreads) / sizeof(watcher->watchedThreads[0]);
+    watcher->threadSampleThread = NULL;
+    watcher->threadGatherThread = NULL;
+
+    New_2(rmtThread, watcher->threadSampleThread, SampleThreadsLoop, watcher);
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+
+    return RMT_ERROR_NONE;
+}
+
+static void ThreadWatcher_Destructor(ThreadWatcher* watcher)
+{
+    Delete(rmtThread, watcher->threadGatherThread);
+    Delete(rmtThread, watcher->threadSampleThread);
+}
+
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -4448,6 +5286,8 @@ struct Remotery
 #if RMT_USE_METAL
     Metal* metal;
 #endif
+
+    ThreadWatcher* threadWatcher;
 };
 
 //
@@ -4694,6 +5534,85 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     return error;
 }
 
+static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
+{
+    rmtError error = RMT_ERROR_NONE;
+
+    Msg_ProcessorThreads* processor_threads = (Msg_ProcessorThreads*)message->payload;
+
+    Buffer* bin_buf;
+
+    // Reset the buffer for sending a websocket message
+    bin_buf = rmt->server->bin_buf;
+    WebSocket_PrepareBuffer(bin_buf);
+
+    // Serialise the message
+    BIN_ERROR_CHECK(Buffer_Write(bin_buf, (void*)"PRTH", 4));
+    BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor_threads->nbProcessors));
+    BIN_ERROR_CHECK(Buffer_WriteU64(bin_buf, processor_threads->messageIndex));
+    for (rmtU32 i = 0; i < processor_threads->nbProcessors; i++)
+    {
+        Processor* processor = processor_threads->processors + i;
+        if (processor->thread != NULL)
+        {
+            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor->thread->threadId));
+            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor->thread->threadNameHash));
+            BIN_ERROR_CHECK(Buffer_WriteU64(bin_buf, processor->sampleTime));
+        }
+        else
+        {
+            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, -1));
+            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, 0));
+            BIN_ERROR_CHECK(Buffer_WriteU64(bin_buf, 0));
+        }
+    }
+
+    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
+    {
+        // Send to the viewer
+        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50);
+    }
+
+    if (rmt->logfile != NULL)
+    {
+        // Write the data after the websocket header
+        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
+    }
+
+    return error;
+}
+
+static rmtError Remotery_SendThreadName(Remotery* rmt, Message* message)
+{
+    rmtError error;
+
+    Buffer* bin_buf;
+
+    // Reset the buffer for sending a websocket message
+    bin_buf = rmt->server->bin_buf;
+    WebSocket_PrepareBuffer(bin_buf);
+
+    // Serialise the message
+    BIN_ERROR_CHECK(Buffer_Write(bin_buf, (void*)"THRN", 4));
+    BIN_ERROR_CHECK(Buffer_Write(bin_buf, message->payload, 8));
+    rmtU32 name_length = *(rmtU32*)(message->payload + 4);
+    BIN_ERROR_CHECK(Buffer_Write(bin_buf, message->payload + 8, name_length));
+
+    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
+    {
+        // Send to the viewer
+        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50);
+    }
+
+    if (rmt->logfile != NULL)
+    {
+        // Write the data after the websocket header
+        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
+    }
+
+    return RMT_ERROR_NONE;
+}
+
 static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
 {
     rmtU32 nb_messages_sent = 0;
@@ -4702,7 +5621,8 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
     assert(rmt != NULL);
 
     // Loop reading the max number of messages for this update
-    while (nb_messages_sent++ < maxNbMessagesPerUpdate)
+    // Note some messages don't consume the sent message count as they are small enough to not cause performance issues
+    while (nb_messages_sent < maxNbMessagesPerUpdate)
     {
         rmtError error = RMT_ERROR_NONE;
         Message* message = rmtMessageQueue_PeekNextMessage(rmt->mq_to_rmt_thread);
@@ -4722,11 +5642,20 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
                 break;
             case MsgID_LogText:
                 error = Remotery_SendLogTextMessage(rmt, message);
+                nb_messages_sent++;
                 break;
             case MsgID_SampleTree:
                 rmt_BeginCPUSample(SendSampleTreeMessage, RMTSF_Aggregate);
                 error = Remotery_SendSampleTreeMessage(rmt, message);
+                nb_messages_sent++;
                 rmt_EndCPUSample();
+                break;
+            case MsgID_ProcessorThreads:
+                Remotery_SendProcessorThreads(rmt, message);
+                nb_messages_sent++;
+                break;
+            case MsgID_ThreadName:
+                Remotery_SendThreadName(rmt, message);
                 break;
 
             default:
@@ -4925,6 +5854,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->logfile = NULL;
     rmt->map_message_queue_fn = NULL;
     rmt->map_message_queue_data = NULL;
+    rmt->threadWatcher = NULL;
 
 #if RMT_USE_CUDA
     rmt->cuda.CtxSetCurrent = NULL;
@@ -5018,6 +5948,13 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         return error;
 #endif
 
+    // Kick-off thread watching last
+    New_2(ThreadWatcher, rmt->threadWatcher, &rmt->timer, rmt->mq_to_rmt_thread);
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+
     // Set as the global instance before creating any threads that uses it for sampling itself
     assert(g_Remotery == NULL);
     g_Remotery = rmt;
@@ -5044,6 +5981,8 @@ static void Remotery_Destructor(Remotery* rmt)
         g_RemoteryCreated = RMT_FALSE;
     }
 
+    Delete(ThreadWatcher, rmt->threadWatcher);
+    
 #if RMT_USE_OPENGL
     Delete(OpenGL, rmt->opengl);
 #endif
@@ -5337,6 +6276,11 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
     // Copy name and apply to the debugger
     strcpy_s(ts->name, sizeof(ts->name), thread_name);
     SetDebuggerThreadName(thread_name);
+
+    // Send the thread name for lookup
+#ifdef RMT_PLATFORM_WINDOWS
+    QueueThreadName(g_Remotery->mq_to_rmt_thread, thread_name);
+#endif
 }
 
 static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 size, struct ThreadSampler* thread_sampler)
