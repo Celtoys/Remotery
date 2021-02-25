@@ -1328,9 +1328,9 @@ static rmtU32 rmtGetCurrentThreadId()
 {
 #ifdef RMT_PLATFORM_WINDOWS
     return GetCurrentThreadId();
-#endif
-
+#else
     return 0;
+#endif
 }
 
 static rmtBool rmtSuspendThread(rmtThreadHandle thread_handle)
@@ -4802,9 +4802,9 @@ static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle,
     itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
 
     return RMT_TRUE;
-#endif
-
+#else
     return RMT_FALSE;
+#endif
 }
 
 static rmtError QueueThreadName(rmtMessageQueue* queue, const char* name)
@@ -5063,7 +5063,7 @@ static rmtError InitThreadSampling(ThreadWatcher* watcher)
     return RMT_ERROR_NONE;
 }
 
-static rmtError SampleThreadsLoop(rmtThread* thread)
+static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
 {
     rmtCpuContext context;
     rmtU32 processor_message_index = 0;
@@ -5071,7 +5071,7 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
     Processor* processors;
     rmtU32 processor_index;
 
-    ThreadWatcher* watcher = (ThreadWatcher*)thread->param;
+    ThreadWatcher* watcher = (ThreadWatcher*)rmt_thread->param;
 
     rmtError error = InitThreadSampling(watcher);
     if (error != RMT_ERROR_NONE)
@@ -5094,7 +5094,7 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
         processors[processor_index].sampleTime = 0;
     }
 
-    while (thread->request_exit == RMT_FALSE)
+    while (rmt_thread->request_exit == RMT_FALSE)
     {
         rmtU32 lfsr_seed;
         rmtU32 lfsr_value;
