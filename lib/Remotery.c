@@ -4738,7 +4738,7 @@ const char* GetStartAddressModuleName(DWORD start_address)
         if (start_address >= (DWORD)module_entry.modBaseAddr && start_address <= ((DWORD)module_entry.modBaseAddr + module_entry.modBaseSize))
         {
             static char name[256];
-            strncpy(name, module_entry.szModule, sizeof(name));
+            strcpy_s(name, sizeof(name), module_entry.szModule);
             CloseHandle(handle);
             return name;
         }
@@ -6331,7 +6331,7 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
         WatchedThread* thread = g_Remotery->threadWatcher->watchedThreads + thread_index;
         if (thread->threadId == thread_id)
         {
-            strncpy(thread->threadName, thread_name, sizeof(thread->threadName));
+            strcpy_s(thread->threadName, sizeof(thread->threadName), thread_name);
             thread->threadNameHash = MurmurHash3_x86_32(thread_name, strnlen_s(thread_name, 64), 0);
             break;
         }
