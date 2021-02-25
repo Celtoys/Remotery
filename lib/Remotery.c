@@ -6281,6 +6281,21 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 #ifdef RMT_PLATFORM_WINDOWS
     QueueThreadName(g_Remotery->mq_to_rmt_thread, thread_name);
 #endif
+
+    // Search the watched threads to see if their thread names and hash need to be updated
+    rmtU32 thread_id = rmtGetCurrentThreadId();
+    rmtU32 nb_watched_threads = LoadAcquire(&g_Remotery->threadWatcher->nbWatchedThreads);
+    for (rmtU32 i = 0; i < nb_watched_threads; i++)
+    {
+        WatchedThread* thread = g_Remotery->threadWatcher->watchedThreads + i;
+        if (thread->threadId == thread_id)
+        {
+            strncpy(thread->threadName, thread_name, sizeof(thread->threadName));
+            thread->threadNameHash = MurmurHash3_x86_32(thread_name, strnlen_s(thread_name, 64), 0);
+            break;
+        }
+    }
+
 }
 
 static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 size, struct ThreadSampler* thread_sampler)

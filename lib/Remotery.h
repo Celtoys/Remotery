@@ -282,8 +282,7 @@ typedef enum rmtError
 
     RMT_ERROR_CUDA_UNKNOWN,
 } rmtError;
-// clang-format off
-
+// clang-format on
 
 typedef enum rmtSampleFlags
 {
