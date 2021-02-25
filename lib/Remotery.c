@@ -99,6 +99,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <assert.h>
     #include <stdio.h>
     #include <time.h>
+    #include <limits.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
         #include <winsock2.h>
@@ -1365,13 +1366,13 @@ static void rmtResumeThread(rmtThreadHandle thread_handle)
 #endif
 #endif
 
-static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context, rmtU32 flags)
+static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context)
 {
 #ifdef RMT_PLATFORM_WINDOWS
     DWORD kernel_mode_mask;
 
     // Request thread context with exception reporting
-    context->ContextFlags = flags | CONTEXT_EXCEPTION_REQUEST;
+    context->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_EXCEPTION_REQUEST;
     if (GetThreadContext(thread, context) == 0)
     {
         return RMT_FALSE;
@@ -4833,7 +4834,7 @@ static rmtError QueueThreadName(rmtMessageQueue* queue, const char* name)
 
 static void GatherThreads(ThreadWatcher* watcher)
 {
-    HANDLE handle;
+    rmtThreadHandle handle;
 
     assert(watcher != NULL);
 
@@ -5171,7 +5172,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 // SuspendThread is an async call to the scheduler and upon return the thread is not guaranteed to be suspended.
                 // Calling GetThreadContext will serialise that.
                 // See: https://github.com/mono/mono/blob/master/mono/utils/mono-threads-windows.c#L203
-                if (rmtGetUserModeThreadContext(thread_handle, &context, CONTEXT_CONTROL | CONTEXT_INTEGER) == RMT_TRUE)
+                if (rmtGetUserModeThreadContext(thread_handle, &context) == RMT_TRUE)
                 {
                 #ifdef RMT_PLATFORM_WINDOWS
                 #ifdef RMT_ARCH_32BIT
