@@ -4796,7 +4796,7 @@ static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle,
 
     // Concatenate thread name with then thread ID as that will be unique, whereas the start address won't be
     memset(out_thread_name, 0, thread_name_size);
-    strncpy(out_thread_name, module_name, thread_name_size);
+    strcpy_s(out_thread_name, thread_name_size, module_name);
     strncat_s(out_thread_name, thread_name_size, "!", 1);
     len = strlen(out_thread_name);
     itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
