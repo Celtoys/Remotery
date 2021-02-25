@@ -107,6 +107,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #endif
         #undef min
         #undef max
+        #include <tlhelp32.h>
         #ifdef _XBOX_ONE
             #include "xmem.h"
         #endif
@@ -622,7 +623,7 @@ static rmtU32 Well512_RandomOpenLimit(rmtU32 limit)
     // Using % to modulo with range is just masking out the higher bits, leaving a result that's objectively biased.
     // Dividing by RAND_MAX is better but leads to increased repetition at low ranges due to very large bucket sizes.
     // Instead use multiple passes with smaller bucket sizes, rejecting results that don't fit into this smaller range.
-    rmtU32 bucket_size = UINT32_MAX / limit;
+    rmtU32 bucket_size = UINT_MAX / limit;
     rmtU32 bucket_limit = bucket_size * limit;
     rmtU32 r;
     do
@@ -4697,7 +4698,6 @@ DWORD GetThreadStartAddress(rmtThreadHandle thread_handle)
     return 0;
 }
  
-
 const char* GetStartAddressModuleName(DWORD start_address)
 {
     BOOL success;
@@ -4807,22 +4807,16 @@ static rmtError QueueThreadName(rmtMessageQueue* queue, const char* name)
     return RMT_ERROR_NONE;
 }
 
-
-#ifdef RMT_PLATFORM_WINDOWS
-// tlhelp32.h, kernel32.lib
-EXTERN_C WINBASEAPI HANDLE WINAPI CreateToolhelp32Snapshot(DWORD dwFlags, DWORD th32ProcessID);
-EXTERN_C WINBASEAPI BOOL WINAPI Thread32First(HANDLE hSnapshot, LPTHREADENTRY32 lpte);
-EXTERN_C WINBASEAPI BOOL WINAPI Thread32Next( HANDLE hSnapshot, LPTHREADENTRY32 lpte);
-#endif
-
 static void GatherThreads(ThreadWatcher* watcher)
 {
+    HANDLE handle;
+
     assert(watcher != NULL);
 
 #ifdef RMT_PLATFORM_WINDOWS
 
     // Create the snapshot - this is a slow call
-    HANDLE handle = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    handle = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (handle != INVALID_HANDLE_VALUE)
     {
         BOOL success;
@@ -4838,7 +4832,8 @@ static void GatherThreads(ThreadWatcher* watcher)
             {
                 // Search and see if we already know about this thread
                 WatchedThread* thread = NULL;
-                for (rmtU32 i = 0; i < watcher->nbWatchedThreads; i++)
+                rmtU32 i;
+                for (i = 0; i < watcher->nbWatchedThreads; i++)
                 {
                     if (watcher->watchedThreads[i].threadId == thread_entry.th32ThreadID)
                     {
@@ -4856,8 +4851,8 @@ static void GatherThreads(ThreadWatcher* watcher)
                     // Initialise in the callback-ready state
                     thread->threadId = thread_entry.th32ThreadID;
                     thread->nbSamplesWithoutCallback = 0;
-                    thread->processorIndex = -1;
-                    thread->lastProcessorIndex = -1;
+                    thread->processorIndex = (rmtU32)-1;
+                    thread->lastProcessorIndex = (rmtU32)-1;
 
                     // Pre-open the thread with required access rights to get the thread handle
                     thread->threadHandle = OpenThread(
@@ -4950,6 +4945,7 @@ static void QueueProcessorThreads(rmtMessageQueue* queue, rmtU64 message_index, 
     rmtMessageQueue_CommitMessage(message, MsgID_ProcessorThreads);
 }
 
+#ifdef RMT_ARCH_32BIT
 __declspec(naked) static void SampleCallback()
 {
     //
@@ -5010,6 +5006,7 @@ __declspec(naked) static void SampleCallback()
         ret
     }
 }
+#endif
 
 static rmtError InitThreadSampling(ThreadWatcher* watcher)
 {
@@ -5071,6 +5068,9 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
     rmtU32 processor_message_index = 0;
     while (thread->request_exit == RMT_FALSE)
     {
+        rmtU32 lfsr_seed;
+        rmtU32 lfsr_value;
+
         // Query how many threads the gather knows about this time round
         rmtU32 nb_watched_threads = LoadAcquire(&watcher->nbWatchedThreads);
 
@@ -5093,14 +5093,16 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
         rmtU32 xor_mask = GaloisLFSRMask(table_size_log2);
 
         // Use a LFSR to visit threads in shuffled order
-        uint32_t lfsr_seed = Well512_RandomOpenLimit(nb_watched_threads);
-        uint32_t lfsr_value = lfsr_seed;
+        lfsr_seed = Well512_RandomOpenLimit(nb_watched_threads);
+        lfsr_value = lfsr_seed;
         do
         {
+            rmtU32 thread_index;
+
             lfsr_value = GaloisLFSRNext(lfsr_value, xor_mask);
 
             // Apply the value-to-index bias and see if this index is within range before processing
-            uint32_t thread_index = lfsr_value - 1;
+            thread_index = lfsr_value - 1;
             if (thread_index >= nb_watched_threads)
             {
                 continue;
@@ -5140,11 +5142,13 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
                 if (rmtGetUserModeThreadContext(thread_handle, &context, CONTEXT_CONTROL | CONTEXT_INTEGER) == RMT_TRUE)
                 {
                 #ifdef RMT_PLATFORM_WINDOWS
+                #ifdef RMT_ARCH_32BIT
                     watched_thread->registerBackup0 = context.Eax;
                     watched_thread->registerBackup1 = context.Edi;
                     context.Eax = context.Eip;
                     context.Edi = (rmtU32)watched_thread;
                     context.Eip = (DWORD)&SampleCallback;
+                #endif
                 #endif
 
                     rmtSetThreadContext(thread_handle, &context);

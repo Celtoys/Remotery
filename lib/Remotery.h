@@ -127,6 +127,15 @@ documented just below this comment.
     #define RMT_PLATFORM_POSIX
 #endif
 
+// Architecture identification
+#ifdef RMT_PLATFORM_WINDOWS
+#ifdef _M_AMD64
+#define RMT_ARCH_64BIT
+#else
+#define RMT_ARCH_32BIT
+#endif
+#endif
+
 #ifdef RMT_DLL
     #if defined (RMT_PLATFORM_WINDOWS)
         #if defined (RMT_IMPL)
