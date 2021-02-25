@@ -5559,6 +5559,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 
 static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
 {
+    rmtU32 processor_index;
     rmtError error = RMT_ERROR_NONE;
 
     Msg_ProcessorThreads* processor_threads = (Msg_ProcessorThreads*)message->payload;
@@ -5573,9 +5574,9 @@ static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
     BIN_ERROR_CHECK(Buffer_Write(bin_buf, (void*)"PRTH", 4));
     BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor_threads->nbProcessors));
     BIN_ERROR_CHECK(Buffer_WriteU64(bin_buf, processor_threads->messageIndex));
-    for (rmtU32 i = 0; i < processor_threads->nbProcessors; i++)
+    for (processor_index = 0; processor_index < processor_threads->nbProcessors; processor_index++)
     {
-        Processor* processor = processor_threads->processors + i;
+        Processor* processor = processor_threads->processors + processor_index;
         if (processor->thread != NULL)
         {
             BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor->thread->threadId));
@@ -6312,7 +6313,7 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
     // Search the watched threads to see if their thread names and hash need to be updated
     thread_id = rmtGetCurrentThreadId();
     nb_watched_threads = LoadAcquire(&g_Remotery->threadWatcher->nbWatchedThreads);
-    for (rmtU32 thread_index = 0; thread_index < nb_watched_threads; thread_index++)
+    for (thread_index = 0; thread_index < nb_watched_threads; thread_index++)
     {
         WatchedThread* thread = g_Remotery->threadWatcher->watchedThreads + thread_index;
         if (thread->threadId == thread_id)
