@@ -26,7 +26,7 @@ Console = (function()
 		// Setup command history control
 		this.CommandHistory = LocalStore.Get("App", "Global", "CommandHistory", [ ]);
 		this.CommandIndex = 0;
-		this.MaxNbCommands = 200;
+		this.MaxNbCommands = 10000;
 		DOM.Event.AddHandler(this.UserInput.EditNode, "keydown", Bind(OnKeyPress, this));
 		DOM.Event.AddHandler(this.UserInput.EditNode, "focus", Bind(OnFocus, this));
 
@@ -94,7 +94,7 @@ Console = (function()
 
 		// Append to local text buffer and ensure clip the oldest text to ensure a max size
 		existing_text = existing_text + new_text;
-		var max_len = 10 * 1024;
+		var max_len = 100 * 1024;
 		var len = existing_text.length;
 		if (len > max_len)
 			existing_text = existing_text.substr(len - max_len, max_len);
