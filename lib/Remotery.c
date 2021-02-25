@@ -593,7 +593,7 @@ static rmtU32 Well512_Index;
 static void Well512_Init(rmtU32 seed)
 {
     rmtU32 i;
-    
+
     // Generate initial state from seed
     Well512_State[0] = seed;
     for (i = 1; i < Well512_StateSize; i++)
@@ -1355,7 +1355,7 @@ static void rmtResumeThread(rmtThreadHandle thread_handle)
 static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context, rmtU32 flags)
 {
 #ifdef RMT_PLATFORM_WINDOWS
-    rmtU32 kernel_mode_mask;
+    DWORD kernel_mode_mask;
 
     // Request thread context with exception reporting
     context->ContextFlags = flags | CONTEXT_EXCEPTION_REQUEST;
@@ -4651,7 +4651,7 @@ typedef struct WatchedThread
     rmtU32 lastProcessorIndex;
 
     // Used to schedule callbacks taking into account some threads may be sleeping
-    rmtU32 nbSamplesWithoutCallback;
+    rmtS32 nbSamplesWithoutCallback;
 
     rmtThreadHandle threadHandle;
 
@@ -5607,6 +5607,7 @@ static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
 
 static rmtError Remotery_SendThreadName(Remotery* rmt, Message* message)
 {
+    rmtU32 name_length;
     rmtError error;
 
     Buffer* bin_buf;
@@ -5618,7 +5619,7 @@ static rmtError Remotery_SendThreadName(Remotery* rmt, Message* message)
     // Serialise the message
     BIN_ERROR_CHECK(Buffer_Write(bin_buf, (void*)"THRN", 4));
     BIN_ERROR_CHECK(Buffer_Write(bin_buf, message->payload, 8));
-    rmtU32 name_length = *(rmtU32*)(message->payload + 4);
+    name_length = *(rmtU32*)(message->payload + 4);
     BIN_ERROR_CHECK(Buffer_Write(bin_buf, message->payload + 8, name_length));
 
     if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
@@ -6288,6 +6289,9 @@ static void SetDebuggerThreadName(const char* name)
 RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 {
     ThreadSampler* ts;
+    rmtU32 thread_id;
+    rmtU32 nb_watched_threads;
+    rmtU32 thread_index;
 
     if (g_Remotery == NULL)
         return;
@@ -6306,11 +6310,11 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 #endif
 
     // Search the watched threads to see if their thread names and hash need to be updated
-    rmtU32 thread_id = rmtGetCurrentThreadId();
-    rmtU32 nb_watched_threads = LoadAcquire(&g_Remotery->threadWatcher->nbWatchedThreads);
-    for (rmtU32 i = 0; i < nb_watched_threads; i++)
+    thread_id = rmtGetCurrentThreadId();
+    nb_watched_threads = LoadAcquire(&g_Remotery->threadWatcher->nbWatchedThreads);
+    for (rmtU32 thread_index = 0; thread_index < nb_watched_threads; thread_index++)
     {
-        WatchedThread* thread = g_Remotery->threadWatcher->watchedThreads + i;
+        WatchedThread* thread = g_Remotery->threadWatcher->watchedThreads + thread_index;
         if (thread->threadId == thread_id)
         {
             strncpy(thread->threadName, thread_name, sizeof(thread->threadName));
