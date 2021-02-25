@@ -1352,6 +1352,19 @@ static void rmtResumeThread(rmtThreadHandle thread_handle)
 #endif
 }
 
+#ifdef RMT_PLATFORM_WINDOWS
+#ifndef CONTEXT_EXCEPTION_REQUEST
+// These seem to be guarded by a _AMD64_ macro in winnt.h, which doesn't seem to be defined in older MSVC compilers.
+// Which makes sense given this was a post-Vista/Windows 7 patch around errors in the WoW64 context switch.
+// This bug was never fixed in the OS so defining these will only get this code to compile on Old Windows systems, with no
+// guarantee of being stable at runtime.
+#define CONTEXT_EXCEPTION_ACTIVE 0x8000000L
+#define CONTEXT_SERVICE_ACTIVE 0x10000000L
+#define CONTEXT_EXCEPTION_REQUEST 0x40000000L
+#define CONTEXT_EXCEPTION_REPORTING 0x80000000L
+#endif
+#endif
+
 static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context, rmtU32 flags)
 {
 #ifdef RMT_PLATFORM_WINDOWS
@@ -5585,7 +5598,7 @@ static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
         }
         else
         {
-            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, -1));
+            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, (rmtU32)-1));
             BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, 0));
             BIN_ERROR_CHECK(Buffer_WriteU64(bin_buf, 0));
         }
