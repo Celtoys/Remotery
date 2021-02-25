@@ -108,6 +108,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #undef min
         #undef max
         #include <tlhelp32.h>
+        #include <winnt.h>
         #ifdef _XBOX_ONE
             #include "xmem.h"
         #endif
@@ -591,9 +592,11 @@ static rmtU32 Well512_Index;
 
 static void Well512_Init(rmtU32 seed)
 {
+    rmtU32 i;
+    
     // Generate initial state from seed
     Well512_State[0] = seed;
-    for (rmtU32 i = 1; i < Well512_StateSize; i++)
+    for (i = 1; i < Well512_StateSize; i++)
     {
         rmtU32 prev = Well512_State[i - 1];
         Well512_State[i] = (1812433253 * (prev ^ (prev >> 30)) + i);
@@ -1352,6 +1355,8 @@ static void rmtResumeThread(rmtThreadHandle thread_handle)
 static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context, rmtU32 flags)
 {
 #ifdef RMT_PLATFORM_WINDOWS
+    rmtU32 kernel_mode_mask;
+
     // Request thread context with exception reporting
     context->ContextFlags = flags | CONTEXT_EXCEPTION_REQUEST;
     if (GetThreadContext(thread, context) == 0)
@@ -1362,7 +1367,7 @@ static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext
     // Context on WoW64 is only valid and can only be set if the thread isn't in kernel mode
     // Typical reference to this appears to be: http://zachsaw.blogspot.com/2010/11/wow64-bug-getthreadcontext-may-return.html
     // Confirmed by MS here: https://social.msdn.microsoft.com/Forums/vstudio/en-US/aa176c36-6624-4776-9380-1c9cf37a314e/getthreadcontext-returns-stale-register-values-on-wow64?forum=windowscompatibility
-    LONG kernel_mode_mask = CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE | CONTEXT_SERVICE_ACTIVE;
+    kernel_mode_mask = CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE | CONTEXT_SERVICE_ACTIVE;
     return (context->ContextFlags & kernel_mode_mask) == CONTEXT_EXCEPTION_REPORTING ? RMT_TRUE : RMT_FALSE;
 #else
     return RMT_FALSE;
@@ -4738,6 +4743,10 @@ const char* GetStartAddressModuleName(DWORD start_address)
 static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle, char* out_thread_name, rmtU32 thread_name_size)
 {
 #ifdef RMT_PLATFORM_WINDOWS
+    DWORD address;
+    const char* module_name;
+    rmtU32 len;
+
     // Use the new Windows 10 GetThreadDescription function
     HMODULE kernel32 = GetModuleHandleA("Kernel32.dll");
     if (kernel32 != NULL)
@@ -4746,11 +4755,13 @@ static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle,
         GETTHREADDESCRIPTION GetThreadDescription = (GETTHREADDESCRIPTION)GetProcAddress(kernel32, "GetThreadDescription");
         if (GetThreadDescription != NULL)
         {
+            int size;
+
             WCHAR* thread_name_w;
             GetThreadDescription(thread_handle, &thread_name_w);
 
             // Returned size is the byte size, so will be 1 for a null-terminated strings
-            int size = WideCharToMultiByte(CP_ACP, 0, thread_name_w, -1, out_thread_name, thread_name_size, NULL, NULL);
+            size = WideCharToMultiByte(CP_ACP, 0, thread_name_w, -1, out_thread_name, thread_name_size, NULL, NULL);
             if (size > 1)
             {
                 return RMT_TRUE;
@@ -4759,12 +4770,12 @@ static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle,
     }
 
     // At this point GetThreadDescription hasn't returned anything so let's get the thread module name and use that
-    DWORD address = GetThreadStartAddress(thread_handle);
+    address = GetThreadStartAddress(thread_handle);
     if (address == 0)
     {
         return RMT_FALSE;
     }
-    const char* module_name = GetStartAddressModuleName(address);
+    module_name = GetStartAddressModuleName(address);
     if (module_name == NULL)
     {
         return RMT_FALSE;
@@ -4774,7 +4785,7 @@ static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle,
     memset(out_thread_name, 0, thread_name_size);
     strncpy(out_thread_name, module_name, thread_name_size);
     strncat_s(out_thread_name, thread_name_size, "!", 1);
-    rmtU32 len = strlen(out_thread_name);
+    len = strlen(out_thread_name);
     itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
 
     return RMT_TRUE;
@@ -5041,6 +5052,12 @@ static rmtError InitThreadSampling(ThreadWatcher* watcher)
 
 static rmtError SampleThreadsLoop(rmtThread* thread)
 {
+    rmtCpuContext context;
+    rmtU32 processor_message_index = 0;
+    rmtU32 nb_processors;
+    Processor* processors;
+    rmtU32 processor_index;
+
     ThreadWatcher* watcher = (ThreadWatcher*)thread->param;
 
     rmtError error = InitThreadSampling(watcher);
@@ -5050,22 +5067,20 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
     }
 
     // If we can't figure out how many processors there are then we are running on an unsupported platform
-    rmtU32 nb_processors = rmtGetNbProcessors();
+    nb_processors = rmtGetNbProcessors();
     if (nb_processors == 0)
     {
         return RMT_ERROR_UNKNOWN;
     }
 
     // An array entry for each processor
-    Processor* processors = (Processor*)rmtMalloc(nb_processors * sizeof(Processor));
-    for (rmtU32 i = 0; i < nb_processors; i++)
+    processors = (Processor*)rmtMalloc(nb_processors * sizeof(Processor));
+    for (processor_index = 0; processor_index < nb_processors; processor_index++)
     {
-        processors[i].thread = NULL;
-        processors[i].sampleTime = 0;
+        processors[processor_index].thread = NULL;
+        processors[processor_index].sampleTime = 0;
     }
 
-    rmtCpuContext context;
-    rmtU32 processor_message_index = 0;
     while (thread->request_exit == RMT_FALSE)
     {
         rmtU32 lfsr_seed;
@@ -5098,6 +5113,10 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
         do
         {
             rmtU32 thread_index;
+            rmtU32 thread_id;
+            WatchedThread* watched_thread;
+            rmtThreadHandle thread_handle;
+            rmtU32 sample_count;
 
             lfsr_value = GaloisLFSRNext(lfsr_value, xor_mask);
 
@@ -5109,15 +5128,15 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
             }
 
             // Ignore our own thread
-            rmtU32 thread_id = rmtGetCurrentThreadId();
-            WatchedThread* watched_thread = watcher->watchedThreads + thread_index;
+            thread_id = rmtGetCurrentThreadId();
+            watched_thread = watcher->watchedThreads + thread_index;
             if (watched_thread->threadId == thread_id)
             {
                 continue;
             }
 
             // Suspend the thread so we can insert a callback
-            rmtThreadHandle thread_handle = watched_thread->threadHandle;
+            thread_handle = watched_thread->threadHandle;
             if (rmtSuspendThread(thread_handle) == RMT_FALSE)
             {
                 continue;
@@ -5127,8 +5146,8 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
             // Note that a thread might be pre-empted multiple times in-between sampling. Given a sampling rate equal to the
             // scheduling quantum, this doesn't happen too often. However in such cases, whoever marks the processor last is
             // the one that gets recorded.
-            rmtU32 sample_count = AtomicAdd(&watched_thread->nbSamplesWithoutCallback, 1);
-            rmtU32 processor_index = watched_thread->processorIndex;
+            sample_count = AtomicAdd(&watched_thread->nbSamplesWithoutCallback, 1);
+            processor_index = watched_thread->processorIndex;
             processors[processor_index].thread = watched_thread;
             processors[processor_index].sampleCount = sample_count;
             processors[processor_index].sampleTime = usTimer_Get(watcher->timer);
@@ -5164,9 +5183,9 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
         } while (lfsr_value != lfsr_seed);
 
         // Filter all processor samples made in this pass
-        for (rmtU32 i = 0; i < nb_processors; i++)
+        for (processor_index = 0; processor_index < nb_processors; processor_index++)
         {
-            Processor* processor = processors + i;
+            Processor* processor = processors + processor_index;
             WatchedThread* thread = processor->thread;
 
             if (thread != NULL)
@@ -5174,7 +5193,7 @@ static rmtError SampleThreadsLoop(rmtThread* thread)
                 // If this thread was on another processor on a previous pass and that processor is still tracking that thread,
                 // remove the thread from it.
                 rmtU32 last_processor_index = thread->lastProcessorIndex;
-                if (last_processor_index != -1 && last_processor_index != i)
+                if (last_processor_index != -1 && last_processor_index != processor_index)
                 {
                     if (processors[last_processor_index].thread == thread)
                     {
