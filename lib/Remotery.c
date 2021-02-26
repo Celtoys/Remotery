@@ -4682,6 +4682,9 @@ typedef struct ThreadWatcher
     // Queue between clients and main remotery thread
     rmtMessageQueue* mqToRmtThread;
 
+    // On x64 machines this points to the sample function
+    void* compiledSampleFn;
+
     // Array of Watched Threads that the thread gatherer has authority over
     WatchedThread watchedThreads[256];
     rmtU32 nbWatchedThreads;
@@ -5031,6 +5034,28 @@ __declspec(naked) static void SampleCallback()
         ret
     }
 }
+#elif defined(RMT_ARCH_64BIT)
+// Generated with https://defuse.ca/online-x86-assembler.htm
+static rmtU8 SampleCallbackBytes[] =
+{
+    0x50,                                           // push rax
+    0x9C,                                           // pushfq
+    0x53,                                           // push rbx
+    0x51,                                           // push rcx
+    0x52,                                           // push rdx
+    0xB8, 0x01, 0x00, 0x00, 0x00,                   // mov eax, 1
+    0x0F, 0xA2,                                     // cpuid
+    0xC1, 0xEB, 0x18,                               // shr ebx, 24
+    0x89, 0x5F, 0x10,                               // mov dword ptr [rdi + 16], ebx
+    0xC7, 0x47, 0x0C, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 12], 0
+    0x5A,                                           // pop rdx
+    0x59,                                           // pop rcx
+    0x5B,                                           // pop rbx
+    0x48, 0x8B, 0x07,                               // mov rax, qword ptr [rdi + 0]
+    0x48, 0x8B, 0x7F, 0x08,                         // mov rdi, qword ptr [rdi + 8]
+    0x9D,                                           // popfq
+    0xC3                                            // ret
+};
 #endif
 
 static rmtError InitThreadSampling(ThreadWatcher* watcher)
@@ -5172,6 +5197,13 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 if (rmtGetUserModeThreadContext(thread_handle, &context) == RMT_TRUE)
                 {
                 #ifdef RMT_PLATFORM_WINDOWS
+                #ifdef RMT_ARCH_64BIT
+                    watched_thread->registerBackup0 = context.Rax;
+                    watched_thread->registerBackup1 = context.Rdi;
+                    context.Rax = context.Rip;
+                    context.Rdi = (rmtU64)watched_thread;
+                    context.Rip = (DWORD64)watcher->compiledSampleFn;
+                #endif
                 #ifdef RMT_ARCH_32BIT
                     watched_thread->registerBackup0 = context.Eax;
                     watched_thread->registerBackup1 = context.Edi;
@@ -5241,10 +5273,27 @@ static rmtError ThreadWatcher_Constructor(ThreadWatcher* watcher, usTimer* timer
     // Set default state
     watcher->timer = timer;
     watcher->mqToRmtThread = mq_to_rmt_thread;
+    watcher->compiledSampleFn = NULL;
     watcher->nbWatchedThreads = 0;
     watcher->maxNbWatchedThreads = sizeof(watcher->watchedThreads) / sizeof(watcher->watchedThreads[0]);
     watcher->threadSampleThread = NULL;
     watcher->threadGatherThread = NULL;
+
+#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ARCH_64BIT
+    {
+        // Allocate and copy to executable space for the 64-bit compiled sample function
+        DWORD old_protect;
+        watcher->compiledSampleFn = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (watcher->compiledSampleFn == NULL)
+        {
+            return RMT_ERROR_MALLOC_FAIL;
+        }
+        memcpy(watcher->compiledSampleFn, SampleCallbackBytes, sizeof(SampleCallbackBytes));
+        VirtualProtect(watcher->compiledSampleFn, 4096, PAGE_EXECUTE_READ, &old_protect);
+    }
+#endif
+#endif
 
     New_2(rmtThread, watcher->threadSampleThread, SampleThreadsLoop, watcher);
     if (error != RMT_ERROR_NONE)
@@ -5259,6 +5308,11 @@ static void ThreadWatcher_Destructor(ThreadWatcher* watcher)
 {
     Delete(rmtThread, watcher->threadGatherThread);
     Delete(rmtThread, watcher->threadSampleThread);
+
+    if (watcher->compiledSampleFn != NULL)
+    {
+        VirtualFree(watcher->compiledSampleFn, 0, MEM_RELEASE);
+    }
 }
 
 /*
