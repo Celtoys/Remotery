@@ -4659,10 +4659,10 @@ typedef struct WatchedThread
     rmtU64 registerBackup1;                                                                         // 8
 
     // Used to schedule callbacks taking into account some threads may be sleeping
-    rmtS32 nbSamplesWithoutCallback;                                                                // 12
+    rmtS32 nbSamplesWithoutCallback;                                                                // 16
     
     // Index of the processor the thread was last seen running on
-    rmtU32 processorIndex;                                                                          // 16
+    rmtU32 processorIndex;                                                                          // 20
     rmtU32 lastProcessorIndex;
 
     // OS thread ID/handle
@@ -5046,8 +5046,8 @@ static rmtU8 SampleCallbackBytes[] =
     0xB8, 0x01, 0x00, 0x00, 0x00,                   // mov eax, 1
     0x0F, 0xA2,                                     // cpuid
     0xC1, 0xEB, 0x18,                               // shr ebx, 24
-    0x89, 0x5F, 0x10,                               // mov dword ptr [rdi + 16], ebx
-    0xC7, 0x47, 0x0C, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 12], 0
+    0x89, 0x5F, 0x14,                               // mov dword ptr [rdi + 20], ebx
+    0xC7, 0x47, 0x10, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 16], 0
     0x5A,                                           // pop rdx
     0x59,                                           // pop rcx
     0x5B,                                           // pop rbx
@@ -5056,6 +5056,8 @@ static rmtU8 SampleCallbackBytes[] =
     0x9D,                                           // popfq
     0xC3                                            // ret
 };
+//static_assert(offsetof(WatchedThread, nbSamplesWithoutCallback) == 0x10, "");
+//static_assert(offsetof(WatchedThread, processorIndex) == 0x14, "");
 #endif
 
 static rmtError InitThreadSampling(ThreadWatcher* watcher)
