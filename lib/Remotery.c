@@ -4654,19 +4654,19 @@ static rmtU32 ThreadSampler_GetNameHash(ThreadSampler* ts, rmtMessageQueue* queu
 
 typedef struct WatchedThread
 {
-    // OS thread ID
-    rmtU32 threadId;
-
-    rmtU64 registerBackup0;
-    rmtU64 registerBackup1;
-    
-    // Index of the processor the thread was last seen running on
-    rmtU32 processorIndex;
-    rmtU32 lastProcessorIndex;
+    // Storage for backing up initial register values when modifying a thread's context
+    rmtU64 registerBackup0;                                                                         // 0
+    rmtU64 registerBackup1;                                                                         // 8
 
     // Used to schedule callbacks taking into account some threads may be sleeping
-    rmtS32 nbSamplesWithoutCallback;
+    rmtS32 nbSamplesWithoutCallback;                                                                // 12
+    
+    // Index of the processor the thread was last seen running on
+    rmtU32 processorIndex;                                                                          // 16
+    rmtU32 lastProcessorIndex;
 
+    // OS thread ID/handle
+    rmtU32 threadId;
     rmtThreadHandle threadHandle;
 
     // Thread name stored for sending to the viewer
