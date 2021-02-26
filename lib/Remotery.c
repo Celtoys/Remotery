@@ -4696,7 +4696,7 @@ typedef struct ThreadWatcher
 
 #ifdef RMT_PLATFORM_WINDOWS
 
-DWORD GetThreadStartAddress(rmtThreadHandle thread_handle)
+DWORD_PTR GetThreadStartAddress(rmtThreadHandle thread_handle)
 {
     // Get NtQueryInformationThread from ntdll
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
@@ -4706,7 +4706,7 @@ DWORD GetThreadStartAddress(rmtThreadHandle thread_handle)
         NTQUERYINFOMATIONTHREAD NtQueryInformationThread = (NTQUERYINFOMATIONTHREAD)GetProcAddress(ntdll, "NtQueryInformationThread");
 
         // Use it to query the start address
-        DWORD start_address;
+        DWORD_PTR start_address;
         NTSTATUS status = NtQueryInformationThread(thread_handle, 9, &start_address, sizeof(DWORD), NULL);
         if (status == 0)
         {
@@ -4717,7 +4717,7 @@ DWORD GetThreadStartAddress(rmtThreadHandle thread_handle)
     return 0;
 }
  
-const char* GetStartAddressModuleName(DWORD start_address)
+const char* GetStartAddressModuleName(DWORD_PTR start_address)
 {
     BOOL success;
     MODULEENTRY32 module_entry;
@@ -4736,7 +4736,7 @@ const char* GetStartAddressModuleName(DWORD start_address)
     success = Module32First(handle, &module_entry);
     while (success == TRUE)
     {
-        if (start_address >= (DWORD)module_entry.modBaseAddr && start_address <= ((DWORD)module_entry.modBaseAddr + module_entry.modBaseSize))
+        if (start_address >= (DWORD_PTR)module_entry.modBaseAddr && start_address <= ((DWORD_PTR)module_entry.modBaseAddr + module_entry.modBaseSize))
         {
             static char name[256];
             strcpy_s(name, sizeof(name), module_entry.szModule);
@@ -4757,7 +4757,7 @@ const char* GetStartAddressModuleName(DWORD start_address)
 static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle, char* out_thread_name, rmtU32 thread_name_size)
 {
 #ifdef RMT_PLATFORM_WINDOWS
-    DWORD address;
+    DWORD_PTR address;
     const char* module_name;
     rmtU32 len;
 
@@ -5166,12 +5166,9 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
             processors[processor_index].sampleCount = sample_count;
             processors[processor_index].sampleTime = usTimer_Get(watcher->timer);
 
-            // Is this thread ready to schedule a callback?
+            // Swap in a new context with our callback if one is not already scheduled on this thread
             if (sample_count == 0)
             {
-                // SuspendThread is an async call to the scheduler and upon return the thread is not guaranteed to be suspended.
-                // Calling GetThreadContext will serialise that.
-                // See: https://github.com/mono/mono/blob/master/mono/utils/mono-threads-windows.c#L203
                 if (rmtGetUserModeThreadContext(thread_handle, &context) == RMT_TRUE)
                 {
                 #ifdef RMT_PLATFORM_WINDOWS
