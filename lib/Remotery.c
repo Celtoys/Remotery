@@ -4915,6 +4915,12 @@ typedef struct ThreadProfilers
 
 static rmtError SampleThreadsLoop(rmtThread* rmt_thread);
 
+#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ARCH_64BIT
+static void* CreateSampleCallback();
+#endif
+#endif
+
 static rmtError ThreadProfilers_Constructor(ThreadProfilers* thread_profilers, usTimer* timer, rmtMessageQueue* mq_to_rmt_thread)
 {
     rmtError error;
@@ -4932,16 +4938,10 @@ static rmtError ThreadProfilers_Constructor(ThreadProfilers* thread_profilers, u
 
 #ifdef RMT_PLATFORM_WINDOWS
 #ifdef RMT_ARCH_64BIT
+    thread_profilers->compiledSampleFn = CreateSampleCallback();
+    if (thread_profilers->compiledSampleFn == NULL)
     {
-        // Allocate and copy to executable space for the 64-bit compiled sample function
-        DWORD old_protect;
-        thread_profilers->compiledSampleFn = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        if (thread_profilers->compiledSampleFn == NULL)
-        {
-            return RMT_ERROR_MALLOC_FAIL;
-        }
-        memcpy(thread_profilers->compiledSampleFn, SampleCallbackBytes, sizeof(SampleCallbackBytes));
-        VirtualProtect(thread_profilers->compiledSampleFn, 4096, PAGE_EXECUTE_READ, &old_protect);
+        return RMT_ERROR_MALLOC_FAIL;
     }
 #endif
 #endif
@@ -5257,6 +5257,21 @@ static rmtU8 SampleCallbackBytes[] =
     0x9D,                                           // popfq
     0xC3                                            // ret
 };
+#ifdef RMT_PLATFORM_WINDOWS
+static void* CreateSampleCallback()
+{
+    // Allocate and copy to executable space for the 64-bit compiled sample function
+    DWORD old_protect;
+    void* function = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (function == NULL)
+    {
+        return NULL;
+    }
+    memcpy(function, SampleCallbackBytes, sizeof(SampleCallbackBytes));
+    VirtualProtect(function, 4096, PAGE_EXECUTE_READ, &old_protect);
+    return function;
+}
+#endif
 #endif
 
 static rmtError InitThreadSampling(ThreadProfilers* thread_profilers)
