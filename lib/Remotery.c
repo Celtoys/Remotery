@@ -54,6 +54,7 @@
 
 #ifdef RMT_PLATFORM_WINDOWS
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "winmm.lib")
 #endif
 
 #if RMT_ENABLED
@@ -100,6 +101,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <stdio.h>
     #include <time.h>
     #include <limits.h>
+    #include <stdlib.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
         #include <winsock2.h>
@@ -110,10 +112,15 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #undef max
         #include <tlhelp32.h>
         #include <winnt.h>
+        #include <timeapi.h>
+
         #ifdef _XBOX_ONE
             #include "xmem.h"
         #endif
-    #endif
+
+        // From winternl.h
+        typedef long NTSTATUS;
+     #endif
 
     #ifdef RMT_PLATFORM_LINUX
         #if defined(__FreeBSD__) || defined(__OpenBSD__)
@@ -124,7 +131,6 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #endif
 
     #if defined(RMT_PLATFORM_POSIX)
-        #include <stdlib.h>
         #include <pthread.h>
         #include <unistd.h>
         #include <string.h>
