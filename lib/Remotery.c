@@ -4986,7 +4986,7 @@ static void ThreadProfilers_Destructor(ThreadProfilers* thread_profilers)
 #ifdef RMT_ARCH_64BIT
     if (thread_profilers->compiledSampleFn != NULL)
     {
-        VirtualFree(thread_profilers->compiledSampleFn);
+        VirtualFree(thread_profilers->compiledSampleFn, 0, MEM_RELEASE);
     }
 #endif
 #endif
@@ -5406,7 +5406,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                     thread_profiler->registerBackup1 = context.Rdi;
                     context.Rax = context.Rip;
                     context.Rdi = (rmtU64)thread_profiler;
-                    context.Rip = (DWORD64)thread_profiler->compiledSampleFn;
+                    context.Rip = (DWORD64)thread_profilers->compiledSampleFn;
                 #endif
                  #ifdef RMT_ARCH_32BIT
                     thread_profiler->registerBackup0 = context.Eax;
