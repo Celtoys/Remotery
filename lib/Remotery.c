@@ -104,6 +104,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <stdlib.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
+        #include <windows.h>
         #include <winsock2.h>
         #ifndef __MINGW32__
             #include <intrin.h>
