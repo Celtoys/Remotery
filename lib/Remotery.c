@@ -1769,18 +1769,27 @@ static void rmtSetThreadContext(rmtThreadHandle thread_handle, rmtCpuContext* co
 #endif
 }
 
-static rmtThreadHandle rmtOpenThreadHandle(rmtThreadId thread_id)
+static rmtError rmtOpenThreadHandle(rmtThreadId thread_id, rmtThreadHandle* out_thread_handle)
 {
 #ifdef RMT_PLATFORM_WINDOWS
     // Open the thread with required access rights to get the thread handle
-    return OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME | THREAD_SET_CONTEXT | THREAD_GET_CONTEXT, FALSE, thread_id);
+    *out_thread_handle = OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME | THREAD_SET_CONTEXT | THREAD_GET_CONTEXT, FALSE, thread_id);
+    if (*out_thread_handle == NULL)
+    {
+        return RMT_ERROR_OPEN_THREAD_HANDLE_FAIL;
+    }
 #endif
+
+    return RMT_ERROR_NONE;
 }
 
 static void rmtCloseThreadHandle(rmtThreadHandle thread_handle)
 {
 #ifdef RMT_PLATFORM_WINDOWS
-    CloseHandle(thread_handle);
+    if (thread_handle != NULL)
+    {
+        CloseHandle(thread_handle);
+    }
 #endif
 }
 
@@ -4763,7 +4772,6 @@ static rmtError ThreadProfiler_Constructor(rmtMessageQueue* mq_to_rmt, ThreadPro
     thread_profiler->processorIndex = (rmtU32)-1;
     thread_profiler->lastProcessorIndex = (rmtU32)-1;
     thread_profiler->threadId = thread_id;
-    thread_profiler->threadHandle = NULL;
     memset(thread_profiler->sampleTrees, 0, sizeof(thread_profiler->sampleTrees));
 
 #if RMT_USE_D3D11
@@ -4771,10 +4779,10 @@ static rmtError ThreadProfiler_Constructor(rmtMessageQueue* mq_to_rmt, ThreadPro
 #endif
 
     // Pre-open the thread handle
-    thread_profiler->threadHandle = rmtOpenThreadHandle(thread_id);
-    if (thread_profiler->threadHandle == NULL)
+    error = rmtOpenThreadHandle(thread_id, &thread_profiler->threadHandle);
+    if (error != RMT_ERROR_NONE)
     {
-        return RMT_ERROR_OPEN_THREAD_HANDLE_FAIL;
+        return error;
     }
 
     // Name the thread and send a thread name notification immediately
@@ -4816,10 +4824,7 @@ static void ThreadProfiler_Destructor(ThreadProfiler* thread_profiler)
         Delete(SampleTree, thread_profiler->sampleTrees[index]);
     }
 
-    if (thread_profiler->threadHandle != NULL)
-    {
-        rmtCloseThreadHandle(thread_profiler->threadHandle);
-    }
+    rmtCloseThreadHandle(thread_profiler->threadHandle);
 }
 
 static rmtError ThreadProfiler_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags, Sample** sample)
