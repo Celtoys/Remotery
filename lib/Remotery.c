@@ -1678,7 +1678,7 @@ typedef rmtU32 rmtThreadId;
 #ifdef RMT_PLATFORM_WINDOWS
 typedef HANDLE rmtThreadHandle;
 #else
-typedef pthread_t rmtThreadHandle
+typedef pthread_t rmtThreadHandle;
 #endif
 
 #ifdef RMT_PLATFORM_WINDOWS
