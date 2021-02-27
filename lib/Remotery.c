@@ -25,8 +25,9 @@
     @LFSR:          Galois Linear-feedback Shift Register
     @VMBUFFER:      Mirror Buffer using Virtual Memory for auto-wrap
     @NEW:           New/Delete operators with error values for simplifying object create/destroy
-    @THREADS:       Threads
     @SAFEC:         Safe C Library excerpts
+    @OSTHREADS:     Wrappers around OS-specific thread functions
+    @THREADS:       Cross-platform thread object
     @OBJALLOC:      Reusable Object Allocator
     @DYNBUF:        Dynamic Buffer
     @HASHTABLE:     Integer pair hash map for inserts/finds. No removes for added simplicity.
@@ -40,8 +41,9 @@
     @NETWORK:       Network Server
     @SAMPLE:        Base Sample Description (CPU by default)
     @SAMPLETREE:    A tree of samples with their allocator
-    @TSAMPLER:      Per-Thread Sampler
-    @TWATCHER:      Thread Watcher
+    @TPROFILER:     Thread Profiler data, storing both sampling and instrumentation results
+    @TGATHER:       Thread Gatherer, periodically polling for newly created threads
+    @TSAMPLER:      Sampling thread contexts
     @REMOTERY:      Remotery
     @CUDA:          CUDA event sampling
     @D3D11:         Direct3D 11 event sampling
@@ -104,7 +106,6 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <stdlib.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
-        #include <windows.h>
         #include <winsock2.h>
         #ifndef __MINGW32__
             #include <intrin.h>
@@ -113,15 +114,11 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #undef max
         #include <tlhelp32.h>
         #include <winnt.h>
-        #include <timeapi.h>
-
         #ifdef _XBOX_ONE
             #include "xmem.h"
         #endif
-
-        // From winternl.h
-        typedef long NTSTATUS;
-     #endif
+        typedef long NTSTATUS;  // winternl.h
+    #endif
 
     #ifdef RMT_PLATFORM_LINUX
         #if defined(__FreeBSD__) || defined(__OpenBSD__)
@@ -406,22 +403,18 @@ static rmtError tlsAlloc(rmtTLS* handle)
     assert(handle != NULL);
 
 #if defined(RMT_PLATFORM_WINDOWS)
-
     *handle = (rmtTLS)TlsAlloc();
     if (*handle == TLS_OUT_OF_INDEXES)
     {
         *handle = TLS_INVALID_HANDLE;
         return RMT_ERROR_TLS_ALLOC_FAIL;
     }
-
 #elif defined(RMT_PLATFORM_POSIX)
-
     if (pthread_key_create(handle, NULL) != 0)
     {
         *handle = TLS_INVALID_HANDLE;
         return RMT_ERROR_TLS_ALLOC_FAIL;
     }
-
 #endif
 
     return RMT_ERROR_NONE;
@@ -430,45 +423,84 @@ static rmtError tlsAlloc(rmtTLS* handle)
 static void tlsFree(rmtTLS handle)
 {
     assert(handle != TLS_INVALID_HANDLE);
-
 #if defined(RMT_PLATFORM_WINDOWS)
-
     TlsFree(handle);
-
 #elif defined(RMT_PLATFORM_POSIX)
-
     pthread_key_delete((pthread_key_t)handle);
-
 #endif
 }
 
 static void tlsSet(rmtTLS handle, void* value)
 {
     assert(handle != TLS_INVALID_HANDLE);
-
 #if defined(RMT_PLATFORM_WINDOWS)
-
     TlsSetValue(handle, value);
-
 #elif defined(RMT_PLATFORM_POSIX)
-
     pthread_setspecific((pthread_key_t)handle, value);
-
 #endif
 }
 
 static void* tlsGet(rmtTLS handle)
 {
     assert(handle != TLS_INVALID_HANDLE);
-
 #if defined(RMT_PLATFORM_WINDOWS)
-
     return TlsGetValue(handle);
-
 #elif defined(RMT_PLATFORM_POSIX)
-
     return pthread_getspecific((pthread_key_t)handle);
+#endif
+}
 
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @MUTEX: Mutexes
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+#ifdef RMT_PLATFORM_WINDOWS
+typedef CRITICAL_SECTION rmtMutex;
+#else
+typedef pthread_mutex_t rmtMutex;
+#endif
+
+static void mtxInit(rmtMutex* mutex)
+{
+    assert(mutex != NULL);
+#if defined(RMT_PLATFORM_WINDOWS)
+    InitializeCriticalSection(mutex);
+#elif defined(RMT_PLATFORM_POSIX)
+    pthread_mutex_init(mutex, NULL);
+#endif
+}
+
+static void mtxLock(rmtMutex* mutex)
+{
+    assert(mutex != NULL);
+#if defined(RMT_PLATFORM_WINDOWS)
+    EnterCriticalSection(mutex);
+#elif defined(RMT_PLATFORM_POSIX)
+    pthread_mutex_lock(mutex);
+#endif
+}
+
+static void mtxUnlock(rmtMutex* mutex)
+{
+    assert(mutex != NULL);
+#if defined(RMT_PLATFORM_WINDOWS)
+    LeaveCriticalSection(mutex);
+#elif defined(RMT_PLATFORM_POSIX)
+    pthread_mutex_unlock(mutex);
+#endif
+}
+
+static void mtxDelete(rmtMutex* mutex)
+{
+    assert(mutex != NULL);
+#if defined(RMT_PLATFORM_WINDOWS)
+    DeleteCriticalSection(mutex);
+#elif defined(RMT_PLATFORM_POSIX)
+    pthread_mutex_destroy(mutex);
 #endif
 }
 
@@ -1175,236 +1207,6 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
-   @THREADS: Threads
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-typedef void* rmtThreadHandle;
-
-#ifdef RMT_PLATFORM_WINDOWS
-typedef CONTEXT rmtCpuContext;
-#else
-typedef int rmtCpuContext;
-#endif
-
-typedef struct Thread_t rmtThread;
-typedef rmtError (*ThreadProc)(rmtThread* thread);
-
-struct Thread_t
-{
-// OS-specific data
-#if defined(RMT_PLATFORM_WINDOWS)
-    HANDLE handle;
-#else
-    pthread_t handle;
-#endif
-
-    // Callback executed when the thread is created
-    ThreadProc callback;
-
-    // Caller-specified parameter passed to Thread_Create
-    void* param;
-
-    // Error state returned from callback
-    rmtError error;
-
-    // External threads can set this to request an exit
-    volatile rmtBool request_exit;
-};
-
-#if defined(RMT_PLATFORM_WINDOWS)
-
-static DWORD WINAPI ThreadProcWindows(LPVOID lpParameter)
-{
-    rmtThread* thread = (rmtThread*)lpParameter;
-    assert(thread != NULL);
-    thread->error = thread->callback(thread);
-    return thread->error == RMT_ERROR_NONE ? 0 : 1;
-}
-
-#else
-static void* StartFunc(void* pArgs)
-{
-    rmtThread* thread = (rmtThread*)pArgs;
-    assert(thread != NULL);
-    thread->error = thread->callback(thread);
-    return NULL; // returned error not use, check thread->error.
-}
-#endif
-
-static int rmtThread_Valid(rmtThread* thread)
-{
-    assert(thread != NULL);
-
-#if defined(RMT_PLATFORM_WINDOWS)
-    return thread->handle != NULL;
-#else
-    return !pthread_equal(thread->handle, pthread_self());
-#endif
-}
-
-static rmtError rmtThread_Constructor(rmtThread* thread, ThreadProc callback, void* param)
-{
-    assert(thread != NULL);
-
-    thread->callback = callback;
-    thread->param = param;
-    thread->error = RMT_ERROR_NONE;
-    thread->request_exit = RMT_FALSE;
-
-    // OS-specific thread creation
-
-#if defined(RMT_PLATFORM_WINDOWS)
-
-    thread->handle = CreateThread(NULL,              // lpThreadAttributes
-                                  0,                 // dwStackSize
-                                  ThreadProcWindows, // lpStartAddress
-                                  thread,            // lpParameter
-                                  0,                 // dwCreationFlags
-                                  NULL);             // lpThreadId
-
-    if (thread->handle == NULL)
-        return RMT_ERROR_CREATE_THREAD_FAIL;
-
-#else
-
-    int32_t error = pthread_create(&thread->handle, NULL, StartFunc, thread);
-    if (error)
-    {
-        // Contents of 'thread' parameter to pthread_create() are undefined after
-        // failure call so can't pre-set to invalid value before hand.
-        thread->handle = pthread_self();
-        return RMT_ERROR_CREATE_THREAD_FAIL;
-    }
-
-#endif
-
-    return RMT_ERROR_NONE;
-}
-
-static void rmtThread_RequestExit(rmtThread* thread)
-{
-    // Not really worried about memory barriers or delayed visibility to the target thread
-    assert(thread != NULL);
-    thread->request_exit = RMT_TRUE;
-}
-
-static void rmtThread_Join(rmtThread* thread)
-{
-    assert(rmtThread_Valid(thread));
-
-#if defined(RMT_PLATFORM_WINDOWS)
-    WaitForSingleObject(thread->handle, INFINITE);
-#else
-    pthread_join(thread->handle, NULL);
-#endif
-}
-
-static void rmtThread_Destructor(rmtThread* thread)
-{
-    assert(thread != NULL);
-
-    if (rmtThread_Valid(thread))
-    {
-        // Shutdown the thread
-        rmtThread_RequestExit(thread);
-        rmtThread_Join(thread);
-
-        // OS-specific release of thread resources
-
-#if defined(RMT_PLATFORM_WINDOWS)
-        CloseHandle(thread->handle);
-        thread->handle = NULL;
-#endif
-    }
-}
-
-static rmtU32 rmtGetNbProcessors()
-{
-#ifdef RMT_PLATFORM_WINDOWS
-    SYSTEM_INFO system_info;
-    GetSystemInfo(&system_info);
-    return system_info.dwNumberOfProcessors;
-#else
-    // TODO: get_nprocs_conf / get_nprocs
-    return 0;
-#endif
-}
-
-static rmtU32 rmtGetCurrentThreadId()
-{
-#ifdef RMT_PLATFORM_WINDOWS
-    return GetCurrentThreadId();
-#else
-    return 0;
-#endif
-}
-
-static rmtBool rmtSuspendThread(rmtThreadHandle thread_handle)
-{
-#ifdef RMT_PLATFORM_WINDOWS
-    // SuspendThread is an async call to the scheduler and upon return the thread is not guaranteed to be suspended.
-    // Calling GetThreadContext will serialise that.
-    // See: https://github.com/mono/mono/blob/master/mono/utils/mono-threads-windows.c#L203
-    return SuspendThread(thread_handle) == 0 ? RMT_TRUE : RMT_FALSE;
-#else
-    return RMT_FALSE;
-#endif
-}
-
-static void rmtResumeThread(rmtThreadHandle thread_handle)
-{
-#ifdef RMT_PLATFORM_WINDOWS
-    ResumeThread(thread_handle);
-#endif
-}
-
-#ifdef RMT_PLATFORM_WINDOWS
-#ifndef CONTEXT_EXCEPTION_REQUEST
-// These seem to be guarded by a _AMD64_ macro in winnt.h, which doesn't seem to be defined in older MSVC compilers.
-// Which makes sense given this was a post-Vista/Windows 7 patch around errors in the WoW64 context switch.
-// This bug was never fixed in the OS so defining these will only get this code to compile on Old Windows systems, with no
-// guarantee of being stable at runtime.
-#define CONTEXT_EXCEPTION_ACTIVE 0x8000000L
-#define CONTEXT_SERVICE_ACTIVE 0x10000000L
-#define CONTEXT_EXCEPTION_REQUEST 0x40000000L
-#define CONTEXT_EXCEPTION_REPORTING 0x80000000L
-#endif
-#endif
-
-static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context)
-{
-#ifdef RMT_PLATFORM_WINDOWS
-    DWORD kernel_mode_mask;
-
-    // Request thread context with exception reporting
-    context->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_EXCEPTION_REQUEST;
-    if (GetThreadContext(thread, context) == 0)
-    {
-        return RMT_FALSE;
-    }
-
-    // Context on WoW64 is only valid and can only be set if the thread isn't in kernel mode
-    // Typical reference to this appears to be: http://zachsaw.blogspot.com/2010/11/wow64-bug-getthreadcontext-may-return.html
-    // Confirmed by MS here: https://social.msdn.microsoft.com/Forums/vstudio/en-US/aa176c36-6624-4776-9380-1c9cf37a314e/getthreadcontext-returns-stale-register-values-on-wow64?forum=windowscompatibility
-    kernel_mode_mask = CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE | CONTEXT_SERVICE_ACTIVE;
-    return (context->ContextFlags & kernel_mode_mask) == CONTEXT_EXCEPTION_REPORTING ? RMT_TRUE : RMT_FALSE;
-#else
-    return RMT_FALSE;
-#endif
-}
-
-static void rmtSetThreadContext(rmtThreadHandle thread_handle, rmtCpuContext* context)
-{
-#ifdef RMT_PLATFORM_WINDOWS
-    SetThreadContext(thread_handle, context);
-#endif
-}
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
    @SAFEC: Safe C Library excerpts
    http://sourceforge.net/projects/safeclib/
 ------------------------------------------------------------------------------------------------------------------------
@@ -1862,6 +1664,388 @@ static const char* itoa_s(rmtS32 value)
 }
 
 #endif
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @OSTHREADS: Wrappers around OS-specific thread functions
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+typedef rmtU32 rmtThreadId;
+
+#ifdef RMT_PLATFORM_WINDOWS
+typedef HANDLE rmtThreadHandle;
+#else
+typedef pthread_t rmtThreadHandle
+#endif
+
+#ifdef RMT_PLATFORM_WINDOWS
+typedef CONTEXT rmtCpuContext;
+#else
+typedef int rmtCpuContext;
+#endif
+
+static rmtU32 rmtGetNbProcessors()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return system_info.dwNumberOfProcessors;
+#else
+    // TODO: get_nprocs_conf / get_nprocs
+    return 0;
+#endif
+}
+
+static rmtThreadId rmtGetCurrentThreadId()
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    return GetCurrentThreadId();
+#else
+    return 0;
+#endif
+}
+
+static rmtBool rmtSuspendThread(rmtThreadHandle thread_handle)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    // SuspendThread is an async call to the scheduler and upon return the thread is not guaranteed to be suspended.
+    // Calling GetThreadContext will serialise that.
+    // See: https://github.com/mono/mono/blob/master/mono/utils/mono-threads-windows.c#L203
+    return SuspendThread(thread_handle) == 0 ? RMT_TRUE : RMT_FALSE;
+#else
+    return RMT_FALSE;
+#endif
+}
+
+static void rmtResumeThread(rmtThreadHandle thread_handle)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    ResumeThread(thread_handle);
+#endif
+}
+
+#ifdef RMT_PLATFORM_WINDOWS
+#ifndef CONTEXT_EXCEPTION_REQUEST
+// These seem to be guarded by a _AMD64_ macro in winnt.h, which doesn't seem to be defined in older MSVC compilers.
+// Which makes sense given this was a post-Vista/Windows 7 patch around errors in the WoW64 context switch.
+// This bug was never fixed in the OS so defining these will only get this code to compile on Old Windows systems, with no
+// guarantee of being stable at runtime.
+#define CONTEXT_EXCEPTION_ACTIVE 0x8000000L
+#define CONTEXT_SERVICE_ACTIVE 0x10000000L
+#define CONTEXT_EXCEPTION_REQUEST 0x40000000L
+#define CONTEXT_EXCEPTION_REPORTING 0x80000000L
+#endif
+#endif
+
+static rmtBool rmtGetUserModeThreadContext(rmtThreadHandle thread, rmtCpuContext* context)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    DWORD kernel_mode_mask;
+
+    // Request thread context with exception reporting
+    context->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_EXCEPTION_REQUEST;
+    if (GetThreadContext(thread, context) == 0)
+    {
+        return RMT_FALSE;
+    }
+
+    // Context on WoW64 is only valid and can only be set if the thread isn't in kernel mode
+    // Typical reference to this appears to be: http://zachsaw.blogspot.com/2010/11/wow64-bug-getthreadcontext-may-return.html
+    // Confirmed by MS here: https://social.msdn.microsoft.com/Forums/vstudio/en-US/aa176c36-6624-4776-9380-1c9cf37a314e/getthreadcontext-returns-stale-register-values-on-wow64?forum=windowscompatibility
+    kernel_mode_mask = CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE | CONTEXT_SERVICE_ACTIVE;
+    return (context->ContextFlags & kernel_mode_mask) == CONTEXT_EXCEPTION_REPORTING ? RMT_TRUE : RMT_FALSE;
+#else
+    return RMT_FALSE;
+#endif
+}
+
+static void rmtSetThreadContext(rmtThreadHandle thread_handle, rmtCpuContext* context)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    SetThreadContext(thread_handle, context);
+#endif
+}
+
+static rmtThreadHandle rmtOpenThreadHandle(rmtThreadId thread_id)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    // Open the thread with required access rights to get the thread handle
+    return OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME | THREAD_SET_CONTEXT | THREAD_GET_CONTEXT, FALSE, thread_id);
+#endif
+}
+
+static void rmtCloseThreadHandle(rmtThreadHandle thread_handle)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    CloseHandle(thread_handle);
+#endif
+}
+
+#ifdef RMT_PLATFORM_WINDOWS
+DWORD_PTR GetThreadStartAddress(rmtThreadHandle thread_handle)
+{
+    // Get NtQueryInformationThread from ntdll
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (ntdll != NULL)
+    {
+        typedef NTSTATUS (WINAPI *NTQUERYINFOMATIONTHREAD)(HANDLE, LONG, PVOID, ULONG, PULONG);
+        NTQUERYINFOMATIONTHREAD NtQueryInformationThread = (NTQUERYINFOMATIONTHREAD)GetProcAddress(ntdll, "NtQueryInformationThread");
+
+        // Use it to query the start address
+        DWORD_PTR start_address;
+        NTSTATUS status = NtQueryInformationThread(thread_handle, 9, &start_address, sizeof(DWORD), NULL);
+        if (status == 0)
+        {
+            return start_address;
+        }
+    }
+
+    return 0;
+}
+ 
+const char* GetStartAddressModuleName(DWORD_PTR start_address)
+{
+    BOOL success;
+    MODULEENTRY32 module_entry;
+ 
+    // Snapshot the modules
+    HANDLE handle = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        return NULL;
+    }
+
+    module_entry.dwSize = sizeof(MODULEENTRY32);
+    module_entry.th32ModuleID = 1;
+
+    // Enumerate modules checking start address against their loaded address range
+    success = Module32First(handle, &module_entry);
+    while (success == TRUE)
+    {
+        if (start_address >= (DWORD_PTR)module_entry.modBaseAddr && start_address <= ((DWORD_PTR)module_entry.modBaseAddr + module_entry.modBaseSize))
+        {
+            static char name[256];
+            strcpy_s(name, sizeof(name), module_entry.szModule);
+            CloseHandle(handle);
+            return name;
+        }
+
+        success = Module32Next(handle, &module_entry);
+    }
+ 
+    CloseHandle(handle);
+
+    return NULL;
+}
+#endif
+
+static void rmtGetThreadNameFallback(char* out_thread_name, rmtU32 thread_name_size)
+{
+    // In cases where we can't get a thread name from the OS
+    static rmtS32 countThreads = 0;
+    out_thread_name[0] = 0;
+    strncat_s(out_thread_name, thread_name_size, "Thread", 6);
+    itoahex_s(out_thread_name + 6, thread_name_size - 6, AtomicAdd(&countThreads, 1));
+}
+
+static void rmtGetThreadName(rmtThreadId thread_id, rmtThreadHandle thread_handle, char* out_thread_name, rmtU32 thread_name_size)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+    DWORD_PTR address;
+    const char* module_name;
+    rmtU32 len;
+
+    // Use the new Windows 10 GetThreadDescription function
+    HMODULE kernel32 = GetModuleHandleA("Kernel32.dll");
+    if (kernel32 != NULL)
+    {
+        typedef HRESULT(WINAPI* GETTHREADDESCRIPTION)(HANDLE hThread, PWSTR *ppszThreadDescription);
+        GETTHREADDESCRIPTION GetThreadDescription = (GETTHREADDESCRIPTION)GetProcAddress(kernel32, "GetThreadDescription");
+        if (GetThreadDescription != NULL)
+        {
+            int size;
+
+            WCHAR* thread_name_w;
+            GetThreadDescription(thread_handle, &thread_name_w);
+
+            // Returned size is the byte size, so will be 1 for a null-terminated strings
+            size = WideCharToMultiByte(CP_ACP, 0, thread_name_w, -1, out_thread_name, thread_name_size, NULL, NULL);
+            if (size > 1)
+            {
+                return;
+            }
+        }
+    }
+
+    // At this point GetThreadDescription hasn't returned anything so let's get the thread module name and use that
+    address = GetThreadStartAddress(thread_handle);
+    if (address == 0)
+    {
+        rmtGetThreadNameFallback(out_thread_name, thread_name_size);
+        return;
+    }
+    module_name = GetStartAddressModuleName(address);
+    if (module_name == NULL)
+    {
+        rmtGetThreadNameFallback(out_thread_name, thread_name_size);
+        return;
+    }
+
+    // Concatenate thread name with then thread ID as that will be unique, whereas the start address won't be
+    memset(out_thread_name, 0, thread_name_size);
+    strcpy_s(out_thread_name, thread_name_size, module_name);
+    strncat_s(out_thread_name, thread_name_size, "!", 1);
+    len = strlen(out_thread_name);
+    itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
+
+#elif defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES && !defined(__FreeBSD__) && !defined(__OpenBSD__)
+
+    prctl(PR_GET_NAME, out_thread_name, 0, 0, 0);
+
+#else
+
+    rmtGetThreadNameFallback(out_thread_name, thread_name_size);
+
+#endif
+}
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @THREADS: Cross-platform thread object
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+typedef struct Thread_t rmtThread;
+typedef rmtError (*ThreadProc)(rmtThread* thread);
+
+struct Thread_t
+{
+    rmtThreadHandle handle;
+
+    // Callback executed when the thread is created
+    ThreadProc callback;
+
+    // Caller-specified parameter passed to Thread_Create
+    void* param;
+
+    // Error state returned from callback
+    rmtError error;
+
+    // External threads can set this to request an exit
+    volatile rmtBool request_exit;
+};
+
+#if defined(RMT_PLATFORM_WINDOWS)
+
+static DWORD WINAPI ThreadProcWindows(LPVOID lpParameter)
+{
+    rmtThread* thread = (rmtThread*)lpParameter;
+    assert(thread != NULL);
+    thread->error = thread->callback(thread);
+    return thread->error == RMT_ERROR_NONE ? 0 : 1;
+}
+
+#else
+static void* StartFunc(void* pArgs)
+{
+    rmtThread* thread = (rmtThread*)pArgs;
+    assert(thread != NULL);
+    thread->error = thread->callback(thread);
+    return NULL; // returned error not use, check thread->error.
+}
+#endif
+
+static int rmtThread_Valid(rmtThread* thread)
+{
+    assert(thread != NULL);
+
+#if defined(RMT_PLATFORM_WINDOWS)
+    return thread->handle != NULL;
+#else
+    return !pthread_equal(thread->handle, pthread_self());
+#endif
+}
+
+static rmtError rmtThread_Constructor(rmtThread* thread, ThreadProc callback, void* param)
+{
+    assert(thread != NULL);
+
+    thread->callback = callback;
+    thread->param = param;
+    thread->error = RMT_ERROR_NONE;
+    thread->request_exit = RMT_FALSE;
+
+    // OS-specific thread creation
+
+#if defined(RMT_PLATFORM_WINDOWS)
+
+    thread->handle = CreateThread(NULL,              // lpThreadAttributes
+                                  0,                 // dwStackSize
+                                  ThreadProcWindows, // lpStartAddress
+                                  thread,            // lpParameter
+                                  0,                 // dwCreationFlags
+                                  NULL);             // lpThreadId
+
+    if (thread->handle == NULL)
+        return RMT_ERROR_CREATE_THREAD_FAIL;
+
+#else
+
+    int32_t error = pthread_create(&thread->handle, NULL, StartFunc, thread);
+    if (error)
+    {
+        // Contents of 'thread' parameter to pthread_create() are undefined after
+        // failure call so can't pre-set to invalid value before hand.
+        thread->handle = pthread_self();
+        return RMT_ERROR_CREATE_THREAD_FAIL;
+    }
+
+#endif
+
+    return RMT_ERROR_NONE;
+}
+
+static void rmtThread_RequestExit(rmtThread* thread)
+{
+    // Not really worried about memory barriers or delayed visibility to the target thread
+    assert(thread != NULL);
+    thread->request_exit = RMT_TRUE;
+}
+
+static void rmtThread_Join(rmtThread* thread)
+{
+    assert(rmtThread_Valid(thread));
+
+#if defined(RMT_PLATFORM_WINDOWS)
+    WaitForSingleObject(thread->handle, INFINITE);
+#else
+    pthread_join(thread->handle, NULL);
+#endif
+}
+
+static void rmtThread_Destructor(rmtThread* thread)
+{
+    assert(thread != NULL);
+
+    if (rmtThread_Valid(thread))
+    {
+        // Shutdown the thread
+        rmtThread_RequestExit(thread);
+        rmtThread_Join(thread);
+
+        // OS-specific release of thread resources
+
+#if defined(RMT_PLATFORM_WINDOWS)
+        CloseHandle(thread->handle);
+        thread->handle = NULL;
+#endif
+    }
+}
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -3716,7 +3900,7 @@ typedef struct Message
     rmtU32 payload_size;
 
     // For telling which thread the message came from in the debugger
-    struct ThreadSampler* thread_sampler;
+    struct ThreadProfiler* threadProfiler;
 
     rmtU8 payload[1];
 } Message;
@@ -3780,7 +3964,7 @@ static rmtU32 rmtMessageQueue_SizeForPayload(rmtU32 payload_size)
 }
 
 static Message* rmtMessageQueue_AllocMessage(rmtMessageQueue* queue, rmtU32 payload_size,
-                                             struct ThreadSampler* thread_sampler)
+                                             struct ThreadProfiler* thread_profiler)
 {
     Message* msg;
 
@@ -3807,7 +3991,7 @@ static Message* rmtMessageQueue_AllocMessage(rmtMessageQueue* queue, rmtU32 payl
         {
             // Safe to set payload size after thread claims ownership of this allocated range
             msg->payload_size = payload_size;
-            msg->thread_sampler = thread_sampler;
+            msg->threadProfiler = thread_profiler;
             break;
         }
     }
@@ -4453,12 +4637,12 @@ typedef struct Msg_SampleTree
 } Msg_SampleTree;
 
 static void QueueSampleTree(rmtMessageQueue* queue, Sample* sample, ObjectAllocator* allocator, rmtPStr thread_name,
-                            struct ThreadSampler* thread_sampler)
+                            struct ThreadProfiler* thread_profiler)
 {
     Msg_SampleTree* payload;
 
     // Attempt to allocate a message for sending the tree to the viewer
-    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_SampleTree), thread_sampler);
+    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_SampleTree), thread_profiler);
     if (message == NULL)
     {
         // Discard the tree on failure
@@ -4480,13 +4664,13 @@ typedef struct Msg_AddToStringTable
     rmtU32 length;
 } Msg_AddToStringTable;
 
-static rmtBool QueueAddToStringTable(rmtMessageQueue* queue, rmtU32 hash, const char* string, size_t length, struct ThreadSampler* thread_sampler)
+static rmtBool QueueAddToStringTable(rmtMessageQueue* queue, rmtU32 hash, const char* string, size_t length, struct ThreadProfiler* thread_profiler)
 {
     Msg_AddToStringTable* payload;
 
     // Attempt to allocate a message om the queue
     size_t nb_string_bytes = length + 1;
-    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_AddToStringTable) + nb_string_bytes, thread_sampler);
+    Message* message = rmtMessageQueue_AllocMessage(queue, sizeof(Msg_AddToStringTable) + nb_string_bytes, thread_profiler);
     if (message == NULL)
     {
         return RMT_FALSE;
@@ -4505,7 +4689,7 @@ static rmtBool QueueAddToStringTable(rmtMessageQueue* queue, rmtU32 hash, const 
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
-   @TSAMPLER: Per-Thread Sampler
+   @TPROFILER: Thread Profiler data, storing both sampling and instrumentation results
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
 */
@@ -4516,88 +4700,136 @@ static rmtError D3D11_Create(D3D11** d3d11);
 static void D3D11_Destructor(D3D11* d3d11);
 #endif
 
-typedef struct ThreadSampler
+typedef struct ThreadProfiler
 {
-    // Name to assign to the thread in the viewer
-    rmtS8 name[256];
+    // Storage for backing up initial register values when modifying a thread's context
+    rmtU64 registerBackup0;                                                                         // 0
+    rmtU64 registerBackup1;                                                                         // 8
+    
+    // Used to schedule callbacks taking into account some threads may be sleeping
+    rmtS32 nbSamplesWithoutCallback;                                                                // 12
+
+    // Index of the processor the thread was last seen running on
+    rmtU32 processorIndex;                                                                          // 16
+    rmtU32 lastProcessorIndex;
+
+    // OS thread ID/handle
+    rmtThreadId threadId;
+    rmtThreadHandle threadHandle;
+
+    // Thread name stored for sending to the viewer
+    char threadName[64];
+    rmtU32 threadNameHash;
 
     // Store a unique sample tree for each type
-    SampleTree* sample_trees[SampleType_Count];
+    SampleTree* sampleTrees[SampleType_Count];
 
 #if RMT_USE_D3D11
     D3D11* d3d11;
 #endif
+} ThreadProfiler;
 
-    // Next in the global list of active thread samplers
-    struct ThreadSampler* volatile next;
-
-} ThreadSampler;
-
-static rmtError ThreadSampler_Constructor(ThreadSampler* thread_sampler)
+static rmtError QueueThreadName(rmtMessageQueue* queue, const char* name, ThreadProfiler* thread_profiler)
 {
-    rmtError error;
-    int i;
+    Message* message;
+    rmtU32 name_length;
 
-    assert(thread_sampler != NULL);
+    assert(queue != NULL);
+
+    // Allocate some space for the message
+    name_length = strnlen_s(name, 64);
+    message = rmtMessageQueue_AllocMessage(queue, sizeof(rmtU32) * 2 + name_length, thread_profiler);
+    if (message == NULL)
+    {
+        return RMT_ERROR_UNKNOWN;
+    }
+
+    // Copy and commit
+    U32ToByteArray(message->payload, MurmurHash3_x86_32(name, name_length, 0));
+    U32ToByteArray(message->payload + sizeof(rmtU32), name_length);
+    memcpy(message->payload + sizeof(rmtU32) * 2, name, name_length);
+    rmtMessageQueue_CommitMessage(message, MsgID_ThreadName);
+
+    return RMT_ERROR_NONE;
+}
+
+static rmtError ThreadProfiler_Constructor(rmtMessageQueue* mq_to_rmt, ThreadProfiler* thread_profiler, rmtThreadId thread_id)
+{
+    rmtU32 name_length;
+    rmtError error;
 
     // Set defaults
-    for (i = 0; i < SampleType_Count; i++)
-        thread_sampler->sample_trees[i] = NULL;
-    thread_sampler->next = NULL;
+    thread_profiler->nbSamplesWithoutCallback = 0;
+    thread_profiler->processorIndex = (rmtU32)-1;
+    thread_profiler->lastProcessorIndex = (rmtU32)-1;
+    thread_profiler->threadId = thread_id;
+    thread_profiler->threadHandle = NULL;
+    memset(thread_profiler->sampleTrees, 0, sizeof(thread_profiler->sampleTrees));
+
 #if RMT_USE_D3D11
-    thread_sampler->d3d11 = NULL;
+    thread_profiler->d3d11 = NULL;
 #endif
 
-    // Set the initial name to Thread0 etc. or use the existing Linux name.
-    thread_sampler->name[0] = 0;
-#if defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES && !defined(__FreeBSD__) && !defined(__OpenBSD__)
-    prctl(PR_GET_NAME, thread_sampler->name, 0, 0, 0);
-#else
+    // Pre-open the thread handle
+    thread_profiler->threadHandle = rmtOpenThreadHandle(thread_id);
+    if (thread_profiler->threadHandle == NULL)
     {
-        static rmtS32 countThreads = 0;
-        strncat_s(thread_sampler->name, sizeof(thread_sampler->name), "Thread", 6);
-        itoahex_s(thread_sampler->name + 6, sizeof(thread_sampler->name) - 6, AtomicAdd(&countThreads, 1));
+        return RMT_ERROR_OPEN_THREAD_HANDLE_FAIL;
     }
-#endif
 
-    // Create the CPU sample tree only - the rest are created on-demand as they need
-    // extra context information to function correctly.
-    New_3(SampleTree, thread_sampler->sample_trees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor,
+    // Name the thread and send a thread name notification immediately
+    // Users can override this at a later point with the Remotery thread name API
+    rmtGetThreadName(thread_id, thread_profiler->threadHandle, thread_profiler->threadName, sizeof(thread_profiler->threadName));
+    name_length = strnlen_s(thread_profiler->threadName, 64);
+    thread_profiler->threadNameHash = MurmurHash3_x86_32(thread_profiler->threadName, name_length, 0);
+    QueueThreadName(mq_to_rmt, thread_profiler->threadName, thread_profiler);
+
+    // Create the CPU sample tree only. The rest are created on-demand as they need extra context to function correctly.
+    New_3(SampleTree, thread_profiler->sampleTrees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor,
           (ObjDestructor)Sample_Destructor);
     if (error != RMT_ERROR_NONE)
+    {
         return error;
+    }
 
 #if RMT_USE_D3D11
-    error = D3D11_Create(&thread_sampler->d3d11);
+    error = D3D11_Create(&thread_profiler->d3d11);
     if (error != RMT_ERROR_NONE)
+    {
         return error;
+    }
 #endif
 
     return RMT_ERROR_NONE;
 }
 
-static void ThreadSampler_Destructor(ThreadSampler* ts)
+static void ThreadProfiler_Destructor(ThreadProfiler* thread_profiler)
 {
-    int i;
-
-    assert(ts != NULL);
+    rmtU32 index;
 
 #if RMT_USE_D3D11
-    Delete(D3D11, ts->d3d11);
+    Delete(D3D11, thread_profiler->d3d11);
 #endif
 
-    for (i = 0; i < SampleType_Count; i++)
-        Delete(SampleTree, ts->sample_trees[i]);
+    for (index = 0; index < SampleType_Count; index++)
+    {
+        Delete(SampleTree, thread_profiler->sampleTrees[index]);
+    }
+
+    if (thread_profiler->threadHandle != NULL)
+    {
+        rmtCloseThreadHandle(thread_profiler->threadHandle);
+    }
 }
 
-static rmtError ThreadSampler_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags, Sample** sample)
+static rmtError ThreadProfiler_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags, Sample** sample)
 {
     return SampleTree_Push(tree, name_hash, flags, sample);
 }
 
-static rmtBool ThreadSampler_Pop(ThreadSampler* ts, rmtMessageQueue* queue, Sample* sample)
+static rmtBool ThreadProfiler_Pop(ThreadProfiler* thread_profiler, rmtMessageQueue* queue, Sample* sample)
 {
-    SampleTree* tree = ts->sample_trees[sample->type];
+    SampleTree* tree = thread_profiler->sampleTrees[sample->type];
     SampleTree_Pop(tree, sample);
 
     // Are we back at the root?
@@ -4608,7 +4840,7 @@ static rmtBool ThreadSampler_Pop(ThreadSampler* ts, rmtMessageQueue* queue, Samp
         root->first_child = NULL;
         root->last_child = NULL;
         root->nb_children = 0;
-        QueueSampleTree(queue, sample, tree->allocator, ts->name, ts);
+        QueueSampleTree(queue, sample, tree->allocator, thread_profiler->threadName, thread_profiler);
 
         return RMT_TRUE;
     }
@@ -4616,7 +4848,7 @@ static rmtBool ThreadSampler_Pop(ThreadSampler* ts, rmtMessageQueue* queue, Samp
     return RMT_FALSE;
 }
 
-static rmtU32 ThreadSampler_GetNameHash(ThreadSampler* ts, rmtMessageQueue* queue, rmtPStr name, rmtU32* hash_cache)
+static rmtU32 ThreadProfiler_GetNameHash(ThreadProfiler* thread_profiler, rmtMessageQueue* queue, rmtPStr name, rmtU32* hash_cache)
 {
     size_t name_len;
     rmtU32 name_hash;
@@ -4633,7 +4865,7 @@ static rmtU32 ThreadSampler_GetNameHash(ThreadSampler* ts, rmtMessageQueue* queu
             name_hash = MurmurHash3_x86_32(name, name_len, 0);
 
             // Queue the string for the string table and only cache the hash if it succeeds
-            if (QueueAddToStringTable(queue, name_hash, name, name_len, ts) == RMT_TRUE)
+            if (QueueAddToStringTable(queue, name_hash, name, name_len, thread_profiler) == RMT_TRUE)
             {
                 *hash_cache = name_hash;
             }
@@ -4645,208 +4877,197 @@ static rmtU32 ThreadSampler_GetNameHash(ThreadSampler* ts, rmtMessageQueue* queu
     // Have to recalculate and speculatively insert the name every time when no cache storage exists
     name_len = strnlen_s(name, 256);
     name_hash = MurmurHash3_x86_32(name, name_len, 0);
-    QueueAddToStringTable(queue, name_hash, name, name_len, ts);
+    QueueAddToStringTable(queue, name_hash, name, name_len, thread_profiler);
     return name_hash;
 }
 
-
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-   @TWATCHER: Thread Watcher
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-typedef struct WatchedThread
-{
-    // Storage for backing up initial register values when modifying a thread's context
-    rmtU64 registerBackup0;                                                                         // 0
-    rmtU64 registerBackup1;                                                                         // 8
-
-    // Used to schedule callbacks taking into account some threads may be sleeping
-    rmtS32 nbSamplesWithoutCallback;                                                                // 16
-    
-    // Index of the processor the thread was last seen running on
-    rmtU32 processorIndex;                                                                          // 20
-    rmtU32 lastProcessorIndex;
-
-    // OS thread ID/handle
-    rmtU32 threadId;
-    rmtThreadHandle threadHandle;
-
-    // Thread name stored for sending to the viewer
-    char threadName[64];
-    rmtU32 threadNameHash;
-} WatchedThread;
-
-typedef struct ThreadWatcher
+typedef struct ThreadProfilers
 {
     // Timer shared with Remotery threads
     usTimer* timer;
 
     // Queue between clients and main remotery thread
     rmtMessageQueue* mqToRmtThread;
-
+    
     // On x64 machines this points to the sample function
     void* compiledSampleFn;
+    
+    // Used to store thread profilers bound to an OS thread
+    rmtTLS threadProfilerTlsHandle;
 
-    // Array of Watched Threads that the thread gatherer has authority over
-    WatchedThread watchedThreads[256];
-    rmtU32 nbWatchedThreads;
-    rmtU32 maxNbWatchedThreads;
+    // Array of preallocated ThreadProfiler objects
+    // Read iteration is safe given that no incomplete ThreadProfiler objects will be encountered during iteration.
+    // The ThreadProfiler count is only incremented once a new ThreadProfiler is fully defined and ready to be used.
+    // Do not use this list to verify if a ThreadProfiler exists for a given thread. Use the mutex-guarded Get functions instead.
+    ThreadProfiler threadProfilers[256];
+    rmtU32 nbThreadProfilers;
+    rmtU32 maxNbThreadProfilers;
+
+    // Guards creation and existence-testing of the ThreadProfiler list
+    rmtMutex threadProfilerMutex;
 
     // Periodic thread sampling thread
     rmtThread* threadSampleThread;
 
     // Periodic thread to processor gatherer
     rmtThread* threadGatherThread;
-} ThreadWatcher;
+} ThreadProfilers;
+
+static rmtError SampleThreadsLoop(rmtThread* rmt_thread);
+
+static rmtError ThreadProfilers_Constructor(ThreadProfilers* thread_profilers, usTimer* timer, rmtMessageQueue* mq_to_rmt_thread)
+{
+    rmtError error;
+
+    // Set to default
+    thread_profilers->timer = timer;
+    thread_profilers->mqToRmtThread = mq_to_rmt_thread;
+    thread_profilers->compiledSampleFn = NULL;
+    thread_profilers->threadProfilerTlsHandle = TLS_INVALID_HANDLE;
+    thread_profilers->nbThreadProfilers = 0;
+    thread_profilers->maxNbThreadProfilers = sizeof(thread_profilers->threadProfilers) / sizeof(thread_profilers->threadProfilers[0]);
+    mtxInit(&thread_profilers->threadProfilerMutex);
+    thread_profilers->threadSampleThread = NULL;
+    thread_profilers->threadGatherThread = NULL;
 
 #ifdef RMT_PLATFORM_WINDOWS
-
-DWORD_PTR GetThreadStartAddress(rmtThreadHandle thread_handle)
-{
-    // Get NtQueryInformationThread from ntdll
-    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
-    if (ntdll != NULL)
+#ifdef RMT_ARCH_64BIT
     {
-        typedef NTSTATUS (WINAPI *NTQUERYINFOMATIONTHREAD)(HANDLE, LONG, PVOID, ULONG, PULONG);
-        NTQUERYINFOMATIONTHREAD NtQueryInformationThread = (NTQUERYINFOMATIONTHREAD)GetProcAddress(ntdll, "NtQueryInformationThread");
-
-        // Use it to query the start address
-        DWORD_PTR start_address;
-        NTSTATUS status = NtQueryInformationThread(thread_handle, 9, &start_address, sizeof(DWORD), NULL);
-        if (status == 0)
+        // Allocate and copy to executable space for the 64-bit compiled sample function
+        DWORD old_protect;
+        thread_profilers->compiledSampleFn = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (thread_profilers->compiledSampleFn == NULL)
         {
-            return start_address;
+            return RMT_ERROR_MALLOC_FAIL;
         }
+        memcpy(thread_profilers->compiledSampleFn, SampleCallbackBytes, sizeof(SampleCallbackBytes));
+        VirtualProtect(thread_profilers->compiledSampleFn, 4096, PAGE_EXECUTE_READ, &old_protect);
     }
-
-    return 0;
-}
- 
-const char* GetStartAddressModuleName(DWORD_PTR start_address)
-{
-    BOOL success;
-    MODULEENTRY32 module_entry;
- 
-    // Snapshot the modules
-    HANDLE handle = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
-    if (handle == INVALID_HANDLE_VALUE)
-    {
-        return NULL;
-    }
-
-    module_entry.dwSize = sizeof(MODULEENTRY32);
-    module_entry.th32ModuleID = 1;
-
-    // Enumerate modules checking start address against their loaded address range
-    success = Module32First(handle, &module_entry);
-    while (success == TRUE)
-    {
-        if (start_address >= (DWORD_PTR)module_entry.modBaseAddr && start_address <= ((DWORD_PTR)module_entry.modBaseAddr + module_entry.modBaseSize))
-        {
-            static char name[256];
-            strcpy_s(name, sizeof(name), module_entry.szModule);
-            CloseHandle(handle);
-            return name;
-        }
-
-        success = Module32Next(handle, &module_entry);
-    }
- 
-    CloseHandle(handle);
-
-    return NULL;
-}
+#endif
 #endif
 
-
-static rmtBool rmtGetThreadName(rmtU32 thread_id, rmtThreadHandle thread_handle, char* out_thread_name, rmtU32 thread_name_size)
-{
-#ifdef RMT_PLATFORM_WINDOWS
-    DWORD_PTR address;
-    const char* module_name;
-    rmtU32 len;
-
-    // Use the new Windows 10 GetThreadDescription function
-    HMODULE kernel32 = GetModuleHandleA("Kernel32.dll");
-    if (kernel32 != NULL)
+    // Allocate a TLS handle for the thread profilers
+    error = tlsAlloc(&thread_profilers->threadProfilerTlsHandle);
+    if (error != RMT_ERROR_NONE)
     {
-        typedef HRESULT(WINAPI* GETTHREADDESCRIPTION)(HANDLE hThread, PWSTR *ppszThreadDescription);
-        GETTHREADDESCRIPTION GetThreadDescription = (GETTHREADDESCRIPTION)GetProcAddress(kernel32, "GetThreadDescription");
-        if (GetThreadDescription != NULL)
-        {
-            int size;
-
-            WCHAR* thread_name_w;
-            GetThreadDescription(thread_handle, &thread_name_w);
-
-            // Returned size is the byte size, so will be 1 for a null-terminated strings
-            size = WideCharToMultiByte(CP_ACP, 0, thread_name_w, -1, out_thread_name, thread_name_size, NULL, NULL);
-            if (size > 1)
-            {
-                return RMT_TRUE;
-            }
-        }
+        return error;
     }
 
-    // At this point GetThreadDescription hasn't returned anything so let's get the thread module name and use that
-    address = GetThreadStartAddress(thread_handle);
-    if (address == 0)
+    // Kick-off the thread sampler
+    New_2(rmtThread, thread_profilers->threadSampleThread, SampleThreadsLoop, thread_profilers);
+    if (error != RMT_ERROR_NONE)
     {
-        return RMT_FALSE;
+        return error;
     }
-    module_name = GetStartAddressModuleName(address);
-    if (module_name == NULL)
-    {
-        return RMT_FALSE;
-    }
-
-    // Concatenate thread name with then thread ID as that will be unique, whereas the start address won't be
-    memset(out_thread_name, 0, thread_name_size);
-    strcpy_s(out_thread_name, thread_name_size, module_name);
-    strncat_s(out_thread_name, thread_name_size, "!", 1);
-    len = strlen(out_thread_name);
-    itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
-
-    return RMT_TRUE;
-#else
-    return RMT_FALSE;
-#endif
-}
-
-static rmtError QueueThreadName(rmtMessageQueue* queue, const char* name)
-{
-    Message* message;
-    rmtU32 name_length;
-
-    assert(queue != NULL);
-
-    // Allocate some space for the message
-    name_length = strnlen_s(name, 64);
-    message = rmtMessageQueue_AllocMessage(queue, sizeof(rmtU32) * 2 + name_length, NULL);
-    if (message == NULL)
-    {
-        return RMT_ERROR_UNKNOWN;
-    }
-
-    // Copy and commit
-    U32ToByteArray(message->payload, MurmurHash3_x86_32(name, name_length, 0));
-    U32ToByteArray(message->payload + sizeof(rmtU32), name_length);
-    memcpy(message->payload + sizeof(rmtU32) * 2, name, name_length);
-    rmtMessageQueue_CommitMessage(message, MsgID_ThreadName);
 
     return RMT_ERROR_NONE;
 }
 
-static void GatherThreads(ThreadWatcher* watcher)
+static void ThreadProfilers_Destructor(ThreadProfilers* thread_profilers)
+{
+    rmtU32 thread_index;
+
+    Delete(rmtThread, thread_profilers->threadGatherThread);
+    Delete(rmtThread, thread_profilers->threadSampleThread);
+
+    // Delete all profilers
+    for (thread_index = 0; thread_index < thread_profilers->nbThreadProfilers; thread_index++)
+    {
+        ThreadProfiler* thread_profiler = thread_profilers->threadProfilers + thread_index;
+        ThreadProfiler_Destructor(thread_profiler);
+    }
+
+    if (thread_profilers->threadProfilerTlsHandle != TLS_INVALID_HANDLE)
+    {
+        tlsFree(thread_profilers->threadProfilerTlsHandle);
+    }
+
+#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ARCH_64BIT
+    if (thread_profilers->compiledSampleFn != NULL)
+    {
+        VirtualFree(thread_profilers->compiledSampleFn);
+    }
+#endif
+#endif
+    
+    mtxDelete(&thread_profilers->threadProfilerMutex);
+}
+
+static rmtError ThreadProfilers_GetThreadProfiler(ThreadProfilers* thread_profilers, rmtThreadId thread_id, ThreadProfiler** out_thread_profiler)
+{
+    rmtU32 profiler_index;
+    ThreadProfiler* thread_profiler;
+    rmtError error;
+
+    mtxLock(&thread_profilers->threadProfilerMutex);
+
+    // Linear search for a matching thread id
+    for (profiler_index = 0; profiler_index < thread_profilers->nbThreadProfilers; profiler_index++)
+    {
+        thread_profiler = thread_profilers->threadProfilers + profiler_index;
+        if (thread_profiler->threadId == thread_id)
+        {
+            *out_thread_profiler = thread_profiler;
+            mtxUnlock(&thread_profilers->threadProfilerMutex);
+            return RMT_ERROR_NONE;
+        }
+    }
+
+    // Thread info not found so create a new one at the end
+    thread_profiler = thread_profilers->threadProfilers + thread_profilers->nbThreadProfilers;
+    error = ThreadProfiler_Constructor(thread_profilers->mqToRmtThread, thread_profiler, thread_id);
+    if (error != RMT_ERROR_NONE)
+    {
+        ThreadProfiler_Destructor(thread_profiler);
+        mtxUnlock(&thread_profilers->threadProfilerMutex);
+        return error;
+    }
+    *out_thread_profiler = thread_profiler;
+
+    // Increment count for consume by read iterators
+    // Within the mutex so that there are no race conditions creating thread profilers
+    // Using release semantics to ensure a memory barrier for read iterators
+    StoreRelease(&thread_profilers->nbThreadProfilers, thread_profilers->nbThreadProfilers + 1);
+
+    mtxUnlock(&thread_profilers->threadProfilerMutex);
+
+    return RMT_ERROR_NONE;
+}
+
+static rmtError ThreadProfilers_GetCurrentThreadProfiler(ThreadProfilers* thread_profilers, ThreadProfiler** out_thread_profiler)
+{
+    // Is there a thread profiler associated with this thread yet?
+    *out_thread_profiler = (ThreadProfiler*)tlsGet(thread_profilers->threadProfilerTlsHandle);
+    if (*out_thread_profiler == NULL)
+    {
+        // Allocate on-demand
+        rmtError error = ThreadProfilers_GetThreadProfiler(thread_profilers, rmtGetCurrentThreadId(), out_thread_profiler);
+        if (error != RMT_ERROR_NONE)
+        {
+            return error;
+        }
+
+        // Bind to the curren thread
+        tlsSet(thread_profilers->threadProfilerTlsHandle, *out_thread_profiler);
+    }
+
+    return RMT_ERROR_NONE;
+}
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @TGATHER: Thread Gatherer, periodically polling for newly created threads
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+static void GatherThreads(ThreadProfilers* thread_profilers)
 {
     rmtThreadHandle handle;
 
-    assert(watcher != NULL);
+    assert(thread_profilers != NULL);
 
 #ifdef RMT_PLATFORM_WINDOWS
 
@@ -4865,48 +5086,13 @@ static void GatherThreads(ThreadWatcher* watcher)
         {
             if (thread_entry.th32OwnerProcessID == GetCurrentProcessId())
             {
-                // Search and see if we already know about this thread
-                WatchedThread* thread = NULL;
-                rmtU32 i;
-                for (i = 0; i < watcher->nbWatchedThreads; i++)
+                // Create thread profilers on-demand if there're not already there
+                ThreadProfiler* thread_profiler;
+                rmtError error = ThreadProfilers_GetThreadProfiler(thread_profilers, thread_entry.th32ThreadID, &thread_profiler);
+                if (error != RMT_ERROR_NONE)
                 {
-                    if (watcher->watchedThreads[i].threadId == thread_entry.th32ThreadID)
-                    {
-                        thread = &watcher->watchedThreads[i];
-                        break;
-                    }
-                }
-
-                // Allocate a new one at the end if this is the first time we've seen this thread
-                if (thread == NULL)
-                {
-                    assert(watcher->nbWatchedThreads < watcher->maxNbWatchedThreads);
-                    thread = &watcher->watchedThreads[watcher->nbWatchedThreads];
-
-                    // Initialise in the callback-ready state
-                    thread->threadId = thread_entry.th32ThreadID;
-                    thread->nbSamplesWithoutCallback = 0;
-                    thread->processorIndex = (rmtU32)-1;
-                    thread->lastProcessorIndex = (rmtU32)-1;
-
-                    // Pre-open the thread with required access rights to get the thread handle
-                    thread->threadHandle = OpenThread(
-                        THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME | THREAD_SET_CONTEXT | THREAD_GET_CONTEXT, FALSE,
-                        thread->threadId);
-                    if (thread->threadHandle != NULL)
-                    {
-                        // Increment count for consume by the thread sampler
-                        StoreRelease(&watcher->nbWatchedThreads, watcher->nbWatchedThreads + 1);
-
-                        // Send a thread name notification immediately
-                        // Users can override this at a later point with the Remotery thread name API
-                        if (rmtGetThreadName(thread->threadId, thread->threadHandle, thread->threadName, sizeof(thread->threadName)) == RMT_TRUE)
-                        {
-                            rmtU32 name_length = strnlen_s(thread->threadName, 64);
-                            thread->threadNameHash = MurmurHash3_x86_32(thread->threadName, name_length, 0);
-                            QueueThreadName(watcher->mqToRmtThread, thread->threadName);
-                        }
-                    }
+                    // Not really worth bringing the whole profiler down here
+                    rmt_LogText("REMOTERY ERROR: Failed to create Thread Profiler");
                 }
             }
 
@@ -4919,10 +5105,10 @@ static void GatherThreads(ThreadWatcher* watcher)
 
 static rmtError GatherThreadsLoop(rmtThread* thread)
 {
-    ThreadWatcher* watcher = (ThreadWatcher*)thread->param;
+    ThreadProfilers* thread_profilers = (ThreadProfilers*)thread->param;
     rmtU32 sleep_time = 100;
 
-    assert(watcher != NULL);
+    assert(thread_profilers != NULL);
     
     rmt_SetCurrentThreadName("RemoteryGatherThreads");
 
@@ -4933,7 +5119,7 @@ static rmtError GatherThreadsLoop(rmtThread* thread)
         // Use reduced sleep time at startup to catch as many early thread creations as possible.
         // TODO(don): We could get processes to register themselves to ensure no startup data is lost but the scan must still
         // be present, to catch threads in a process that the user doesn't create (e.g. graphics driver threads).
-        GatherThreads(watcher);
+        GatherThreads(thread_profilers);
         msSleep(sleep_time);
         sleep_time = minU32(sleep_time * 2, 2000);
     }
@@ -4941,10 +5127,18 @@ static rmtError GatherThreadsLoop(rmtThread* thread)
     return RMT_ERROR_NONE;
 }
 
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+   @TSAMPLER: Sampling thread contexts
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
 typedef struct Processor
 {
-    // Current thread running on this processor
-    WatchedThread* thread;
+    // Current thread profiler sampling this processor
+    ThreadProfiler* threadProfiler;
 
     rmtU32 sampleCount;
     rmtU64 sampleTime;
@@ -5053,8 +5247,8 @@ static rmtU8 SampleCallbackBytes[] =
     0xB8, 0x01, 0x00, 0x00, 0x00,                   // mov eax, 1
     0x0F, 0xA2,                                     // cpuid
     0xC1, 0xEB, 0x18,                               // shr ebx, 24
-    0x89, 0x5F, 0x14,                               // mov dword ptr [rdi + 20], ebx
-    0xC7, 0x47, 0x10, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 16], 0
+    0x89, 0x5F, 0x10,                               // mov dword ptr [rdi + 16], ebx
+    0xC7, 0x47, 0x0C, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 12], 0
     0x5A,                                           // pop rdx
     0x59,                                           // pop rcx
     0x5B,                                           // pop rbx
@@ -5063,21 +5257,19 @@ static rmtU8 SampleCallbackBytes[] =
     0x9D,                                           // popfq
     0xC3                                            // ret
 };
-//static_assert(offsetof(WatchedThread, nbSamplesWithoutCallback) == 0x10, "");
-//static_assert(offsetof(WatchedThread, processorIndex) == 0x14, "");
 #endif
 
-static rmtError InitThreadSampling(ThreadWatcher* watcher)
+static rmtError InitThreadSampling(ThreadProfilers* thread_profilers)
 {
     rmtError error;
 
     rmt_SetCurrentThreadName("RemoterySampleThreads");
 
     // Make an initial gather so that we have something to work with
-    GatherThreads(watcher);
+    GatherThreads(thread_profilers);
 
     // Kick-off the background thread that watches for new threads
-    New_2(rmtThread, watcher->threadGatherThread, GatherThreadsLoop, watcher);
+    New_2(rmtThread, thread_profilers->threadGatherThread, GatherThreadsLoop, thread_profilers);
     if (error != RMT_ERROR_NONE)
     {
         return error;
@@ -5106,9 +5298,9 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
     Processor* processors;
     rmtU32 processor_index;
 
-    ThreadWatcher* watcher = (ThreadWatcher*)rmt_thread->param;
+    ThreadProfilers* thread_profilers = (ThreadProfilers*)rmt_thread->param;
 
-    rmtError error = InitThreadSampling(watcher);
+    rmtError error = InitThreadSampling(thread_profilers);
     if (error != RMT_ERROR_NONE)
     {
         return error;
@@ -5125,7 +5317,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
     processors = (Processor*)rmtMalloc(nb_processors * sizeof(Processor));
     for (processor_index = 0; processor_index < nb_processors; processor_index++)
     {
-        processors[processor_index].thread = NULL;
+        processors[processor_index].threadProfiler = NULL;
         processors[processor_index].sampleTime = 0;
     }
 
@@ -5135,7 +5327,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
         rmtU32 lfsr_value;
 
         // Query how many threads the gather knows about this time round
-        rmtU32 nb_watched_threads = LoadAcquire(&watcher->nbWatchedThreads);
+        rmtU32 nb_thread_profilers = LoadAcquire(&thread_profilers->nbThreadProfilers);
 
         // Calculate table size log2 required to fit count entries. Normally we would adjust the log2 input by -1 so that
         // power-of-2 counts map to their exact bit offset and don't require a twice larger table. You can iterate indices
@@ -5151,18 +5343,18 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
         // indices 0-14 and the required range test will limit that visit to 0-7.
         //
         // Implementation playground: https://godbolt.org/z/qG8T4E
-        rmtU32 highest_bit_set = Log2i(nb_watched_threads);
+        rmtU32 highest_bit_set = Log2i(nb_thread_profilers);
         rmtU32 table_size_log2 = highest_bit_set + 1;
         rmtU32 xor_mask = GaloisLFSRMask(table_size_log2);
 
         // Use a LFSR to visit threads in shuffled order
-        lfsr_seed = Well512_RandomOpenLimit(nb_watched_threads);
+        lfsr_seed = Well512_RandomOpenLimit(nb_thread_profilers);
         lfsr_value = lfsr_seed;
         do
         {
             rmtU32 thread_index;
             rmtU32 thread_id;
-            WatchedThread* watched_thread;
+            ThreadProfiler* thread_profiler;
             rmtThreadHandle thread_handle;
             rmtU32 sample_count;
 
@@ -5170,21 +5362,21 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
 
             // Apply the value-to-index bias and see if this index is within range before processing
             thread_index = lfsr_value - 1;
-            if (thread_index >= nb_watched_threads)
+            if (thread_index >= nb_thread_profilers)
             {
                 continue;
             }
 
             // Ignore our own thread
             thread_id = rmtGetCurrentThreadId();
-            watched_thread = watcher->watchedThreads + thread_index;
-            if (watched_thread->threadId == thread_id)
+            thread_profiler = thread_profilers->threadProfilers + thread_index;
+            if (thread_profiler->threadId == thread_id)
             {
                 continue;
             }
 
             // Suspend the thread so we can insert a callback
-            thread_handle = watched_thread->threadHandle;
+            thread_handle = thread_profiler->threadHandle;
             if (rmtSuspendThread(thread_handle) == RMT_FALSE)
             {
                 continue;
@@ -5194,11 +5386,14 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
             // Note that a thread might be pre-empted multiple times in-between sampling. Given a sampling rate equal to the
             // scheduling quantum, this doesn't happen too often. However in such cases, whoever marks the processor last is
             // the one that gets recorded.
-            sample_count = AtomicAdd(&watched_thread->nbSamplesWithoutCallback, 1);
-            processor_index = watched_thread->processorIndex;
-            processors[processor_index].thread = watched_thread;
-            processors[processor_index].sampleCount = sample_count;
-            processors[processor_index].sampleTime = usTimer_Get(watcher->timer);
+            sample_count = AtomicAdd(&thread_profiler->nbSamplesWithoutCallback, 1);
+            processor_index = thread_profiler->processorIndex;
+            if (processor_index != -1)
+            {
+                processors[processor_index].threadProfiler = thread_profiler;
+                processors[processor_index].sampleCount = sample_count;
+                processors[processor_index].sampleTime = usTimer_Get(thread_profilers->timer);
+            }
 
             // Swap in a new context with our callback if one is not already scheduled on this thread
             if (sample_count == 0)
@@ -5207,17 +5402,17 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 {
                 #ifdef RMT_PLATFORM_WINDOWS
                 #ifdef RMT_ARCH_64BIT
-                    watched_thread->registerBackup0 = context.Rax;
-                    watched_thread->registerBackup1 = context.Rdi;
+                    thread_profiler->registerBackup0 = context.Rax;
+                    thread_profiler->registerBackup1 = context.Rdi;
                     context.Rax = context.Rip;
-                    context.Rdi = (rmtU64)watched_thread;
-                    context.Rip = (DWORD64)watcher->compiledSampleFn;
+                    context.Rdi = (rmtU64)thread_profiler;
+                    context.Rip = (DWORD64)thread_profiler->compiledSampleFn;
                 #endif
-                #ifdef RMT_ARCH_32BIT
-                    watched_thread->registerBackup0 = context.Eax;
-                    watched_thread->registerBackup1 = context.Edi;
+                 #ifdef RMT_ARCH_32BIT
+                    thread_profiler->registerBackup0 = context.Eax;
+                    thread_profiler->registerBackup1 = context.Edi;
                     context.Eax = context.Eip;
-                    context.Edi = (rmtU32)watched_thread;
+                    context.Edi = (rmtU32)thread_profiler;
                     context.Eip = (DWORD)&SampleCallback;
                 #endif
                 #endif
@@ -5226,7 +5421,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 }
                 else
                 {
-                    AtomicAdd(&watched_thread->nbSamplesWithoutCallback, -1);
+                    AtomicAdd(&thread_profiler->nbSamplesWithoutCallback, -1);
                 }
             }
 
@@ -5238,18 +5433,18 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
         for (processor_index = 0; processor_index < nb_processors; processor_index++)
         {
             Processor* processor = processors + processor_index;
-            WatchedThread* thread = processor->thread;
+            ThreadProfiler* thread_profiler = processor->threadProfiler;
 
-            if (thread != NULL)
+            if (thread_profiler != NULL)
             {
                 // If this thread was on another processor on a previous pass and that processor is still tracking that thread,
                 // remove the thread from it.
-                rmtU32 last_processor_index = thread->lastProcessorIndex;
+                rmtU32 last_processor_index = thread_profiler->lastProcessorIndex;
                 if (last_processor_index != -1 && last_processor_index != processor_index)
                 {
-                    if (processors[last_processor_index].thread == thread)
+                    if (processors[last_processor_index].threadProfiler == thread_profiler)
                     {
-                        processors[last_processor_index].thread = NULL;
+                        processors[last_processor_index].threadProfiler = NULL;
                     }
                 }
 
@@ -5257,15 +5452,15 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 // pass. This suggests the thread has gone to sleep and is no longer assigned to any thread.
                 else if (processor->sampleCount > 1)
                 {
-                    processor->thread = NULL;
+                    processor->threadProfiler = NULL;
                 }
 
-                thread->lastProcessorIndex = thread->processorIndex;
+                thread_profiler->lastProcessorIndex = thread_profiler->processorIndex;
             }
         }
 
         // Send current processor state off to remotery
-        QueueProcessorThreads(watcher->mqToRmtThread, processor_message_index++, nb_processors, processors);
+        QueueProcessorThreads(thread_profilers->mqToRmtThread, processor_message_index++, nb_processors, processors);
     }
 
 #ifdef RMT_PLATFORM_WINDOWS
@@ -5273,55 +5468,6 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
 #endif
 
     return RMT_ERROR_NONE;
-}
-
-static rmtError ThreadWatcher_Constructor(ThreadWatcher* watcher, usTimer* timer, rmtMessageQueue* mq_to_rmt_thread)
-{
-    rmtError error;
-
-    // Set default state
-    watcher->timer = timer;
-    watcher->mqToRmtThread = mq_to_rmt_thread;
-    watcher->compiledSampleFn = NULL;
-    watcher->nbWatchedThreads = 0;
-    watcher->maxNbWatchedThreads = sizeof(watcher->watchedThreads) / sizeof(watcher->watchedThreads[0]);
-    watcher->threadSampleThread = NULL;
-    watcher->threadGatherThread = NULL;
-
-#ifdef RMT_PLATFORM_WINDOWS
-#ifdef RMT_ARCH_64BIT
-    {
-        // Allocate and copy to executable space for the 64-bit compiled sample function
-        DWORD old_protect;
-        watcher->compiledSampleFn = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        if (watcher->compiledSampleFn == NULL)
-        {
-            return RMT_ERROR_MALLOC_FAIL;
-        }
-        memcpy(watcher->compiledSampleFn, SampleCallbackBytes, sizeof(SampleCallbackBytes));
-        VirtualProtect(watcher->compiledSampleFn, 4096, PAGE_EXECUTE_READ, &old_protect);
-    }
-#endif
-#endif
-
-    New_2(rmtThread, watcher->threadSampleThread, SampleThreadsLoop, watcher);
-    if (error != RMT_ERROR_NONE)
-    {
-        return error;
-    }
-
-    return RMT_ERROR_NONE;
-}
-
-static void ThreadWatcher_Destructor(ThreadWatcher* watcher)
-{
-    Delete(rmtThread, watcher->threadGatherThread);
-    Delete(rmtThread, watcher->threadSampleThread);
-
-    if (watcher->compiledSampleFn != NULL)
-    {
-        VirtualFree(watcher->compiledSampleFn, 0, MEM_RELEASE);
-    }
 }
 
 /*
@@ -5351,11 +5497,6 @@ struct Remotery
     // Microsecond accuracy timer for CPU timestamps
     usTimer timer;
 
-    rmtTLS thread_sampler_tls_handle;
-
-    // Linked list of all known threads being sampled
-    ThreadSampler* volatile first_thread_sampler;
-
     // Queue between clients and main remotery thread
     rmtMessageQueue* mq_to_rmt_thread;
 
@@ -5384,7 +5525,7 @@ struct Remotery
     Metal* metal;
 #endif
 
-    ThreadWatcher* threadWatcher;
+    ThreadProfilers* threadProfilers;
 };
 
 //
@@ -5397,8 +5538,6 @@ static Remotery* g_Remotery = NULL;
 // only the creating EXE/DLL to destroy the remotery instance.
 //
 static rmtBool g_RemoteryCreated = RMT_FALSE;
-
-static void Remotery_DestroyThreadSamplers(Remotery* rmt);
 
 static const rmtU8 g_DecimalToHex[17] = "0123456789abcdef";
 
@@ -5586,7 +5725,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
         if (!are_samples_ready)
         {
             QueueSampleTree(rmt->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
-                                message->thread_sampler);
+                                message->threadProfiler);
             return RMT_ERROR_NONE;
         }
 
@@ -5651,10 +5790,10 @@ static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
     for (processor_index = 0; processor_index < processor_threads->nbProcessors; processor_index++)
     {
         Processor* processor = processor_threads->processors + processor_index;
-        if (processor->thread != NULL)
+        if (processor->threadProfiler != NULL)
         {
-            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor->thread->threadId));
-            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor->thread->threadNameHash));
+            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor->threadProfiler->threadId));
+            BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, processor->threadProfiler->threadNameHash));
             BIN_ERROR_CHECK(Buffer_WriteU64(bin_buf, processor->sampleTime));
         }
         else
@@ -5945,15 +6084,13 @@ static rmtError Remotery_Constructor(Remotery* rmt)
 
     // Set default state
     rmt->server = NULL;
-    rmt->thread_sampler_tls_handle = TLS_INVALID_HANDLE;
-    rmt->first_thread_sampler = NULL;
     rmt->mq_to_rmt_thread = NULL;
     rmt->thread = NULL;
     rmt->string_table = NULL;
     rmt->logfile = NULL;
     rmt->map_message_queue_fn = NULL;
     rmt->map_message_queue_data = NULL;
-    rmt->threadWatcher = NULL;
+    rmt->threadProfilers = NULL;
 
 #if RMT_USE_CUDA
     rmt->cuda.CtxSetCurrent = NULL;
@@ -5974,11 +6111,6 @@ static rmtError Remotery_Constructor(Remotery* rmt)
 
     // Kick-off the timer
     usTimer_Init(&rmt->timer);
-
-    // Allocate a TLS handle for the thread sampler
-    error = tlsAlloc(&rmt->thread_sampler_tls_handle);
-    if (error != RMT_ERROR_NONE)
-        return error;
 
     // Create the server
     New_3(Server, rmt->server, g_Settings.port, g_Settings.reuse_open_port, g_Settings.limit_connections_to_localhost);
@@ -6047,8 +6179,8 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         return error;
 #endif
 
-    // Kick-off thread watching last
-    New_2(ThreadWatcher, rmt->threadWatcher, &rmt->timer, rmt->mq_to_rmt_thread);
+    // Create the thread profilers container
+    New_2(ThreadProfilers, rmt->threadProfilers, &rmt->timer, rmt->mq_to_rmt_thread);
     if (error != RMT_ERROR_NONE)
     {
         return error;
@@ -6080,7 +6212,7 @@ static void Remotery_Destructor(Remotery* rmt)
         g_RemoteryCreated = RMT_FALSE;
     }
 
-    Delete(ThreadWatcher, rmt->threadWatcher);
+    Delete(ThreadProfilers, rmt->threadProfilers);
     
 #if RMT_USE_OPENGL
     Delete(OpenGL, rmt->opengl);
@@ -6095,86 +6227,7 @@ static void Remotery_Destructor(Remotery* rmt)
     Delete(StringTable, rmt->string_table);
     Delete(rmtMessageQueue, rmt->mq_to_rmt_thread);
 
-    Remotery_DestroyThreadSamplers(rmt);
-
     Delete(Server, rmt->server);
-
-    if (rmt->thread_sampler_tls_handle != TLS_INVALID_HANDLE)
-    {
-        tlsFree(rmt->thread_sampler_tls_handle);
-        rmt->thread_sampler_tls_handle = 0;
-    }
-}
-
-static rmtError Remotery_GetThreadSampler(Remotery* rmt, ThreadSampler** thread_sampler)
-{
-    ThreadSampler* ts;
-
-    // Is there a thread sampler associated with this thread yet?
-    assert(rmt != NULL);
-    ts = (ThreadSampler*)tlsGet(rmt->thread_sampler_tls_handle);
-    if (ts == NULL)
-    {
-        // Allocate on-demand
-        rmtError error;
-        New_0(ThreadSampler, *thread_sampler);
-        if (error != RMT_ERROR_NONE)
-            return error;
-        ts = *thread_sampler;
-
-        // Add to the beginning of the global linked list of thread samplers
-        for (;;)
-        {
-            ThreadSampler* old_ts = rmt->first_thread_sampler;
-            ts->next = old_ts;
-
-            // If the old value is what we expect it to be then no other thread has
-            // changed it since this thread sampler was used as a candidate first list item
-            if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts, (long*)ts) ==
-                RMT_TRUE)
-                break;
-        }
-
-        tlsSet(rmt->thread_sampler_tls_handle, ts);
-    }
-
-    assert(thread_sampler != NULL);
-    *thread_sampler = ts;
-    return RMT_ERROR_NONE;
-}
-
-static void Remotery_DestroyThreadSamplers(Remotery* rmt)
-{
-    // If the handle failed to create in the first place then it shouldn't be possible to create thread samplers
-    assert(rmt != NULL);
-    if (rmt->thread_sampler_tls_handle == TLS_INVALID_HANDLE)
-    {
-        assert(rmt->first_thread_sampler == NULL);
-        return;
-    }
-
-    // Keep popping thread samplers off the linked list until they're all gone
-    // This does not make any assumptions, making it possible for thread samplers to be created while they're all
-    // deleted. While this is erroneous calling code, this will prevent a confusing crash.
-    while (rmt->first_thread_sampler != NULL)
-    {
-        ThreadSampler* ts;
-
-        for (;;)
-        {
-            ThreadSampler* old_ts = rmt->first_thread_sampler;
-            ThreadSampler* next_ts = old_ts->next;
-
-            if (AtomicCompareAndSwapPointer((long* volatile*)&rmt->first_thread_sampler, (long*)old_ts,
-                                            (long*)next_ts) == RMT_TRUE)
-            {
-                ts = old_ts;
-                break;
-            }
-        }
-
-        Delete(ThreadSampler, ts);
-    }
 }
 
 static void* CRTMalloc(void* mm_context, rmtU32 size)
@@ -6363,44 +6416,31 @@ static void SetDebuggerThreadName(const char* name)
 
 RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
 {
-    ThreadSampler* ts;
-    rmtU32 thread_id;
-    rmtU32 nb_watched_threads;
-    rmtU32 thread_index;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
+    {
         return;
+    }
 
     // Get data for this thread
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) != RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) != RMT_ERROR_NONE)
+    {
         return;
+    }
 
     // Copy name and apply to the debugger
-    strcpy_s(ts->name, sizeof(ts->name), thread_name);
+    strcpy_s(thread_profiler->threadName, sizeof(thread_profiler->threadName), thread_name);
+    thread_profiler->threadNameHash = MurmurHash3_x86_32(thread_name, strnlen_s(thread_name, 64), 0);
     SetDebuggerThreadName(thread_name);
 
     // Send the thread name for lookup
 #ifdef RMT_PLATFORM_WINDOWS
-    QueueThreadName(g_Remotery->mq_to_rmt_thread, thread_name);
+    QueueThreadName(g_Remotery->mq_to_rmt_thread, thread_name, thread_profiler);
 #endif
-
-    // Search the watched threads to see if their thread names and hash need to be updated
-    thread_id = rmtGetCurrentThreadId();
-    nb_watched_threads = LoadAcquire(&g_Remotery->threadWatcher->nbWatchedThreads);
-    for (thread_index = 0; thread_index < nb_watched_threads; thread_index++)
-    {
-        WatchedThread* thread = g_Remotery->threadWatcher->watchedThreads + thread_index;
-        if (thread->threadId == thread_id)
-        {
-            strcpy_s(thread->threadName, sizeof(thread->threadName), thread_name);
-            thread->threadNameHash = MurmurHash3_x86_32(thread_name, strnlen_s(thread_name, 64), 0);
-            break;
-        }
-    }
-
 }
 
-static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 size, struct ThreadSampler* thread_sampler)
+static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 size, struct ThreadProfiler* thread_profiler)
 {
     Message* message;
     rmtU32 text_size;
@@ -6412,7 +6452,7 @@ static rmtBool QueueLine(rmtMessageQueue* queue, unsigned char* text, rmtU32 siz
     U32ToByteArray(text + 4, text_size);
 
     // Allocate some space for the line
-    message = rmtMessageQueue_AllocMessage(queue, size, thread_sampler);
+    message = rmtMessageQueue_AllocMessage(queue, size, thread_profiler);
     if (message == NULL)
         return RMT_FALSE;
 
@@ -6427,12 +6467,15 @@ RMT_API void _rmt_LogText(rmtPStr text)
 {
     int start_offset, offset, i;
     unsigned char line_buffer[1024] = {0};
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    Remotery_GetThreadSampler(g_Remotery, &ts);
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) != RMT_ERROR_NONE)
+    {
+        return;
+    }
 
     // Start the line with the message header
     line_buffer[0] = 'L';
@@ -6457,7 +6500,7 @@ RMT_API void _rmt_LogText(rmtPStr text)
         if (offset == sizeof(line_buffer) - 1 || c == '\n')
         {
             // Send the line up to now
-            if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, ts) == RMT_FALSE)
+            if (QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, thread_profiler) == RMT_FALSE)
                 return;
 
             // Restart line
@@ -6476,7 +6519,7 @@ RMT_API void _rmt_LogText(rmtPStr text)
     if (offset > start_offset)
     {
         assert(offset < (int)sizeof(line_buffer));
-        QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, ts);
+        QueueLine(g_Remotery->mq_to_rmt_thread, line_buffer, offset, thread_profiler);
     }
 }
 
@@ -6488,18 +6531,18 @@ RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32 flags, rmtU32* hash_cache)
     //
     // If 'hash_cache' is NULL then this call becomes more expensive, as it has to recalculate the hash of the name.
 
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
     // TODO: Time how long the bits outside here cost and subtract them from the parent
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
-        if (ThreadSampler_Push(ts->sample_trees[SampleType_CPU], name_hash, flags, &sample) == RMT_ERROR_NONE)
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        if (ThreadProfiler_Push(thread_profiler->sampleTrees[SampleType_CPU], name_hash, flags, &sample) == RMT_ERROR_NONE)
         {
             // If this is an aggregate sample, store the time in 'end' as we want to preserve 'start'
             if (sample->call_count > 1)
@@ -6512,14 +6555,14 @@ RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32 flags, rmtU32* hash_cache)
 
 RMT_API void _rmt_EndCPUSample(void)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
-        Sample* sample = ts->sample_trees[SampleType_CPU]->current_parent;
+        Sample* sample = thread_profiler->sampleTrees[SampleType_CPU]->current_parent;
 
         if (sample->recurse_depth > 0)
         {
@@ -6542,7 +6585,7 @@ RMT_API void _rmt_EndCPUSample(void)
             if (sample->parent != NULL)
                 sample->parent->us_sampled_length += us_length;
 
-            ThreadSampler_Pop(ts, g_Remotery->mq_to_rmt_thread, sample);
+            ThreadProfiler_Pop(thread_profiler, g_Remotery->mq_to_rmt_thread, sample);
         }
     }
 }
@@ -6550,17 +6593,17 @@ RMT_API void _rmt_EndCPUSample(void)
 #if RMT_USE_OPENGL || RMT_USE_D3D11
 static void Remotery_DeleteSampleTree(Remotery* rmt, enum SampleType sample_type)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     // Get the attached thread sampler and delete the sample tree
     assert(rmt != NULL);
-    if (Remotery_GetThreadSampler(rmt, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(rmt->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
-        SampleTree* sample_tree = ts->sample_trees[sample_type];
+        SampleTree* sample_tree = thread_profiler->sampleTrees[sample_type];
         if (sample_tree != NULL)
         {
             Delete(SampleTree, sample_tree);
-            ts->sample_trees[sample_type] = NULL;
+            thread_profiler->sampleTrees[sample_type] = NULL;
         }
     }
 }
@@ -6855,20 +6898,20 @@ RMT_API void _rmt_BindCUDA(const rmtCUDABind* bind)
 
 RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         rmtError error;
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the CUDA tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a CUDA binding is not yet available.
-        SampleTree** cuda_tree = &ts->sample_trees[SampleType_CUDA];
+        SampleTree** cuda_tree = &thread_profiler->sampleTrees[SampleType_CUDA];
         if (*cuda_tree == NULL)
         {
             CUDASample* root_sample;
@@ -6887,7 +6930,7 @@ RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream
         }
 
         // Push the same and record its event
-        if (ThreadSampler_Push(*cuda_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        if (ThreadProfiler_Push(*cuda_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             CUDASample* cuda_sample = (CUDASample*)sample;
             CUDAEventRecord(cuda_sample->event_start, stream);
@@ -6897,14 +6940,14 @@ RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream
 
 RMT_API void _rmt_EndCUDASample(void* stream)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
-        CUDASample* sample = (CUDASample*)ts->sample_trees[SampleType_CUDA]->current_parent;
+        CUDASample* sample = (CUDASample*)thread_profiler->sampleTrees[SampleType_CUDA]->current_parent;
         if (sample->base.recurse_depth > 0)
         {
             sample->base.recurse_depth--;
@@ -6912,7 +6955,7 @@ RMT_API void _rmt_EndCUDASample(void* stream)
         else
         {
             CUDAEventRecord(sample->event_end, stream);
-            ThreadSampler_Pop(ts, g_Remotery->mq_to_rmt_thread, (Sample*)sample);
+            ThreadProfiler_Pop(thread_profiler, g_Remotery->mq_to_rmt_thread, (Sample*)sample);
         }
     }
 }
@@ -7156,7 +7199,7 @@ typedef struct D3D11Timestamp
 
 static rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
     D3D11_QUERY_DESC timestamp_desc;
     D3D11_QUERY_DESC disjoint_desc;
     ID3D11Device* device;
@@ -7174,14 +7217,14 @@ static rmtError D3D11Timestamp_Constructor(D3D11Timestamp* stamp)
     stamp->cpu_timestamp = 0;
 
     assert(g_Remotery != NULL);
-    rmt_error = Remotery_GetThreadSampler(g_Remotery, &ts);
+    rmt_error = ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler);
     if (rmt_error != RMT_ERROR_NONE)
     {
         return rmt_error;
     }
-    assert(ts->d3d11 != NULL);
-    device = ts->d3d11->device;
-    last_error = &ts->d3d11->last_error;
+    assert(thread_profiler->d3d11 != NULL);
+    device = thread_profiler->d3d11->device;
+    last_error = &thread_profiler->d3d11->last_error;
 
     // Create start/end timestamp queries
     timestamp_desc.Query = D3D11_QUERY_TIMESTAMP;
@@ -7330,34 +7373,34 @@ RMT_API void _rmt_BindD3D11(void* device, void* context)
 {
     if (g_Remotery != NULL)
     {
-        ThreadSampler* ts;
-        if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+        ThreadProfiler* thread_profiler;
+        if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
         {
-            assert(ts->d3d11 != NULL);
+            assert(thread_profiler->d3d11 != NULL);
 
             assert(device != NULL);
-            ts->d3d11->device = (ID3D11Device*)device;
+            thread_profiler->d3d11->device = (ID3D11Device*)device;
             assert(context != NULL);
-            ts->d3d11->context = (ID3D11DeviceContext*)context;
+            thread_profiler->d3d11->context = (ID3D11DeviceContext*)context;
         }
     }
 }
 
-static void UpdateD3D11Frame(ThreadSampler* ts);
+static void UpdateD3D11Frame(ThreadProfiler* thread_profiler);
 
 RMT_API void _rmt_UnbindD3D11(void)
 {
     if (g_Remotery != NULL)
     {
-        ThreadSampler* ts;
-        if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+        ThreadProfiler* thread_profiler;
+        if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
         {
-            D3D11* d3d11 = ts->d3d11;
+            D3D11* d3d11 = thread_profiler->d3d11;
             assert(d3d11 != NULL);
 
             // Stall waiting for the D3D queue to empty into the Remotery queue
             while (!rmtMessageQueue_IsEmpty(d3d11->mq_to_d3d11_main))
-                UpdateD3D11Frame(ts);
+                UpdateD3D11Frame(thread_profiler);
 
             // There will be a whole bunch of D3D11 sample trees queued up the remotery queue that need releasing
             FreePendingSampleTrees(g_Remotery, SampleType_D3D11, d3d11->flush_samples);
@@ -7375,29 +7418,29 @@ RMT_API void _rmt_UnbindD3D11(void)
 
 RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
     D3D11* d3d11;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         Sample* sample;
         rmtU32 name_hash;
         SampleTree** d3d_tree;
 
         // Has D3D11 been unbound?
-        d3d11 = ts->d3d11;
+        d3d11 = thread_profiler->d3d11;
         assert(d3d11 != NULL);
         if (d3d11->device == NULL || d3d11->context == NULL)
             return;
 
-        name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the D3D11 tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a D3D11 binding is not yet available.
-        d3d_tree = &ts->sample_trees[SampleType_D3D11];
+        d3d_tree = &thread_profiler->sampleTrees[SampleType_D3D11];
         if (*d3d_tree == NULL)
         {
             rmtError error;
@@ -7408,7 +7451,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
         }
 
         // Push the sample and activate the timestamp
-        if (ThreadSampler_Push(*d3d_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        if (ThreadProfiler_Push(*d3d_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             D3D11Sample* d3d_sample = (D3D11Sample*)sample;
             D3D11Timestamp_Begin(d3d_sample->timestamp, d3d11->context);
@@ -7416,7 +7459,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
     }
 }
 
-static rmtBool GetD3D11SampleTimes(Sample* sample, ThreadSampler* ts, rmtU64* out_first_timestamp,
+static rmtBool GetD3D11SampleTimes(Sample* sample, ThreadProfiler* thread_profiler, rmtU64* out_first_timestamp,
                                    rmtU64* out_last_resync)
 {
     Sample* child;
@@ -7428,7 +7471,7 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, ThreadSampler* ts, rmtU64* ou
     {
         HRESULT result;
 
-        D3D11* d3d11 = ts->d3d11;
+        D3D11* d3d11 = thread_profiler->d3d11;
         assert(d3d11 != NULL);
 
         assert(out_last_resync != NULL);
@@ -7471,21 +7514,21 @@ static rmtBool GetD3D11SampleTimes(Sample* sample, ThreadSampler* ts, rmtU64* ou
     // Get child sample times
     for (child = sample->first_child; child != NULL; child = child->next_sibling)
     {
-        if (!GetD3D11SampleTimes(child, ts, out_first_timestamp, out_last_resync))
+        if (!GetD3D11SampleTimes(child, thread_profiler, out_first_timestamp, out_last_resync))
             return RMT_FALSE;
     }
 
     return RMT_TRUE;
 }
 
-static void UpdateD3D11Frame(ThreadSampler* ts)
+static void UpdateD3D11Frame(ThreadProfiler* thread_profiler)
 {
     D3D11* d3d11;
 
     if (g_Remotery == NULL)
         return;
 
-    d3d11 = ts->d3d11;
+    d3d11 = thread_profiler->d3d11;
     assert(d3d11 != NULL);
 
     rmt_BeginCPUSample(rmt_UpdateD3D11Frame, 0);
@@ -7508,12 +7551,12 @@ static void UpdateD3D11Frame(ThreadSampler* ts)
 
         // Retrieve timing of all D3D11 samples
         // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
-        if (!GetD3D11SampleTimes(sample, ts, &d3d11->first_timestamp, &d3d11->last_resync))
+        if (!GetD3D11SampleTimes(sample, thread_profiler, &d3d11->first_timestamp, &d3d11->last_resync))
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
         QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
-                             message->thread_sampler);
+                             message->threadProfiler);
         rmtMessageQueue_ConsumeNextMessage(d3d11->mq_to_d3d11_main, message);
     }
 
@@ -7522,24 +7565,24 @@ static void UpdateD3D11Frame(ThreadSampler* ts)
 
 RMT_API void _rmt_EndD3D11Sample(void)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
     D3D11* d3d11;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         D3D11Sample* d3d_sample;
 
         // Has D3D11 been unbound?
-        d3d11 = ts->d3d11;
+        d3d11 = thread_profiler->d3d11;
         assert(d3d11 != NULL);
         if (d3d11->device == NULL || d3d11->context == NULL)
             return;
 
         // Close the timestamp
-        d3d_sample = (D3D11Sample*)ts->sample_trees[SampleType_D3D11]->current_parent;
+        d3d_sample = (D3D11Sample*)thread_profiler->sampleTrees[SampleType_D3D11]->current_parent;
         if (d3d_sample->base.recurse_depth > 0)
         {
             d3d_sample->base.recurse_depth--;
@@ -7550,9 +7593,9 @@ RMT_API void _rmt_EndD3D11Sample(void)
                 D3D11Timestamp_End(d3d_sample->timestamp, d3d11->context);
 
             // Send to the update loop for ready-polling
-            if (ThreadSampler_Pop(ts, d3d11->mq_to_d3d11_main, (Sample*)d3d_sample))
+            if (ThreadProfiler_Pop(thread_profiler, d3d11->mq_to_d3d11_main, (Sample*)d3d_sample))
                 // Perform ready-polling on popping of the root sample
-                UpdateD3D11Frame(ts);
+                UpdateD3D11Frame(thread_profiler);
         }
     }
 }
@@ -7992,19 +8035,19 @@ RMT_API void _rmt_UnbindOpenGL(void)
 
 RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the OpenGL tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a OpenGL binding is not yet available.
-        SampleTree** ogl_tree = &ts->sample_trees[SampleType_OpenGL];
+        SampleTree** ogl_tree = &thread_profiler->sampleTrees[SampleType_OpenGL];
         if (*ogl_tree == NULL)
         {
             rmtError error;
@@ -8015,7 +8058,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         }
 
         // Push the sample and activate the timestamp
-        if (ThreadSampler_Push(*ogl_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        if (ThreadProfiler_Push(*ogl_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             OpenGLSample* ogl_sample = (OpenGLSample*)sample;
             OpenGLTimestamp_Begin(ogl_sample->timestamp);
@@ -8095,7 +8138,7 @@ static void UpdateOpenGLFrame(void)
 
         // Pass samples onto the remotery thread for sending to the viewer
         QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
-                             message->thread_sampler);
+                             message->threadProfiler);
         rmtMessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
     }
 
@@ -8104,15 +8147,15 @@ static void UpdateOpenGLFrame(void)
 
 RMT_API void _rmt_EndOpenGLSample(void)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         // Close the timestamp
-        OpenGLSample* ogl_sample = (OpenGLSample*)ts->sample_trees[SampleType_OpenGL]->current_parent;
+        OpenGLSample* ogl_sample = (OpenGLSample*)thread_profiler->sampleTrees[SampleType_OpenGL]->current_parent;
         if (ogl_sample->base.recurse_depth > 0)
         {
             ogl_sample->base.recurse_depth--;
@@ -8123,7 +8166,7 @@ RMT_API void _rmt_EndOpenGLSample(void)
                 OpenGLTimestamp_End(ogl_sample->timestamp);
 
             // Send to the update loop for ready-polling
-            if (ThreadSampler_Pop(ts, g_Remotery->opengl->mq_to_opengl_main, (Sample*)ogl_sample))
+            if (ThreadProfiler_Pop(thread_profiler, g_Remotery->opengl->mq_to_opengl_main, (Sample*)ogl_sample))
                 // Perform ready-polling on popping of the root sample
                 UpdateOpenGLFrame();
         }
@@ -8295,19 +8338,19 @@ static void UpdateOpenGLFrame(void);
 
 RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         Sample* sample;
-        rmtU32 name_hash = ThreadSampler_GetNameHash(ts, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
 
         // Create the Metal tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a Metal binding is not yet available.
-        SampleTree** metal_tree = &ts->sample_trees[SampleType_Metal];
+        SampleTree** metal_tree = &thread_profiler->sampleTrees[SampleType_Metal];
         if (*metal_tree == NULL)
         {
             rmtError error;
@@ -8318,7 +8361,7 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
         }
 
         // Push the sample and activate the timestamp
-        if (ThreadSampler_Push(*metal_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
+        if (ThreadProfiler_Push(*metal_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             MetalSample* metal_sample = (MetalSample*)sample;
             MetalTimestamp_Begin(metal_sample->timestamp);
@@ -8386,7 +8429,7 @@ static void UpdateMetalFrame(void)
 
         // Pass samples onto the remotery thread for sending to the viewer
         QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->thread_name,
-                             message->thread_sampler);
+                             message->threadProfiler);
         rmtMessageQueue_ConsumeNextMessage(metal->mq_to_metal_main, message);
     }
 
@@ -8395,15 +8438,15 @@ static void UpdateMetalFrame(void)
 
 RMT_API void _rmt_EndMetalSample(void)
 {
-    ThreadSampler* ts;
+    ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
         return;
 
-    if (Remotery_GetThreadSampler(g_Remotery, &ts) == RMT_ERROR_NONE)
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         // Close the timestamp
-        MetalSample* metal_sample = (MetalSample*)ts->sample_trees[SampleType_Metal]->current_parent;
+        MetalSample* metal_sample = (MetalSample*)thread_profiler->sampleTrees[SampleType_Metal]->current_parent;
         if (metal_sample->base.recurse_depth > 0)
         {
             metal_sample->base.recurse_depth--;
@@ -8414,7 +8457,7 @@ RMT_API void _rmt_EndMetalSample(void)
                 MetalTimestamp_End(metal_sample->timestamp);
 
             // Send to the update loop for ready-polling
-            if (ThreadSampler_Pop(ts, g_Remotery->metal->mq_to_metal_main, (Sample*)metal_sample))
+            if (ThreadProfiler_Pop(thread_profiler, g_Remotery->metal->mq_to_metal_main, (Sample*)metal_sample))
                 // Perform ready-polling on popping of the root sample
                 UpdateMetalFrame();
         }
