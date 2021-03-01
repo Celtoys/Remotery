@@ -8,6 +8,7 @@ ThreadFrame = (function()
 		this.NbSamples = message.nb_samples;
 		this.SampleDigest = message.sample_digest;
 		this.Samples = message.samples;
+		this.PartialTree = message.partial_tree > 0 ? true : false;
 
 		// Calculate the frame start/end times
 		this.StartTime_us = 0;

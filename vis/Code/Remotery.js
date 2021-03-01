@@ -266,6 +266,7 @@ Remotery = (function()
         message.thread_name = data_view_reader.GetString();
         message.nb_samples = data_view_reader.GetUInt32();
         message.sample_digest = data_view_reader.GetUInt32();
+        message.partial_tree = data_view_reader.GetUInt32();
 
         // Read samples
         message.samples = [];
@@ -289,9 +290,19 @@ Remotery = (function()
         // Add to frame history for this thread
         var thread_frame = new ThreadFrame(message);
         if (!(name in self.FrameHistory))
+        {
             self.FrameHistory[name] = [ ];
+        }
         var frame_history = self.FrameHistory[name];
-        frame_history.push(thread_frame);
+        if (frame_history.length > 0 && frame_history[frame_history.length - 1].PartialTree)
+        {
+            // Always overwrite partial trees with new information
+            frame_history[frame_history.length - 1] = thread_frame;
+        }
+        else
+        {
+            frame_history.push(thread_frame);
+        }
 
         // Discard old frames to keep memory-use constant
         var max_nb_frames = 10000;
@@ -350,7 +361,7 @@ Remotery = (function()
             {
                 continue;
             }
-            
+
             // Try to merge this frame's samples with the previous frame if the are the same thread
             if (frame_history.length > 0)
             {
