@@ -4978,9 +4978,11 @@ static rmtBool ThreadProfiler_Pop(ThreadProfiler* thread_profiler, rmtMessageQue
     // Are we back at the root?
     if (tree->currentParent == tree->root)
     {
+        Sample* root;
+
         // Disconnect all samples from the root and pack in the chosen message queue
         ModifySampleTree(tree, 
-        Sample* root = tree->root;
+        root = tree->root;
         root->first_child = NULL;
         root->last_child = NULL;
         root->nb_children = 0;
