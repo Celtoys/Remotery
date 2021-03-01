@@ -5246,6 +5246,8 @@ static void GatherThreads(ThreadProfilers* thread_profilers)
 
             success = Thread32Next(handle, &thread_entry);
         }
+
+        CloseHandle(handle);
     }
 
 #endif
