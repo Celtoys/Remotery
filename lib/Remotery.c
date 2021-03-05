@@ -114,6 +114,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #undef max
         #include <tlhelp32.h>
         #include <winnt.h>
+        #include <processthreadsapi.h>
         #ifdef _XBOX_ONE
             #include "xmem.h"
         #endif
@@ -4848,12 +4849,13 @@ typedef struct ThreadProfiler
     // Storage for backing up initial register values when modifying a thread's context
     rmtU64 registerBackup0;                                                                         // 0
     rmtU64 registerBackup1;                                                                         // 8
+    rmtU64 registerBackup2;                                                                         // 16
     
     // Used to schedule callbacks taking into account some threads may be sleeping
-    rmtS32 nbSamplesWithoutCallback;                                                                // 16
+    rmtS32 nbSamplesWithoutCallback;                                                                // 24
 
     // Index of the processor the thread was last seen running on
-    rmtU32 processorIndex;                                                                          // 20
+    rmtU32 processorIndex;                                                                          // 28
     rmtU32 lastProcessorIndex;
 
     // OS thread ID/handle
@@ -5041,6 +5043,7 @@ typedef struct ThreadProfilers
     
     // On x64 machines this points to the sample function
     void* compiledSampleFn;
+    rmtU32 compiledSampleFnSize;
     
     // Used to store thread profilers bound to an OS thread
     rmtTLS threadProfilerTlsHandle;
@@ -5067,7 +5070,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread);
 
 #ifdef RMT_PLATFORM_WINDOWS
 #ifdef RMT_ARCH_64BIT
-static void* CreateSampleCallback();
+static void* CreateSampleCallback(rmtU32* out_size);
 #endif
 #endif
 
@@ -5079,6 +5082,7 @@ static rmtError ThreadProfilers_Constructor(ThreadProfilers* thread_profilers, u
     thread_profilers->timer = timer;
     thread_profilers->mqToRmtThread = mq_to_rmt_thread;
     thread_profilers->compiledSampleFn = NULL;
+    thread_profilers->compiledSampleFnSize = 0;
     thread_profilers->threadProfilerTlsHandle = TLS_INVALID_HANDLE;
     thread_profilers->nbThreadProfilers = 0;
     thread_profilers->maxNbThreadProfilers = sizeof(thread_profilers->threadProfilers) / sizeof(thread_profilers->threadProfilers[0]);
@@ -5088,7 +5092,7 @@ static rmtError ThreadProfilers_Constructor(ThreadProfilers* thread_profilers, u
 
 #ifdef RMT_PLATFORM_WINDOWS
 #ifdef RMT_ARCH_64BIT
-    thread_profilers->compiledSampleFn = CreateSampleCallback();
+    thread_profilers->compiledSampleFn = CreateSampleCallback(&thread_profilers->compiledSampleFnSize);
     if (thread_profilers->compiledSampleFn == NULL)
     {
         return RMT_ERROR_MALLOC_FAIL;
@@ -5203,6 +5207,26 @@ static rmtError ThreadProfilers_GetCurrentThreadProfiler(ThreadProfilers* thread
     }
 
     return RMT_ERROR_NONE;
+}
+
+static rmtBool ThreadProfilers_ThreadInCallback(ThreadProfilers* thread_profilers, CONTEXT* context)
+{
+#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ARCH_32BIT
+    if (context->Eip >= (DWORD)thread_profilers->compiledSampleFn &&
+        context->Eip < (DWORD)((char*)thread_profilers->compiledSampleFn + thread_profilers->compiledSampleFnSize))
+    {
+        return RMT_TRUE;
+    }
+#else
+    if (context->Rip >= (DWORD64)thread_profilers->compiledSampleFn &&
+        context->Rip < (DWORD64)((char*)thread_profilers->compiledSampleFn + thread_profilers->compiledSampleFnSize))
+    {
+        return RMT_TRUE;
+    }
+#endif
+#endif
+    return RMT_FALSE;
 }
 
 /*
@@ -5354,18 +5378,14 @@ __declspec(naked) static void SampleCallback()
         // (Classic example which seems to pop up regularly is _RTC_CheckESP, with cmp/call/jne)
         pushfd
 
-        // Save registers used by cpuid (ebx and edi are restored via thread pointer)
+        // Push all volatile registers as we don't know what the function calls below will destroy
         push eax
         push ecx
         push edx
 
-        // Get the current processor index.
-        // Function 1 to return APIC-ID: https://c9x.me/x86/html/file_module_x86_id_45.html
-        // TODO(don): Needs further refinement, see https://wiki.osdev.org/Detecting_CPU_Topology_(80x86)
-        mov eax, 1
-        cpuid
-        shr ebx, 24
-        mov [edi].processorIndex, ebx
+        // Retrieve and store the current processor index
+        call esi
+        mov [edi].processorIndex, eax
 
         // Mark as ready for scheduling another callback
         // Intel x86 store release
@@ -5378,12 +5398,13 @@ __declspec(naked) static void SampleCallback()
 
         // Restore registers used to provide parameters to the callback
         mov ebx, dword ptr [edi].registerBackup0
-        mov edi, dword ptr [edi].registerBackup1
+        mov esi, dword ptr [edi].registerBackup1
+        mov edi, dword ptr [edi].registerBackup2
 
         // Restore EFLAGS
         popfd
 
-        // Pops the original EIP of the stack and jmps to origin suspend point in the thread
+        // Pops the original EIP off the stack and jmps to origin suspend point in the thread
         ret
     }
 }
@@ -5391,43 +5412,79 @@ __declspec(naked) static void SampleCallback()
 // Generated with https://defuse.ca/online-x86-assembler.htm
 static rmtU8 SampleCallbackBytes[] =
 {
+    // Push the RIP return address used by the final ret instruction
     0x53,                                           // push rbx
+
+    // We might be in the middle of something like a cmp/jmp instruction pair so preserve RFLAGS
+    // (Classic example which seems to pop up regularly is _RTC_CheckESP, with cmp/call/jne)
     0x9C,                                           // pushfq
+
+    // Push all volatile registers as we don't know what the function calls below will destroy
     0x50,                                           // push rax
     0x51,                                           // push rcx
     0x52,                                           // push rdx
-    0xB8, 0x01, 0x00, 0x00, 0x00,                   // mov eax, 1
-    0x0F, 0xA2,                                     // cpuid
-    0xC1, 0xEB, 0x18,                               // shr ebx, 24
-    0x89, 0x5F, 0x14,                               // mov dword ptr [rdi + 20], ebx
-    0xC7, 0x47, 0x10, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 16], 0
+    0x41, 0x50,                                     // push r8
+    0x41, 0x51,                                     // push r9
+    0x41, 0x52,                                     // push r10
+    0x41, 0x53,                                     // push r11
+
+    // Retrieve and store the current processor index
+    0xFF, 0xD6,                                     // call rsi
+    0x89, 0x47, 0x1C,                               // mov dword ptr [rdi + 28], eax
+
+    // Mark as ready for scheduling another callback
+    // Intel x64 store release
+    0xC7, 0x47, 0x18, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 24], 0
+
+    // Restore preserved register state
+    0x41, 0x5B,                                     // pop r11
+    0x41, 0x5A,                                     // pop r10
+    0x41, 0x59,                                     // pop r9
+    0x41, 0x58,                                     // pop r8
     0x5A,                                           // pop rdx
     0x59,                                           // pop rcx
     0x58,                                           // pop rax
+
+    // Restore registers used to provide parameters to the callback
     0x48, 0x8B, 0x1F,                               // mov rbx, qword ptr [rdi + 0]
-    0x48, 0x8B, 0x7F, 0x08,                         // mov rdi, qword ptr [rdi + 8]
+    0x48, 0x8B, 0x77, 0x08,                         // mov rsi, qword ptr [rdi + 8]
+    0x48, 0x8B, 0x7F, 0x10,                         // mov rdi, qword ptr [rdi + 16]
+
+    // Restore RFLAGS
     0x9D,                                           // popfq
+
+    // Pops the original EIP off the stack and jmps to origin suspend point in the thread
     0xC3                                            // ret
 };
-#ifdef __cplusplus
-static_assert(offsetof(ThreadProfiler, nbSamplesWithoutCallback) == 0x10, "");
-static_assert(offsetof(ThreadProfiler, processorIndex) == 0x14, "");
-#endif
 #ifdef RMT_PLATFORM_WINDOWS
-static void* CreateSampleCallback()
+static void* CreateSampleCallback(rmtU32* out_size)
 {
-    // Allocate and copy to executable space for the 64-bit compiled sample function
+    // Allocate page for the generated code
+    DWORD size = 4096;
     DWORD old_protect;
-    void* function = VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* function = VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (function == NULL)
     {
         return NULL;
     }
+
+    // Clear whole allocation to int 3h
+    memset(function, 0xCC, size);
+
+    // Copy over the generated code
     memcpy(function, SampleCallbackBytes, sizeof(SampleCallbackBytes));
-    VirtualProtect(function, 4096, PAGE_EXECUTE_READ, &old_protect);
+    *out_size = sizeof(SampleCallbackBytes);
+
+    // Enable execution
+    VirtualProtect(function, size, PAGE_EXECUTE_READ, &old_protect);
     return function;
 }
 #endif
+#endif
+
+#ifdef __cplusplus
+static_assert(offsetof(ThreadProfiler, nbSamplesWithoutCallback) == 24, "");
+static_assert(offsetof(ThreadProfiler, processorIndex) == 28, "");
 #endif
 
 static void CloseOpenSamples(Sample* sample, rmtU64 sample_time_us, rmtU32 parents_are_last)
@@ -5632,6 +5689,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
             processor_index = thread_profiler->processorIndex;
             if (processor_index != -1)
             {
+                assert(processor_index < nb_processors);
                 processors[processor_index].threadProfiler = thread_profiler;
                 processors[processor_index].sampleCount = sample_count;
                 processors[processor_index].sampleTime = sample_time_us;
@@ -5640,20 +5698,27 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
             // Swap in a new context with our callback if one is not already scheduled on this thread
             if (sample_count == 0)
             {
-                if (rmtGetUserModeThreadContext(thread_handle, &context) == RMT_TRUE)
+                if (rmtGetUserModeThreadContext(thread_handle, &context) == RMT_TRUE &&
+                    // There is a slight window of opportunity, after which the callback sets nbSamplesWithoutCallback=0,
+                    // for this loop to suspend a thread while it's executing the last instructions of the callback.
+                    ThreadProfilers_ThreadInCallback(thread_profilers, &context) == RMT_FALSE)
                 {
                 #ifdef RMT_PLATFORM_WINDOWS
                 #ifdef RMT_ARCH_64BIT
                     thread_profiler->registerBackup0 = context.Rbx;
-                    thread_profiler->registerBackup1 = context.Rdi;
+                    thread_profiler->registerBackup1 = context.Rsi;
+                    thread_profiler->registerBackup2 = context.Rdi;
                     context.Rbx = context.Rip;
+                    context.Rsi = (rmtU64)GetCurrentProcessorNumber;
                     context.Rdi = (rmtU64)thread_profiler;
                     context.Rip = (DWORD64)thread_profilers->compiledSampleFn;
                 #endif
                  #ifdef RMT_ARCH_32BIT
                     thread_profiler->registerBackup0 = context.Ebx;
-                    thread_profiler->registerBackup1 = context.Edi;
+                    thread_profiler->registerBackup1 = context.Esi;
+                    thread_profiler->registerBackup2 = context.Edi;
                     context.Ebx = context.Eip;
+                    context.Esi = (rmtU32)GetCurrentProcessorNumber;
                     context.Edi = (rmtU32)thread_profiler;
                     context.Eip = (DWORD)&SampleCallback;
                 #endif
@@ -5694,6 +5759,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 rmtU32 last_processor_index = thread_profiler->lastProcessorIndex;
                 if (last_processor_index != -1 && last_processor_index != processor_index)
                 {
+                    assert(last_processor_index < nb_processors);
                     if (processors[last_processor_index].threadProfiler == thread_profiler)
                     {
                         processors[last_processor_index].threadProfiler = NULL;
