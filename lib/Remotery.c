@@ -5348,14 +5348,14 @@ __declspec(naked) static void SampleCallback()
     __asm
     {
         // Push the EIP return address used by the final ret instruction
-        push eax
+        push ebx
 
         // We might be in the middle of something like a cmp/jmp instruction pair so preserve EFLAGS
         // (Classic example which seems to pop up regularly is _RTC_CheckESP, with cmp/call/jne)
         pushfd
 
-        // Save registers used by cpuid (eax and edi are restored via thread pointer)
-        push ebx
+        // Save registers used by cpuid (ebx and edi are restored via thread pointer)
+        push eax
         push ecx
         push edx
 
@@ -5374,10 +5374,10 @@ __declspec(naked) static void SampleCallback()
         // Restore preserved register state
         pop edx
         pop ecx
-        pop ebx
+        pop eax
 
         // Restore registers used to provide parameters to the callback
-        mov eax, dword ptr [edi].registerBackup0
+        mov ebx, dword ptr [edi].registerBackup0
         mov edi, dword ptr [edi].registerBackup1
 
         // Restore EFLAGS
@@ -5391,9 +5391,9 @@ __declspec(naked) static void SampleCallback()
 // Generated with https://defuse.ca/online-x86-assembler.htm
 static rmtU8 SampleCallbackBytes[] =
 {
-    0x50,                                           // push rax
-    0x9C,                                           // pushfq
     0x53,                                           // push rbx
+    0x9C,                                           // pushfq
+    0x50,                                           // push rax
     0x51,                                           // push rcx
     0x52,                                           // push rdx
     0xB8, 0x01, 0x00, 0x00, 0x00,                   // mov eax, 1
@@ -5403,8 +5403,8 @@ static rmtU8 SampleCallbackBytes[] =
     0xC7, 0x47, 0x10, 0x00, 0x00, 0x00, 0x00,       // mov dword ptr [rdi + 16], 0
     0x5A,                                           // pop rdx
     0x59,                                           // pop rcx
-    0x5B,                                           // pop rbx
-    0x48, 0x8B, 0x07,                               // mov rax, qword ptr [rdi + 0]
+    0x58,                                           // pop rax
+    0x48, 0x8B, 0x1F,                               // mov rbx, qword ptr [rdi + 0]
     0x48, 0x8B, 0x7F, 0x08,                         // mov rdi, qword ptr [rdi + 8]
     0x9D,                                           // popfq
     0xC3                                            // ret
@@ -5644,16 +5644,16 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 {
                 #ifdef RMT_PLATFORM_WINDOWS
                 #ifdef RMT_ARCH_64BIT
-                    thread_profiler->registerBackup0 = context.Rax;
+                    thread_profiler->registerBackup0 = context.Rbx;
                     thread_profiler->registerBackup1 = context.Rdi;
-                    context.Rax = context.Rip;
+                    context.Rbx = context.Rip;
                     context.Rdi = (rmtU64)thread_profiler;
                     context.Rip = (DWORD64)thread_profilers->compiledSampleFn;
                 #endif
                  #ifdef RMT_ARCH_32BIT
-                    thread_profiler->registerBackup0 = context.Eax;
+                    thread_profiler->registerBackup0 = context.Ebx;
                     thread_profiler->registerBackup1 = context.Edi;
-                    context.Eax = context.Eip;
+                    context.Ebx = context.Eip;
                     context.Edi = (rmtU32)thread_profiler;
                     context.Eip = (DWORD)&SampleCallback;
                 #endif
