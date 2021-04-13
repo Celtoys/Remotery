@@ -1908,7 +1908,7 @@ static void rmtGetThreadName(rmtThreadId thread_id, rmtThreadHandle thread_handl
     memset(out_thread_name, 0, thread_name_size);
     strcpy_s(out_thread_name, thread_name_size, module_name);
     strncat_s(out_thread_name, thread_name_size, "!", 1);
-    len = strlen(out_thread_name);
+    len = strnlen_s(out_thread_name, thread_name_size);
     itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
 
 #elif defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES && !defined(__FreeBSD__) && !defined(__OpenBSD__)
@@ -5677,14 +5677,11 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 continue;
             }
 
-            // While the thread is suspended take the chance to check for samples tress that may never complete
-            sample_time_us = usTimer_Get(thread_profilers->timer);
-            CheckForStallingSamples(&stalling_sample_tree, thread_profiler, sample_time_us);
-
             // Mark the processor this thread was last recorded as running on.
             // Note that a thread might be pre-empted multiple times in-between sampling. Given a sampling rate equal to the
             // scheduling quantum, this doesn't happen too often. However in such cases, whoever marks the processor last is
             // the one that gets recorded.
+            sample_time_us = usTimer_Get(thread_profilers->timer);
             sample_count = AtomicAdd(&thread_profiler->nbSamplesWithoutCallback, 1);
             processor_index = thread_profiler->processorIndex;
             if (processor_index != -1)
@@ -5732,6 +5729,11 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 }
             }
 
+            // While the thread is suspended take the chance to check for samples trees that may never complete
+            // Because SuspendThread on Windows is an async request, this needs to be placed at a point where the request completes
+            // Calling GetThreadContext will ensure the request is completed so this stall check is placed after that
+            CheckForStallingSamples(&stalling_sample_tree, thread_profiler, sample_time_us);
+
             rmtResumeThread(thread_handle);
 
             if (stalling_sample_tree.root != NULL)
@@ -5740,6 +5742,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 // Do the send *outside* of all Suspend/Resume calls as we have no way of knowing who is reading/writing the queue
                 // Mark this as partial so that the listeners know it will be overwritten.
                 Sample* sample = stalling_sample_tree.root->first_child;
+                assert(sample != NULL);
                 QueueSampleTree(thread_profilers->mqToRmtThread, sample, stalling_sample_tree.allocator, thread_profiler->threadName, thread_profiler, RMT_TRUE);
             }
 
