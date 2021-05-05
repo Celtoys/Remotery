@@ -5212,7 +5212,7 @@ static rmtError ThreadProfilers_GetCurrentThreadProfiler(ThreadProfilers* thread
     return RMT_ERROR_NONE;
 }
 
-static rmtBool ThreadProfilers_ThreadInCallback(ThreadProfilers* thread_profilers, CONTEXT* context)
+static rmtBool ThreadProfilers_ThreadInCallback(ThreadProfilers* thread_profilers, rmtCpuContext* context)
 {
 #ifdef RMT_PLATFORM_WINDOWS
 #ifdef RMT_ARCH_32BIT
