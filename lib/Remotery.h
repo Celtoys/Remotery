@@ -367,10 +367,9 @@ typedef struct rmtSettings
     // Which port to listen for incoming connections on
     rmtU16 port;
 
-    // When this server exits it can leave the port open in TIME_WAIT state for
-    // a while. This forces subsequent server bind attempts to fail when
-    // restarting. If you find restarts fail repeatedly with bind attempts, set
-    // this to true to forcibly reuse the open port.
+    // When this server exits it can leave the port open in TIME_WAIT state for a while. This forces
+    // subsequent server bind attempts to fail when restarting. If you find restarts fail repeatedly
+    // with bind attempts, set this to true to forcibly reuse the open port.
     rmtBool reuse_open_port;
 
     // Only allow connections on localhost?
@@ -378,6 +377,12 @@ typedef struct rmtSettings
     // you distribute a game to your players with Remotery active, probably best
     // to limit connections to localhost.
     rmtBool limit_connections_to_localhost;
+
+    // Whether to enable runtime thread sampling that discovers which processors a thread is running
+    // on. This will suspend and resume threads from outside repeatdly and inject code into each
+    // thread that automatically instruments the processor.
+    // Default: Enabled
+    rmtBool enableThreadSampler;
 
     // How long to sleep between server updates, hopefully trying to give
     // a little CPU back to other threads.

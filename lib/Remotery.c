@@ -4699,7 +4699,7 @@ static void FreeSamples(Sample* sample, ObjectAllocator* allocator)
     else
     {
         ObjectAllocator_Free(allocator, sample);
-}
+    }
 }
 
 static rmtError SampleTree_CopySample(Sample** out_dst_sample, Sample* dst_parent_sample, ObjectAllocator* allocator, const Sample* src_sample)
@@ -5108,10 +5108,13 @@ static rmtError ThreadProfilers_Constructor(ThreadProfilers* thread_profilers, u
     }
 
     // Kick-off the thread sampler
-    New_2(rmtThread, thread_profilers->threadSampleThread, SampleThreadsLoop, thread_profilers);
-    if (error != RMT_ERROR_NONE)
+    if (g_Settings.enableThreadSampler == RMT_TRUE)
     {
-        return error;
+        New_2(rmtThread, thread_profilers->threadSampleThread, SampleThreadsLoop, thread_profilers);
+        if (error != RMT_ERROR_NONE)
+        {
+            return error;
+        }
     }
 
     return RMT_ERROR_NONE;
@@ -6587,6 +6590,7 @@ RMT_API rmtSettings* _rmt_Settings(void)
         g_Settings.port = 0x4597;
         g_Settings.reuse_open_port = RMT_FALSE;
         g_Settings.limit_connections_to_localhost = RMT_FALSE;
+        g_Settings.enableThreadSampler = RMT_TRUE;
         g_Settings.msSleepBetweenServerUpdates = 4;
         g_Settings.messageQueueSizeInBytes = 1024 * 1024;
         g_Settings.maxNbMessagesPerUpdate = 50;
