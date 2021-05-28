@@ -304,6 +304,10 @@ typedef enum rmtSampleFlags
 
     // Merge sample with parent if it's the same sample
     RMTSF_Recursive = 2,
+
+    // Set this flag on any of your root samples so that Remotery will assert if it ends up *not* being the root sample.
+    // This will quickly allow you to detect Begin/End mismatches causing a sample tree imbalance.
+    RMTSF_Root = 4,
 } rmtSampleFlags;
 
 

@@ -4590,30 +4590,40 @@ static rmtError SampleTree_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags
     assert(tree->currentParent != NULL);
     parent = tree->currentParent;
 
-    if ((flags & RMTSF_Aggregate) != 0)
+    // Assume no flags is the common case and predicate branch checks
+    if (flags != 0)
     {
-        // Linear search for previous instance of this sample name
-        Sample* sibling;
-        for (sibling = parent->first_child; sibling != NULL; sibling = sibling->next_sibling)
+        // Check root status
+        if ((flags & RMTSF_Root) != 0)
         {
-            if (sibling->name_hash == name_hash)
+            assert(parent->parent == NULL);
+        }
+
+        if ((flags & RMTSF_Aggregate) != 0)
+        {
+            // Linear search for previous instance of this sample name
+            Sample* sibling;
+            for (sibling = parent->first_child; sibling != NULL; sibling = sibling->next_sibling)
             {
-                tree->currentParent = sibling;
-                sibling->call_count++;
-                *sample = sibling;
-                return RMT_ERROR_NONE;
+                if (sibling->name_hash == name_hash)
+                {
+                    tree->currentParent = sibling;
+                    sibling->call_count++;
+                    *sample = sibling;
+                    return RMT_ERROR_NONE;
+                }
             }
         }
-    }
 
-    // Collapse sample on recursion
-    if ((flags & RMTSF_Recursive) != 0 && parent->name_hash == name_hash)
-    {
-        parent->recurse_depth++;
-        parent->max_recurse_depth = maxU16(parent->max_recurse_depth, parent->recurse_depth);
-        parent->call_count++;
-        *sample = parent;
-        return RMT_ERROR_RECURSIVE_SAMPLE;
+        // Collapse sample on recursion
+        if ((flags & RMTSF_Recursive) != 0 && parent->name_hash == name_hash)
+        {
+            parent->recurse_depth++;
+            parent->max_recurse_depth = maxU16(parent->max_recurse_depth, parent->recurse_depth);
+            parent->call_count++;
+            *sample = parent;
+            return RMT_ERROR_RECURSIVE_SAMPLE;
+        }
     }
 
     // Allocate a new sample
