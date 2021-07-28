@@ -126,6 +126,9 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
             #include <pthread_np.h>
         #else
             #include <sys/prctl.h>
+            //On Linux we need to do a syscall to get the thread id.
+            #include <sys/types.h>
+            #include <sys/syscall.h>
         #endif
     #endif
 
@@ -1705,7 +1708,12 @@ static rmtThreadId rmtGetCurrentThreadId()
 #ifdef RMT_PLATFORM_WINDOWS
     return GetCurrentThreadId();
 #else
-    return 0;
+#elif defined(RMT_PLATFORM_POSIX)
+    #if defined(__FreeBSD__) || defined(__OpenBSD__)
+    return pthread_getthreadid_np();
+    #else
+    return syscall(__NR_gettid);
+    #endif
 #endif
 }
 
@@ -4976,7 +4984,7 @@ static void ThreadProfiler_Destructor(ThreadProfiler* thread_profiler)
 static rmtError ThreadProfiler_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags, Sample** sample)
 {
     rmtError error;
-    ModifySampleTree(tree, 
+    ModifySampleTree(tree,
         error = SampleTree_Push(tree, name_hash, flags, sample);
     );
     return error;
@@ -4993,7 +5001,7 @@ static rmtBool ThreadProfiler_Pop(ThreadProfiler* thread_profiler, rmtMessageQue
         Sample* root;
 
         // Disconnect all samples from the root and pack in the chosen message queue
-        ModifySampleTree(tree, 
+        ModifySampleTree(tree,
         root = tree->root;
         root->first_child = NULL;
         root->last_child = NULL;
