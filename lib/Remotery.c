@@ -2153,12 +2153,15 @@ static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
     ObjectLink* link;
 
     assert(allocator != NULL);
-    assert(allocator->first_free != NULL);
 
     // CAS pop from the front of the list
     for (;;)
     {
         ObjectLink* old_link = (ObjectLink*)allocator->first_free;
+        if (old_link == NULL)
+        {
+            return NULL;
+        }
         ObjectLink* next_link = old_link->next;
         if (AtomicCompareAndSwapPointer((long* volatile*)&allocator->first_free, (long*)old_link, (long*)next_link) ==
             RMT_TRUE)
@@ -2180,35 +2183,36 @@ static rmtError ObjectAllocator_Alloc(ObjectAllocator* allocator, void** object)
     assert(allocator != NULL);
     assert(object != NULL);
 
+    // Pull available objects from the free list
+    *object = ObjectAllocator_Pop(allocator);
+
     // Has the free list run out?
-    if (allocator->first_free == NULL)
+    if (*object == NULL)
     {
         rmtError error;
 
         // Allocate/construct a new object
-        void* free_object = rmtMalloc(allocator->object_size);
-        if (free_object == NULL)
+        *object = rmtMalloc(allocator->object_size);
+        if (*object == NULL)
             return RMT_ERROR_MALLOC_FAIL;
         assert(allocator->constructor != NULL);
-        error = allocator->constructor(free_object);
+        error = allocator->constructor(*object);
         if (error != RMT_ERROR_NONE)
         {
             // Auto-teardown on failure
             assert(allocator->destructor != NULL);
-            allocator->destructor(free_object);
-            rmtFree(free_object);
+            allocator->destructor(*object);
+            rmtFree(*object);
             return error;
         }
 
-        // Add to the free list
-        ObjectAllocator_Push(allocator, (ObjectLink*)free_object, (ObjectLink*)free_object);
         AtomicAdd(&allocator->nb_allocated, 1);
-        AtomicAdd(&allocator->nb_free, 1);
+    }
+    else
+    {
+        AtomicSub(&allocator->nb_free, 1);
     }
 
-    // Pull available objects from the free list
-    *object = ObjectAllocator_Pop(allocator);
-    AtomicSub(&allocator->nb_free, 1);
     AtomicAdd(&allocator->nb_inuse, 1);
 
     return RMT_ERROR_NONE;
