@@ -1837,8 +1837,16 @@ const char* GetStartAddressModuleName(DWORD_PTR start_address)
     {
         if (start_address >= (DWORD_PTR)module_entry.modBaseAddr && start_address <= ((DWORD_PTR)module_entry.modBaseAddr + module_entry.modBaseSize))
         {
-            static char name[256];
+            static char name[MAX_MODULE_NAME32 + 1];
+#ifdef UNICODE
+            int size = WideCharToMultiByte(CP_ACP, 0, module_entry.szModule, -1, name, MAX_MODULE_NAME32, NULL, NULL);
+            if (size < 1)
+            {
+                name[0] = '\0';
+            }
+#else
             strcpy_s(name, sizeof(name), module_entry.szModule);
+#endif
             CloseHandle(handle);
             return name;
         }
