@@ -14,10 +14,7 @@ struct Viewport
 
 struct TimeRange
 {
-    float pxSpan;
     float usStart;
-    float usSpan;
-    float usEnd;
     float usPerPixel;
 };
 

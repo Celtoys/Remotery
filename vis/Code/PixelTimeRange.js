@@ -55,13 +55,7 @@ class PixelTimeRange
 
 	SetAsUniform(gl, program)
 	{
-	    //Uniforms that aren't used by the shaders are commented out.
-        //This is because depending on the shader compiler unused uniforms might get optimized away, even if they are declared.
-        //When this happens there will be an error thrown as WebGL can't find the uniform.
-		//glSetUniform(gl, program, "inTimeRange.pxSpan", this.Span_px);
 		glSetUniform(gl, program, "inTimeRange.usStart", this.Start_us);
-		//glSetUniform(gl, program, "inTimeRange.usSpan", this.Span_us);
-		//glSetUniform(gl, program, "inTimeRange.usEnd", this.End_us);
 		glSetUniform(gl, program, "inTimeRange.usPerPixel", this.usPerPixel);
 	}
 }
