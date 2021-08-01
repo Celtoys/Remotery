@@ -1705,7 +1705,7 @@ static rmtThreadId rmtGetCurrentThreadId()
 #ifdef RMT_PLATFORM_WINDOWS
     return GetCurrentThreadId();
 #else
-    return pthread_self();
+    return (rmtThreadId)pthread_self();
 #endif
 }
 
