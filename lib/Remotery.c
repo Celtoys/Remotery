@@ -1674,7 +1674,7 @@ static const char* itoa_s(rmtS32 value)
 ------------------------------------------------------------------------------------------------------------------------
 */
 
-typedef rmtU32 rmtThreadId;
+typedef rmtU64 rmtThreadId;
 
 #ifdef RMT_PLATFORM_WINDOWS
 typedef HANDLE rmtThreadHandle;
@@ -1705,7 +1705,7 @@ static rmtThreadId rmtGetCurrentThreadId()
 #ifdef RMT_PLATFORM_WINDOWS
     return GetCurrentThreadId();
 #else
-    return 0;
+    return (rmtThreadId)pthread_self();
 #endif
 }
 
@@ -4988,7 +4988,7 @@ static void ThreadProfiler_Destructor(ThreadProfiler* thread_profiler)
 static rmtError ThreadProfiler_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags, Sample** sample)
 {
     rmtError error;
-    ModifySampleTree(tree, 
+    ModifySampleTree(tree,
         error = SampleTree_Push(tree, name_hash, flags, sample);
     );
     return error;
@@ -5005,7 +5005,7 @@ static rmtBool ThreadProfiler_Pop(ThreadProfiler* thread_profiler, rmtMessageQue
         Sample* root;
 
         // Disconnect all samples from the root and pack in the chosen message queue
-        ModifySampleTree(tree, 
+        ModifySampleTree(tree,
         root = tree->root;
         root->first_child = NULL;
         root->last_child = NULL;
