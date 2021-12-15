@@ -5709,7 +5709,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
             sample_time_us = usTimer_Get(thread_profilers->timer);
             sample_count = AtomicAdd(&thread_profiler->nbSamplesWithoutCallback, 1);
             processor_index = thread_profiler->processorIndex;
-            if (processor_index != -1)
+            if (processor_index != (rmtU32)-1)
             {
                 assert(processor_index < nb_processors);
                 processors[processor_index].threadProfiler = thread_profiler;
@@ -5785,7 +5785,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 // If this thread was on another processor on a previous pass and that processor is still tracking that thread,
                 // remove the thread from it.
                 rmtU32 last_processor_index = thread_profiler->lastProcessorIndex;
-                if (last_processor_index != -1 && last_processor_index != processor_index)
+                if (last_processor_index != (rmtU32)-1 && last_processor_index != processor_index)
                 {
                     assert(last_processor_index < nb_processors);
                     if (processors[last_processor_index].threadProfiler == thread_profiler)
