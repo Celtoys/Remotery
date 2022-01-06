@@ -114,7 +114,6 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #undef max
         #include <tlhelp32.h>
         #include <winnt.h>
-        #include <timeapi.h>
         #include <processthreadsapi.h>
         #ifdef _XBOX_ONE
             #include "xmem.h"
