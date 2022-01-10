@@ -5777,6 +5777,8 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
                 assert(sample != NULL);
                 QueueSampleTree(thread_profilers->mqToRmtThread, sample, stalling_sample_tree.allocator, thread_profiler->threadName, thread_profiler, RMT_TRUE);
 
+                // The stalling_sample_tree.root->first_child has been sent to the main Remotery thread. This will get released later
+                // when the Remotery thread has processed it. This leaves the stalling_sample_tree.root here that must be freed.
                 assert(stalling_sample_tree.allocator != NULL);
                 ObjectAllocator_Free(stalling_sample_tree.allocator, stalling_sample_tree.root);
             }
