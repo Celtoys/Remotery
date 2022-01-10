@@ -5759,7 +5759,11 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
             // Calling GetThreadContext will ensure the request is completed so this stall check is placed after that
             if (RMT_ERROR_NONE != CheckForStallingSamples(&stalling_sample_tree, thread_profiler, sample_time_us))
             {
-                SampleTree_Destructor(&stalling_sample_tree);
+                assert(stalling_sample_tree.allocator != NULL);
+                if (stalling_sample_tree.root != NULL)
+                {
+                    FreeSamples(stalling_sample_tree.root, stalling_sample_tree.allocator);
+                }
             }
 
             rmtResumeThread(thread_handle);
