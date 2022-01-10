@@ -5779,8 +5779,12 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
 
                 // The stalling_sample_tree.root->first_child has been sent to the main Remotery thread. This will get released later
                 // when the Remotery thread has processed it. This leaves the stalling_sample_tree.root here that must be freed.
+                // Before freeing the root sample we have to detach the children though.
+                stalling_sample_tree.root->first_child = NULL;
+                stalling_sample_tree.root->last_child = NULL;
+                stalling_sample_tree.root->nb_children = 0;
                 assert(stalling_sample_tree.allocator != NULL);
-                ObjectAllocator_Free(stalling_sample_tree.allocator, stalling_sample_tree.root);
+                FreeSamples(stalling_sample_tree.root, stalling_sample_tree.allocator);
             }
 
 
