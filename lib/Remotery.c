@@ -5503,7 +5503,7 @@ static void* CreateSampleCallback(rmtU32* out_size)
 #endif
 #endif
 
-#ifdef __cplusplus
+#if defined(__cplusplus) && __cplusplus >= 201103L
 static_assert(offsetof(ThreadProfiler, nbSamplesWithoutCallback) == 24, "");
 static_assert(offsetof(ThreadProfiler, processorIndex) == 28, "");
 #endif
