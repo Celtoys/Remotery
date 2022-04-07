@@ -383,41 +383,41 @@ typedef struct rmtSampleIterator
     RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
 
 
-#define rmt_IterateChildren(sample)                                                 \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_IterateChildren(sample))
+#define rmt_IterateChildren(iter, sample)                                           \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_IterateChildren(iter, sample))
 
 #define rmt_IterateNext(iter)                                                       \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_IterateNext(iter))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_IterateNext(iter), RMT_FALSE)
 
 
 #define rmt_SampleTreeGetThreadName(sample_tree)                                    \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleTreeGetThreadName(sample_tree))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetThreadName(sample_tree), NULL)
 
 #define rmt_SampleTreeGetRootSample(sample_tree)                                    \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleTreeGetRootSample(sample_tree))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetRootSample(sample_tree), NULL)
 
 // Should only called from within the sample tree callback,
 // when the internal string lookup table is valid (i.e. on the main Remotery thread)
-#define rmt_SampleGetName(rmt, sample)                                              \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetName(rmt, sample))
+#define rmt_SampleGetName(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetName(sample), NULL)
 
 #define rmt_SampleGetNameHash(sample)                                               \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetNameHash(sample))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetNameHash(sample), 0U)
 
 #define rmt_SampleGetCallCount(sample)                                              \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetCallCount(sample))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetCallCount(sample), 0U)
 
 #define rmt_SampleGetTime(sample)                                                   \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetTime(sample))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetTime(sample), 0LLU)
 
 #define rmt_SampleGetSelfTime(sample)                                               \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetSelfTime(sample))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetSelfTime(sample), 0LLU)
 
 #define rmt_SampleGetColour(sample, r, g, b)                                        \
     RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetColour(sample, r, g, b))
 
 #define rmt_SampleGetType(sample)                                                   \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetType(sample))
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetType(sample), RMT_SampleType_Count)
 
 
 // Callback function pointer types
@@ -729,7 +729,7 @@ RMT_API void _rmt_EndMetalSample(void);
 #endif
 
 // Iterator
-RMT_API rmtSampleIterator   _rmt_IterateChildren(rmtSample* sample);
+RMT_API void                _rmt_IterateChildren(rmtSampleIterator* iter, rmtSample* sample);
 RMT_API rmtBool             _rmt_IterateNext(rmtSampleIterator* iter);
 
 // SampleTree accessors
@@ -737,7 +737,7 @@ RMT_API const char*         _rmt_SampleTreeGetThreadName(rmtSampleTree* sample_t
 RMT_API rmtSample*          _rmt_SampleTreeGetRootSample(rmtSampleTree* sample_tree);
 
 // Sample accessors
-RMT_API const char*         _rmt_SampleGetName(Remotery* rmt, rmtSample* sample);
+RMT_API const char*         _rmt_SampleGetName(rmtSample* sample);
 RMT_API rmtU32              _rmt_SampleGetNameHash(rmtSample* sample);
 RMT_API rmtU32              _rmt_SampleGetCallCount(rmtSample* sample);
 RMT_API rmtU64              _rmt_SampleGetTime(rmtSample* sample);

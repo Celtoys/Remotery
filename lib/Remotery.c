@@ -8818,12 +8818,10 @@ RMT_API void _rmt_EndMetalSample(void)
 #endif // RMT_USE_METAL
 
 // Iterator
-RMT_API rmtSampleIterator _rmt_IterateChildren(rmtSample* sample)
+RMT_API void _rmt_IterateChildren(rmtSampleIterator* iterator, rmtSample* sample)
 {
-    rmtSampleIterator iterator;
-    iterator.sample = 0;
-    iterator.initial = sample != NULL ? sample->first_child : 0;
-    return iterator;
+    iterator->sample = 0;
+    iterator->initial = sample != NULL ? sample->first_child : 0;
 }
 
 RMT_API rmtBool _rmt_IterateNext(rmtSampleIterator* iter)
@@ -8854,9 +8852,9 @@ RMT_API rmtSample* _rmt_SampleTreeGetRootSample(rmtSampleTree* sample_tree)
 }
 
 // Sample accessors
-RMT_API const char* _rmt_SampleGetName(Remotery* rmt, rmtSample* sample)
+RMT_API const char* _rmt_SampleGetName(rmtSample* sample)
 {
-    const char* name = StringTable_Find(rmt->string_table, sample->name_hash);
+    const char* name = StringTable_Find(g_Remotery->string_table, sample->name_hash);
     if (name == NULL)
     {
         return "null";

@@ -7,11 +7,6 @@
 #include <assert.h>
 
 
-typedef struct ProfileContext
-{
-    Remotery* rmt;
-} ProfileContext;
-
 void aggregateFunction() {
     rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);    
     rmt_EndCPUSample();
@@ -42,14 +37,15 @@ double delay() {
 
 void printIndent(int indent)
 {
-    for (int i = 0; i < indent; ++i) {
+    int i;
+    for (i = 0; i < indent; ++i) {
         printf("  ");
     }
 }
 
-void printSample(ProfileContext* ctx, rmtSample* sample, int indent)
+void printSample(rmtSample* sample, int indent)
 {
-    const char* name = rmt_SampleGetName(ctx->rmt, sample);
+    const char* name = rmt_SampleGetName(sample);
     rmtU32 callcount = rmt_SampleGetCallCount(sample);
     rmtU64 time = rmt_SampleGetTime(sample);
     rmtU64 self_time = rmt_SampleGetSelfTime(sample);
@@ -60,26 +56,26 @@ void printSample(ProfileContext* ctx, rmtSample* sample, int indent)
     printIndent(indent); printf("%s %u  time: %llu  self: %llu type: %d  color: 0x%02x%02x%02x\n", name, callcount, time, self_time, type, r, g, b);
 }
 
-void printTree(ProfileContext* ctx, rmtSample* sample, int indent)
+void printTree(rmtSample* sample, int indent)
 {
-    printSample(ctx, sample, indent);
+    rmtSampleIterator iter;
 
-    rmtSampleIterator iter = rmt_IterateChildren(sample);
+    printSample(sample, indent);
+
+    rmt_IterateChildren(&iter, sample);
     while (rmt_IterateNext(&iter)) {
-        printTree(ctx, iter.sample, indent+1);
+        printTree(iter.sample, indent+1);
     }
 }
 
-void dumpTree(void* _ctx, rmtSampleTree* sample_tree)
+void dumpTree(void* ctx, rmtSampleTree* sample_tree)
 {
-    ProfileContext* ctx = (ProfileContext*)_ctx;
-
     rmtSample* root = rmt_SampleTreeGetRootSample(sample_tree);
     const char* thread_name = rmt_SampleTreeGetThreadName(sample_tree);
 
     printf("// ********************   DUMP TREE: %s   ************************\n", thread_name);
 
-    printTree(ctx, root, 0);
+    printTree(root, 0);
 }
 
 int sig = 0;
@@ -91,16 +87,19 @@ void sigintHandler(int sig_num) {
 }
 
 int main() {
-    ProfileContext ctx;
+    Remotery* rmt;
 	rmtError error;
 
     signal(SIGINT, sigintHandler);
 
     rmtSettings* settings = rmt_Settings();
-    settings->sampletree_handler = dumpTree;
-    settings->sampletree_context = &ctx;
+    if (settings)
+    {
+        settings->sampletree_handler = dumpTree;
+        settings->sampletree_context = 0;
+    }
 
-	error = rmt_CreateGlobalInstance(&ctx.rmt);
+	error = rmt_CreateGlobalInstance(&rmt);
 
     if( RMT_ERROR_NONE != error) {
 		printf("Error launching Remotery %d\n", error);
@@ -115,7 +114,7 @@ int main() {
         rmt_LogText("end profiling");
     }
 
-    rmt_DestroyGlobalInstance(ctx.rmt);
+    rmt_DestroyGlobalInstance(rmt);
     printf("Cleaned up and quit\n");
     return 0;
 }
