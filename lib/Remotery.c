@@ -6107,7 +6107,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 
     if (g_Settings.sampletree_handler != NULL)
     {
-        g_Settings.sampletree_handler(rmt, g_Settings.sampletree_context, sample_tree);
+        g_Settings.sampletree_handler(g_Settings.sampletree_context, sample_tree);
     }
 
     // Release sample tree samples back to their allocator
@@ -8843,12 +8843,12 @@ RMT_API rmtBool _rmt_IterateNext(rmtSampleIterator* iter)
 }
 
 // Sample tree accessors
-RMT_API const char* _rmt_SampleTreeGetThreadName(rmtMsgSampleTree* sample_tree)
+RMT_API const char* _rmt_SampleTreeGetThreadName(rmtSampleTree* sample_tree)
 {
     return sample_tree->threadName;
 }
 
-RMT_API rmtSample* _rmt_SampleTreeGetRootSample(rmtMsgSampleTree* sample_tree)
+RMT_API rmtSample* _rmt_SampleTreeGetRootSample(rmtSampleTree* sample_tree)
 {
     return sample_tree->rootSample;
 }
