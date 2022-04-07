@@ -222,6 +222,11 @@ typedef long long rmtS64;
 // Const, null-terminated string pointer
 typedef const char* rmtPStr;
 
+// Opaque pointer for a sample graph tree
+typedef struct Msg_SampleTree rmtSampleTree;
+
+// Opaque pointer to a node in the sample graph tree
+typedef struct Sample rmtSample;
 
 // Handle to the main remotery instance
 typedef struct Remotery Remotery;
@@ -311,6 +316,26 @@ typedef enum rmtSampleFlags
 } rmtSampleFlags;
 
 
+typedef enum rmtSampleType
+{
+    RMT_SampleType_CPU,
+    RMT_SampleType_CUDA,
+    RMT_SampleType_D3D11,
+    RMT_SampleType_OpenGL,
+    RMT_SampleType_Metal,
+    RMT_SampleType_Count,
+} rmtSampleType;
+
+// Struct to hold iterator info
+typedef struct rmtSampleIterator
+{
+// public
+    rmtSample* sample;
+// private
+    rmtSample* initial;
+} rmtSampleIterator;
+
+
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -358,11 +383,49 @@ typedef enum rmtSampleFlags
     RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
 
 
+#define rmt_IterateChildren(iter, sample)                                           \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_IterateChildren(iter, sample))
+
+#define rmt_IterateNext(iter)                                                       \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_IterateNext(iter), RMT_FALSE)
+
+
+#define rmt_SampleTreeGetThreadName(sample_tree)                                    \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetThreadName(sample_tree), NULL)
+
+#define rmt_SampleTreeGetRootSample(sample_tree)                                    \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetRootSample(sample_tree), NULL)
+
+// Should only called from within the sample tree callback,
+// when the internal string lookup table is valid (i.e. on the main Remotery thread)
+#define rmt_SampleGetName(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetName(sample), NULL)
+
+#define rmt_SampleGetNameHash(sample)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetNameHash(sample), 0U)
+
+#define rmt_SampleGetCallCount(sample)                                              \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetCallCount(sample), 0U)
+
+#define rmt_SampleGetTime(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetTime(sample), 0LLU)
+
+#define rmt_SampleGetSelfTime(sample)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetSelfTime(sample), 0LLU)
+
+#define rmt_SampleGetColour(sample, r, g, b)                                        \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetColour(sample, r, g, b))
+
+#define rmt_SampleGetType(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetType(sample), RMT_SampleType_Count)
+
+
 // Callback function pointer types
 typedef void* (*rmtMallocPtr)(void* mm_context, rmtU32 size);
 typedef void* (*rmtReallocPtr)(void* mm_context, void* ptr, rmtU32 size);
 typedef void (*rmtFreePtr)(void* mm_context, void* ptr);
 typedef void (*rmtInputHandlerPtr)(const char* text, void* context);
+typedef void (*rmtSampleTreeHandlerPtr)(void* cbk_context, rmtSampleTree* sample_tree);
 
 
 // Struture to fill in to modify Remotery default settings
@@ -409,6 +472,10 @@ typedef struct rmtSettings
 
     // Callback pointer for receiving input from the Remotery console
     rmtInputHandlerPtr input_handler;
+
+    // Callback pointer for traversing the sample tree graph
+    rmtSampleTreeHandlerPtr sampletree_handler;
+    void* sampletree_context;
 
     // Context pointer that gets sent to Remotery console callback function
     void* input_handler_context;
@@ -660,6 +727,23 @@ RMT_API void _rmt_EndOpenGLSample(void);
 RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndMetalSample(void);
 #endif
+
+// Iterator
+RMT_API void                _rmt_IterateChildren(rmtSampleIterator* iter, rmtSample* sample);
+RMT_API rmtBool             _rmt_IterateNext(rmtSampleIterator* iter);
+
+// SampleTree accessors
+RMT_API const char*         _rmt_SampleTreeGetThreadName(rmtSampleTree* sample_tree);
+RMT_API rmtSample*          _rmt_SampleTreeGetRootSample(rmtSampleTree* sample_tree);
+
+// Sample accessors
+RMT_API const char*         _rmt_SampleGetName(rmtSample* sample);
+RMT_API rmtU32              _rmt_SampleGetNameHash(rmtSample* sample);
+RMT_API rmtU32              _rmt_SampleGetCallCount(rmtSample* sample);
+RMT_API rmtU64              _rmt_SampleGetTime(rmtSample* sample);
+RMT_API rmtU64              _rmt_SampleGetSelfTime(rmtSample* sample);
+RMT_API void                _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* b);
+RMT_API rmtSampleType       _rmt_SampleGetType(rmtSample* sample);
 
 #ifdef __cplusplus
 
