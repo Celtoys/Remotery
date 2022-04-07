@@ -4309,22 +4309,12 @@ static void Server_Update(Server* server)
 
 #define SAMPLE_NAME_LEN 128
 
-typedef enum SampleType
-{
-    SampleType_CPU,
-    SampleType_CUDA,
-    SampleType_D3D11,
-    SampleType_OpenGL,
-    SampleType_Metal,
-    SampleType_Count,
-} SampleType;
-
 typedef struct Sample
 {
     // Inherit so that samples can be quickly allocated
     ObjectLink Link;
 
-    enum SampleType type;
+    enum rmtSampleType type;
 
     // Hash generated from sample name
     rmtU32 name_hash;
@@ -4368,7 +4358,7 @@ static rmtError Sample_Constructor(Sample* sample)
 
     ObjectLink_Constructor((ObjectLink*)sample);
 
-    sample->type = SampleType_CPU;
+    sample->type = RMT_SampleType_CPU;
     sample->name_hash = 0;
     sample->unique_id = 0;
     sample->unique_id_html_colour[0] = '#';
@@ -4885,7 +4875,7 @@ typedef struct ThreadProfiler
     rmtU32 threadNameHash;
 
     // Store a unique sample tree for each type
-    SampleTree* sampleTrees[SampleType_Count];
+    SampleTree* sampleTrees[RMT_SampleType_Count];
 
 #if RMT_USE_D3D11
     D3D11* d3d11;
@@ -4947,7 +4937,7 @@ static rmtError ThreadProfiler_Constructor(rmtMessageQueue* mq_to_rmt, ThreadPro
     QueueThreadName(mq_to_rmt, thread_profiler->threadName, thread_profiler);
 
     // Create the CPU sample tree only. The rest are created on-demand as they need extra context to function correctly.
-    New_3(SampleTree, thread_profiler->sampleTrees[SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor,
+    New_3(SampleTree, thread_profiler->sampleTrees[RMT_SampleType_CPU], sizeof(Sample), (ObjConstructor)Sample_Constructor,
           (ObjDestructor)Sample_Destructor);
     if (error != RMT_ERROR_NONE)
     {
@@ -4973,7 +4963,7 @@ static void ThreadProfiler_Destructor(ThreadProfiler* thread_profiler)
     Delete(D3D11, thread_profiler->d3d11);
 #endif
 
-    for (index = 0; index < SampleType_Count; index++)
+    for (index = 0; index < RMT_SampleType_Count; index++)
     {
         Delete(SampleTree, thread_profiler->sampleTrees[index]);
     }
@@ -5536,7 +5526,7 @@ static rmtError CheckForStallingSamples(SampleTree* stalling_sample_tree, Thread
     stalling_sample_tree->allocator = NULL;
 
     // Skip the stall check if the tree is being modified
-    sample_tree = thread_profiler->sampleTrees[SampleType_CPU];
+    sample_tree = thread_profiler->sampleTrees[RMT_SampleType_CPU];
     if (LoadAcquire(&sample_tree->treeBeingModified) != 0)
     {
         return RMT_ERROR_NONE;
@@ -6025,19 +6015,19 @@ static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
     // Add any sample types as a thread name post-fix to ensure they get their own viewer
     thread_name[0] = 0;
     strncat_s(thread_name, sizeof(thread_name), msg->threadName, strnlen_s(msg->threadName, 255));
-    if (root_sample->type == SampleType_CUDA)
+    if (root_sample->type == RMT_SampleType_CUDA)
     {
         strncat_s(thread_name, sizeof(thread_name), " (CUDA)", 7);
     }
-    if (root_sample->type == SampleType_D3D11)
+    if (root_sample->type == RMT_SampleType_D3D11)
     {
         strncat_s(thread_name, sizeof(thread_name), " (D3D11)", 8);
     }
-    if (root_sample->type == SampleType_OpenGL)
+    if (root_sample->type == RMT_SampleType_OpenGL)
     {
         strncat_s(thread_name, sizeof(thread_name), " (OpenGL)", 9);
     }
-    if (root_sample->type == SampleType_Metal)
+    if (root_sample->type == RMT_SampleType_Metal)
     {
         strncat_s(thread_name, sizeof(thread_name), " (Metal)", 8);
     }
@@ -6085,7 +6075,7 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     assert(sample != NULL);
 
 #if RMT_USE_CUDA
-    if (sample->type == SampleType_CUDA)
+    if (sample->type == RMT_SampleType_CUDA)
     {
         // If these CUDA samples aren't ready yet, stick them to the back of the queue and continue
         rmtBool are_samples_ready;
@@ -6114,6 +6104,11 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
     rmt_BeginCPUSample(bin_SampleTree, RMTSF_Aggregate);
     error = bin_SampleTree(bin_buf, sample_tree);
     rmt_EndCPUSample();
+
+    if (g_Settings.sampletree_handler != NULL)
+    {
+        g_Settings.sampletree_handler(rmt, g_Settings.sampletree_context, sample_tree);
+    }
 
     // Release sample tree samples back to their allocator
     FreeSamples(sample, sample_tree->allocator);
@@ -6636,6 +6631,8 @@ RMT_API rmtSettings* _rmt_Settings(void)
         g_Settings.input_handler = NULL;
         g_Settings.input_handler_context = NULL;
         g_Settings.logPath = NULL;
+        g_Settings.sampletree_handler = NULL;
+        g_Settings.sampletree_context = NULL;
 
         g_SettingsInitialized = RMT_TRUE;
     }
@@ -6913,7 +6910,7 @@ RMT_API void _rmt_BeginCPUSample(rmtPStr name, rmtU32 flags, rmtU32* hash_cache)
     {
         Sample* sample;
         rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
-        if (ThreadProfiler_Push(thread_profiler->sampleTrees[SampleType_CPU], name_hash, flags, &sample) == RMT_ERROR_NONE)
+        if (ThreadProfiler_Push(thread_profiler->sampleTrees[RMT_SampleType_CPU], name_hash, flags, &sample) == RMT_ERROR_NONE)
         {
             // If this is an aggregate sample, store the time in 'end' as we want to preserve 'start'
             if (sample->call_count > 1)
@@ -6933,7 +6930,7 @@ RMT_API void _rmt_EndCPUSample(void)
 
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
-        Sample* sample = thread_profiler->sampleTrees[SampleType_CPU]->currentParent;
+        Sample* sample = thread_profiler->sampleTrees[RMT_SampleType_CPU]->currentParent;
 
         if (sample->recurse_depth > 0)
         {
@@ -6949,7 +6946,7 @@ RMT_API void _rmt_EndCPUSample(void)
 }
 
 #if RMT_USE_OPENGL || RMT_USE_D3D11
-static void Remotery_DeleteSampleTree(Remotery* rmt, enum SampleType sample_type)
+static void Remotery_DeleteSampleTree(Remotery* rmt, enum rmtSampleType sample_type)
 {
     ThreadProfiler* thread_profiler;
 
@@ -7162,7 +7159,7 @@ static rmtError CUDASample_Constructor(CUDASample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->base.type = SampleType_CUDA;
+    sample->base.type = RMT_SampleType_CUDA;
     sample->event_start = NULL;
     sample->event_end = NULL;
 
@@ -7193,7 +7190,7 @@ static rmtBool AreCUDASamplesReady(Sample* sample)
     Sample* child;
 
     CUDASample* cuda_sample = (CUDASample*)sample;
-    assert(sample->type == SampleType_CUDA);
+    assert(sample->type == RMT_SampleType_CUDA);
 
     // Check to see if both of the CUDA events have been processed
     error = CUDAEventQuery(cuda_sample->event_start);
@@ -7268,7 +7265,7 @@ RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream
 
         // Create the CUDA tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a CUDA binding is not yet available.
-        SampleTree** cuda_tree = &thread_profiler->sampleTrees[SampleType_CUDA];
+        SampleTree** cuda_tree = &thread_profiler->sampleTrees[RMT_SampleType_CUDA];
         if (*cuda_tree == NULL)
         {
             CUDASample* root_sample;
@@ -7304,7 +7301,7 @@ RMT_API void _rmt_EndCUDASample(void* stream)
 
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
-        CUDASample* sample = (CUDASample*)thread_profiler->sampleTrees[SampleType_CUDA]->currentParent;
+        CUDASample* sample = (CUDASample*)thread_profiler->sampleTrees[RMT_SampleType_CUDA]->currentParent;
         if (sample->base.recurse_depth > 0)
         {
             sample->base.recurse_depth--;
@@ -7713,7 +7710,7 @@ static rmtError D3D11Sample_Constructor(D3D11Sample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->base.type = SampleType_D3D11;
+    sample->base.type = RMT_SampleType_D3D11;
     New_0(D3D11Timestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
@@ -7759,7 +7756,7 @@ RMT_API void _rmt_UnbindD3D11(void)
                 UpdateD3D11Frame(thread_profiler);
 
             // There will be a whole bunch of D3D11 sample trees queued up the remotery queue that need releasing
-            FreePendingSampleTrees(g_Remotery, SampleType_D3D11, d3d11->flush_samples);
+            FreePendingSampleTrees(g_Remotery, RMT_SampleType_D3D11, d3d11->flush_samples);
 
             // Inform sampler to not add any more samples
             d3d11->device = NULL;
@@ -7767,7 +7764,7 @@ RMT_API void _rmt_UnbindD3D11(void)
 
             // Forcefully delete sample tree on this thread to release time stamps from
             // the same thread that created them
-            Remotery_DeleteSampleTree(g_Remotery, SampleType_D3D11);
+            Remotery_DeleteSampleTree(g_Remotery, RMT_SampleType_D3D11);
         }
     }
 }
@@ -7796,7 +7793,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
 
         // Create the D3D11 tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a D3D11 binding is not yet available.
-        d3d_tree = &thread_profiler->sampleTrees[SampleType_D3D11];
+        d3d_tree = &thread_profiler->sampleTrees[RMT_SampleType_D3D11];
         if (*d3d_tree == NULL)
         {
             rmtError error;
@@ -7903,7 +7900,7 @@ static void UpdateD3D11Frame(ThreadProfiler* thread_profiler)
         assert(message->id == MsgID_SampleTree);
         sample_tree = (Msg_SampleTree*)message->payload;
         sample = sample_tree->rootSample;
-        assert(sample->type == SampleType_D3D11);
+        assert(sample->type == RMT_SampleType_D3D11);
 
         // Retrieve timing of all D3D11 samples
         // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
@@ -7938,7 +7935,7 @@ RMT_API void _rmt_EndD3D11Sample(void)
             return;
 
         // Close the timestamp
-        d3d_sample = (D3D11Sample*)thread_profiler->sampleTrees[SampleType_D3D11]->currentParent;
+        d3d_sample = (D3D11Sample*)thread_profiler->sampleTrees[RMT_SampleType_D3D11]->currentParent;
         if (d3d_sample->base.recurse_depth > 0)
         {
             d3d_sample->base.recurse_depth--;
@@ -8315,7 +8312,7 @@ static rmtError OpenGLSample_Constructor(OpenGLSample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->base.type = SampleType_OpenGL;
+    sample->base.type = RMT_SampleType_OpenGL;
     New_0(OpenGLTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
@@ -8373,11 +8370,11 @@ RMT_API void _rmt_UnbindOpenGL(void)
             UpdateOpenGLFrame();
 
         // There will be a whole bunch of OpenGL sample trees queued up the remotery queue that need releasing
-        FreePendingSampleTrees(g_Remotery, SampleType_OpenGL, opengl->flush_samples);
+        FreePendingSampleTrees(g_Remotery, RMT_SampleType_OpenGL, opengl->flush_samples);
 
         // Forcefully delete sample tree on this thread to release time stamps from
         // the same thread that created them
-        Remotery_DeleteSampleTree(g_Remotery, SampleType_OpenGL);
+        Remotery_DeleteSampleTree(g_Remotery, RMT_SampleType_OpenGL);
 
         // Release reference to the OpenGL DLL
         if (opengl->dll_handle != NULL)
@@ -8402,7 +8399,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 
         // Create the OpenGL tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a OpenGL binding is not yet available.
-        SampleTree** ogl_tree = &thread_profiler->sampleTrees[SampleType_OpenGL];
+        SampleTree** ogl_tree = &thread_profiler->sampleTrees[RMT_SampleType_OpenGL];
         if (*ogl_tree == NULL)
         {
             rmtError error;
@@ -8484,7 +8481,7 @@ static void UpdateOpenGLFrame(void)
         assert(message->id == MsgID_SampleTree);
         sample_tree = (Msg_SampleTree*)message->payload;
         sample = sample_tree->rootSample;
-        assert(sample->type == SampleType_OpenGL);
+        assert(sample->type == RMT_SampleType_OpenGL);
 
         // Retrieve timing of all OpenGL samples
         // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
@@ -8510,7 +8507,7 @@ RMT_API void _rmt_EndOpenGLSample(void)
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         // Close the timestamp
-        OpenGLSample* ogl_sample = (OpenGLSample*)thread_profiler->sampleTrees[SampleType_OpenGL]->currentParent;
+        OpenGLSample* ogl_sample = (OpenGLSample*)thread_profiler->sampleTrees[RMT_SampleType_OpenGL]->currentParent;
         if (ogl_sample->base.recurse_depth > 0)
         {
             ogl_sample->base.recurse_depth--;
@@ -8659,7 +8656,7 @@ static rmtError MetalSample_Constructor(MetalSample* sample)
 
     // Chain to sample constructor
     Sample_Constructor((Sample*)sample);
-    sample->base.type = SampleType_Metal;
+    sample->base.type = RMT_SampleType_Metal;
     New_0(MetalTimestamp, sample->timestamp);
 
     return RMT_ERROR_NONE;
@@ -8686,7 +8683,7 @@ static void UpdateOpenGLFrame(void);
 
         // Forcefully delete sample tree on this thread to release time stamps from
         // the same thread that created them
-        Remotery_BlockingDeleteSampleTree(g_Remotery, SampleType_Metal);
+        Remotery_BlockingDeleteSampleTree(g_Remotery, RMT_SampleType_Metal);
     }
 }*/
 
@@ -8704,7 +8701,7 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
 
         // Create the Metal tree on-demand as the tree needs an up-front-created root.
         // This is not possible to create on initialisation as a Metal binding is not yet available.
-        SampleTree** metal_tree = &thread_profiler->sampleTrees[SampleType_Metal];
+        SampleTree** metal_tree = &thread_profiler->sampleTrees[RMT_SampleType_Metal];
         if (*metal_tree == NULL)
         {
             rmtError error;
@@ -8774,7 +8771,7 @@ static void UpdateMetalFrame(void)
         assert(message->id == MsgID_SampleTree);
         sample_tree = (Msg_SampleTree*)message->payload;
         sample = sample_tree->rootSample;
-        assert(sample->type == SampleType_Metal);
+        assert(sample->type == RMT_SampleType_Metal);
 
         // Retrieve timing of all Metal samples
         // If they aren't ready leave the message unconsumed, holding up later frames and maintaining order
@@ -8800,7 +8797,7 @@ RMT_API void _rmt_EndMetalSample(void)
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         // Close the timestamp
-        MetalSample* metal_sample = (MetalSample*)thread_profiler->sampleTrees[SampleType_Metal]->currentParent;
+        MetalSample* metal_sample = (MetalSample*)thread_profiler->sampleTrees[RMT_SampleType_Metal]->currentParent;
         if (metal_sample->base.recurse_depth > 0)
         {
             metal_sample->base.recurse_depth--;
@@ -8819,5 +8816,93 @@ RMT_API void _rmt_EndMetalSample(void)
 }
 
 #endif // RMT_USE_METAL
+
+// Iterator
+RMT_API rmtSampleIterator _rmt_IterateChildren(rmtSample* sample)
+{
+    rmtSampleIterator iterator;
+    iterator.sample = 0;
+    iterator.initial = sample != NULL ? sample->first_child : 0;
+    return iterator;
+}
+
+RMT_API rmtBool _rmt_IterateNext(rmtSampleIterator* iter)
+{
+    if (iter->initial != NULL)
+    {
+        iter->sample = iter->initial;
+        iter->initial = 0;
+    }
+    else
+    {
+        if (iter->sample != NULL)
+            iter->sample = iter->sample->next_sibling;
+    }
+
+    return iter->sample != NULL ? RMT_TRUE : RMT_FALSE;
+}
+
+// Sample tree accessors
+RMT_API const char* _rmt_SampleTreeGetThreadName(rmtMsgSampleTree* sample_tree)
+{
+    return sample_tree->threadName;
+}
+
+RMT_API rmtSample* _rmt_SampleTreeGetRootSample(rmtMsgSampleTree* sample_tree)
+{
+    return sample_tree->rootSample;
+}
+
+// Sample accessors
+RMT_API const char* _rmt_SampleGetName(Remotery* rmt, rmtSample* sample)
+{
+    const char* name = StringTable_Find(rmt->string_table, sample->name_hash);
+    if (name == NULL)
+    {
+        return "null";
+    }
+    return name;
+}
+
+RMT_API rmtU32 _rmt_SampleGetNameHash(rmtSample* sample)
+{
+    return sample->name_hash;
+}
+
+RMT_API rmtU32 _rmt_SampleGetCallCount(rmtSample* sample)
+{
+    return sample->call_count;
+}
+
+RMT_API rmtU64 _rmt_SampleGetTime(rmtSample* sample)
+{
+    return sample->us_length;
+}
+
+RMT_API rmtU64 _rmt_SampleGetSelfTime(rmtSample* sample)
+{
+    return (rmtU64)maxS64(sample->us_length - sample->us_sampled_length, 0);
+}
+
+RMT_API rmtSampleType _rmt_SampleGetType(rmtSample* sample)
+{
+    return sample->type;
+}
+
+static rmtU8 _rmt_HexDigitToByte(rmtU8 c)
+{
+    if (c >= (rmtU8)'a')
+        return 0xA + (c - (rmtU8)'a');
+    return c - (rmtU8)'0';
+}
+
+RMT_API void _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* b)
+{
+    rmtU8* p = sample->unique_id_html_colour + 1; // skip the '#' sign
+    *r = _rmt_HexDigitToByte(p[0]) << 4 | _rmt_HexDigitToByte(p[1]);
+    *g = _rmt_HexDigitToByte(p[2]) << 4 | _rmt_HexDigitToByte(p[3]);
+    *b = _rmt_HexDigitToByte(p[4]) << 4 | _rmt_HexDigitToByte(p[5]);
+}
+
 
 #endif // RMT_ENABLED
