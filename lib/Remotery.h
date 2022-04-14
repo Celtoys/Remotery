@@ -210,6 +210,8 @@ typedef unsigned char rmtU8;
 typedef unsigned short rmtU16;
 typedef unsigned int rmtU32;
 typedef unsigned long long rmtU64;
+typedef signed int rmtI32;
+typedef float rmtF32;
 
 
 // Signed integer types
@@ -316,6 +318,17 @@ typedef enum rmtSampleFlags
 } rmtSampleFlags;
 
 
+typedef enum rmtStatFlags
+{
+    // Default behaviour
+    RMT_Stat_None = 0,
+
+    // Counters are cleared each frame
+    RMT_Stat_Counter = 1,
+
+} rmtStatFlags;
+
+
 typedef enum rmtSampleType
 {
     RMT_SampleType_CPU,
@@ -323,8 +336,17 @@ typedef enum rmtSampleType
     RMT_SampleType_D3D11,
     RMT_SampleType_OpenGL,
     RMT_SampleType_Metal,
+    RMT_SampleType_Stat,
     RMT_SampleType_Count,
 } rmtSampleType;
+
+typedef enum rmtStatType
+{
+    RMT_StatType_I32,
+    RMT_StatType_F32,
+    RMT_StatType_Text,
+    RMT_StatType_Count,
+} rmtStatType;
 
 // Struct to hold iterator info
 typedef struct rmtSampleIterator
@@ -421,6 +443,21 @@ typedef struct rmtSampleIterator
 
 #define rmt_SampleGetType(sample)                                                   \
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetType(sample), RMT_SampleType_Count)
+
+#define rmt_SampleGetStatType(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStatType(sample), RMT_StatType_Count)
+
+#define rmt_SampleGetStatDesc(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStatDesc(sample), 0)
+
+#define rmt_SampleGetStatValueI32(sample)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStatValueI32(sample), 0)
+
+#define rmt_StatI32(name, value, default_value, flags, desc)                            \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                         \
+        static rmtU32 rmt_stat_hash_##name = 0;                                         \
+        _rmt_StatI32(#name, value, default_value, flags, desc, &rmt_stat_hash_##name);         \
+    })
 
 
 // Callback function pointer types
@@ -731,6 +768,10 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndMetalSample(void);
 #endif
 
+// Statistics
+RMT_API void _rmt_StatI32(const char* name, rmtI32 value, rmtI32 default_value, rmtU32 flags, const char* desc, rmtU32* hash_cache);
+
+
 // Iterator
 RMT_API void                _rmt_IterateChildren(rmtSampleIterator* iter, rmtSample* sample);
 RMT_API rmtBool             _rmt_IterateNext(rmtSampleIterator* iter);
@@ -748,6 +789,9 @@ RMT_API rmtU64              _rmt_SampleGetTime(rmtSample* sample);
 RMT_API rmtU64              _rmt_SampleGetSelfTime(rmtSample* sample);
 RMT_API void                _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* b);
 RMT_API rmtSampleType       _rmt_SampleGetType(rmtSample* sample);
+RMT_API rmtStatType         _rmt_SampleGetStatType(rmtSample* sample);
+RMT_API rmtI32              _rmt_SampleGetStatValueI32(rmtSample* sample);
+RMT_API const char*         _rmt_SampleGetStatDesc(rmtSample* sample);
 
 #ifdef __cplusplus
 

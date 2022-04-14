@@ -49,6 +49,8 @@
     @D3D11:         Direct3D 11 event sampling
     @OPENGL:        OpenGL event sampling
     @METAL:         Metal event sampling
+    @STATISTICS:    Remotery statistics implementation
+    @ITERATORS:     Remotery sample iterators
 */
 
 #define RMT_IMPL
@@ -4309,6 +4311,17 @@ static void Server_Update(Server* server)
 
 #define SAMPLE_NAME_LEN 128
 
+typedef struct StatInfo
+{
+    enum rmtStatType type;
+    union {
+        rmtI32 ivalue;
+        rmtF32 fvalue;
+    } value;
+    rmtU32 flags;
+    rmtU32 desc; // The hash of the description
+} StatInfo;
+
 typedef struct Sample
 {
     // Inherit so that samples can be quickly allocated
@@ -4324,6 +4337,8 @@ typedef struct Sample
 
     // Null-terminated string storing the hash-prefixed 6-digit colour
     rmtU8 unique_id_html_colour[8];
+
+    StatInfo stat_info; // Only valid if type==RMT_SampleType_Stat
 
     // Links to related samples in the tree
     struct Sample* parent;
@@ -4376,6 +4391,8 @@ static rmtError Sample_Constructor(Sample* sample)
     sample->call_count = 0;
     sample->recurse_depth = 0;
     sample->max_recurse_depth = 0;
+    sample->stat_info.type = RMT_StatType_Count;
+    sample->stat_info.desc = 0;
 
     return RMT_ERROR_NONE;
 }
@@ -4401,6 +4418,8 @@ static void Sample_Prepare(Sample* sample, rmtU32 name_hash, Sample* parent)
     sample->call_count = 1;
     sample->recurse_depth = 0;
     sample->max_recurse_depth = 0;
+    sample->stat_info.type = RMT_StatType_Count;
+    sample->stat_info.desc = 0;
 }
 
 static void Sample_Close(Sample* sample, rmtU64 us_end)
@@ -8817,6 +8836,60 @@ RMT_API void _rmt_EndMetalSample(void)
 
 #endif // RMT_USE_METAL
 
+/*
+ ------------------------------------------------------------------------------------------------------------------------
+ ------------------------------------------------------------------------------------------------------------------------
+ @STATISTICS:    Remotery statistics implementation
+ ------------------------------------------------------------------------------------------------------------------------
+ ------------------------------------------------------------------------------------------------------------------------
+ */
+RMT_API void _rmt_StatI32(const char* name, rmtI32 value, rmtI32 default_value, rmtU32 flags, const char* desc, rmtU32* hash_cache)
+{
+    ThreadProfiler* thread_profiler;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
+    {
+        Sample* sample;
+        rmtU32 sample_flags = RMTSF_Aggregate;
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        
+        if (ThreadProfiler_Push(thread_profiler->sampleTrees[RMT_SampleType_CPU], name_hash, sample_flags, &sample) == RMT_ERROR_NONE)
+        {
+            rmtBool first_setup = sample->stat_info.type == RMT_StatType_Count;
+            if (first_setup)
+            {
+                sample->us_start = usTimer_Get(&g_Remotery->timer);
+                sample->stat_info.type = RMT_StatType_I32;
+                sample->stat_info.flags = flags;
+                sample->stat_info.value.ivalue = default_value;
+                sample->stat_info.desc = 0;
+
+                if (desc != NULL)
+                {
+                    ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, desc, &sample->stat_info.desc);
+                }
+            }
+
+            sample->stat_info.value.ivalue += value; // Operation base on the flags (add, set, ...)
+
+            rmtU64 us_end = usTimer_Get(&g_Remotery->timer);
+            Sample_Close(sample, us_end);
+            ThreadProfiler_Pop(thread_profiler, g_Remotery->mq_to_rmt_thread, sample);
+        }
+    }
+}
+
+/*
+ ------------------------------------------------------------------------------------------------------------------------
+ ------------------------------------------------------------------------------------------------------------------------
+ @ITERATORS: Remotery sample iterators
+ ------------------------------------------------------------------------------------------------------------------------
+ ------------------------------------------------------------------------------------------------------------------------
+ */
+
 // Iterator
 RMT_API void _rmt_IterateChildren(rmtSampleIterator* iterator, rmtSample* sample)
 {
@@ -8854,12 +8927,7 @@ RMT_API rmtSample* _rmt_SampleTreeGetRootSample(rmtSampleTree* sample_tree)
 // Sample accessors
 RMT_API const char* _rmt_SampleGetName(rmtSample* sample)
 {
-    const char* name = StringTable_Find(g_Remotery->string_table, sample->name_hash);
-    if (name == NULL)
-    {
-        return "null";
-    }
-    return name;
+    return StringTable_Find(g_Remotery->string_table, sample->name_hash);
 }
 
 RMT_API rmtU32 _rmt_SampleGetNameHash(rmtSample* sample)
@@ -8891,6 +8959,26 @@ RMT_API rmtSampleType _rmt_SampleGetType(rmtSample* sample)
 {
     return sample->type;
 }
+
+RMT_API rmtStatType _rmt_SampleGetStatType(rmtSample* sample)
+{
+    return sample->stat_info.type;
+}
+
+RMT_API const char* _rmt_SampleGetStatDesc(rmtSample* sample)
+{
+    return StringTable_Find(g_Remotery->string_table, sample->stat_info.desc);
+}
+
+// TODO: How to deal with getting wrong type?
+// SHould it return an rmtError instead?
+RMT_API rmtI32 _rmt_SampleGetStatValueI32(rmtSample* sample)
+{
+    if (sample->stat_info.type != RMT_StatType_I32)
+        return 0;
+    return sample->stat_info.value.ivalue;
+}
+
 
 static rmtU8 _rmt_HexDigitToByte(rmtU8 c)
 {

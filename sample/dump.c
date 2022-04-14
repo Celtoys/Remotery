@@ -2,13 +2,15 @@
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
+#include <string.h>
 #include "../lib/Remotery.h"
 
 #include <assert.h>
 
 
 void aggregateFunction() {
-    rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);    
+    rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);
+        rmt_StatI32(MyCounter, 1, 0, RMT_Stat_None, "test");
     rmt_EndCPUSample();
 }
 void recursiveFunction(int depth) {
@@ -45,15 +47,34 @@ void printIndent(int indent)
 
 void printSample(rmtSample* sample, int indent)
 {
-    const char* name = rmt_SampleGetName(sample);
-    rmtU32 callcount = rmt_SampleGetCallCount(sample);
-    rmtU64 time = rmt_SampleGetTime(sample);
-    rmtU64 self_time = rmt_SampleGetSelfTime(sample);
+    printIndent(indent);
+
     rmtSampleType type = rmt_SampleGetType(sample);
+    rmtStatType stat_type = rmt_SampleGetStatType(sample);
+
+    const char* name = rmt_SampleGetName(sample);
     rmtU8 r, g, b;
     rmt_SampleGetColour(sample, &r, &g, &b);
 
-    printIndent(indent); printf("%s %u  time: %llu  self: %llu type: %d  color: 0x%02x%02x%02x\n", name, callcount, time, self_time, type, r, g, b);
+    if (stat_type != RMT_StatType_Count)
+    {
+        if (stat_type == RMT_StatType_I32)
+        {
+            rmtI32 value = rmt_SampleGetStatValueI32(sample);
+            const char* desc = rmt_SampleGetStatDesc(sample);
+            printf("STAT: %s type: %s value: %d  desc: %s\n", name, "RMT_StatType_I32", value, desc ? desc : "-");
+        }
+        else
+            printf("STAT: %s type: %d value: ??\n", name, stat_type);
+    }
+    else
+    {
+        rmtU32 callcount = rmt_SampleGetCallCount(sample);
+        rmtU64 time = rmt_SampleGetTime(sample);
+        rmtU64 self_time = rmt_SampleGetSelfTime(sample);
+
+        printf("SAMPLE: %s %u  time: %llu  self: %llu type: %d  color: 0x%02x%02x%02x\n", name, callcount, time, self_time, type, r, g, b);
+    }
 }
 
 void printTree(rmtSample* sample, int indent)
@@ -72,6 +93,9 @@ void dumpTree(void* ctx, rmtSampleTree* sample_tree)
 {
     rmtSample* root = rmt_SampleTreeGetRootSample(sample_tree);
     const char* thread_name = rmt_SampleTreeGetThreadName(sample_tree);
+
+    if (strcmp(thread_name, "Remotery") == 0)
+        return;
 
     printf("// ********************   DUMP TREE: %s   ************************\n", thread_name);
 
