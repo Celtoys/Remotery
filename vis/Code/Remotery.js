@@ -134,8 +134,10 @@ Remotery = (function()
     function AutoConnect(self)
     {
         // Only attempt to connect if there isn't already a connection or an attempt to connect
-        if (!self.Server.Connected())
+        if (!self.Server.Connected() && !self.Server.Connecting())
+        {
             self.Server.Connect(self.ConnectionAddress);
+        }
 
         // Always schedule another check
         window.setTimeout(Bind(AutoConnect, self), 2000);
