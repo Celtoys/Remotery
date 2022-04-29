@@ -227,6 +227,27 @@ Remotery = (function()
         sample.us_self = data_view_reader.GetUInt64();
         sample.call_count = data_view_reader.GetUInt32();
         sample.recurse_depth = data_view_reader.GetUInt32();
+        sample.stat_type = data_view_reader.GetStringOfLength(3);
+        if (sample.stat_type == "I32")
+            sample.stat_value = data_view_reader.GetInt32();
+        else if (sample.stat_type == "F32")
+            sample.stat_value = data_view_reader.GetFloat32();
+        else {
+            data_view_reader.GetUInt32();
+            sample.stat_value = null;
+        }
+        sample.stat_desc_hash = data_view_reader.GetUInt32();
+        let [ desc_name_exists, desc_name ] = self.sampleNames.Get(sample.stat_desc_hash);
+        sample.stat_desc = desc_name;
+
+        // If the name doesn't exist in the map yet, request it from the server
+        if (!desc_name_exists)
+        {
+            if (self.Server.Connected())
+            {
+                self.Server.Send("GSMP" + sample.stat_desc_hash);
+            }
+        }
 
         // TODO(don): Get the profiler to pass these directly instead of hex colour
         const colour = parseInt(sample.colour.slice(1), 16);

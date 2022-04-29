@@ -23,10 +23,24 @@ DataViewReader = (function ()
         return v;
     }
 
+    DataViewReader.prototype.GetInt32 = function ()
+    {
+        var v = this.DataView.getInt32(this.Offset, true);
+        this.Offset += 4;
+        return v;
+    }
+
     DataViewReader.prototype.GetUInt64 = function ()
     {
         var v = this.DataView.getFloat64(this.Offset, true);
         this.Offset += 8;
+        return v;
+    }
+
+    DataViewReader.prototype.GetFloat32 = function ()
+    {
+        var v = this.DataView.getFloat32(this.Offset, true);
+        this.Offset += 4;
         return v;
     }
 

@@ -4316,6 +4316,7 @@ typedef struct StatInfo
     enum rmtStatType type;
     union {
         rmtI32 ivalue;
+        rmtU32 uvalue;
         rmtF32 fvalue;
     } value;
     rmtU32 flags;
@@ -4476,12 +4477,20 @@ static void Sample_CopyState(Sample* dst_sample, const Sample* src_sample)
 
 static rmtError bin_SampleArray(Buffer* buffer, Sample* parent_sample);
 
+static const char* gStatTypeStrings[] = {
+    "I32",
+    "F32",
+    "TXT",
+    "NUL",
+};
+
 static rmtError bin_Sample(Buffer* buffer, Sample* sample)
 {
     rmtError error;
 
     assert(sample != NULL);
 
+    // For decoding, See Remotery.js : DecodeSample
     BIN_ERROR_CHECK(Buffer_WriteU32(buffer, sample->name_hash));
     BIN_ERROR_CHECK(Buffer_WriteU32(buffer, sample->unique_id));
     BIN_ERROR_CHECK(Buffer_Write(buffer, sample->unique_id_html_colour, 7));
@@ -4490,6 +4499,9 @@ static rmtError bin_Sample(Buffer* buffer, Sample* sample)
     BIN_ERROR_CHECK(Buffer_WriteU64(buffer, maxS64(sample->us_length - sample->us_sampled_length, 0)));
     BIN_ERROR_CHECK(Buffer_WriteU32(buffer, sample->call_count));
     BIN_ERROR_CHECK(Buffer_WriteU32(buffer, sample->max_recurse_depth));
+    BIN_ERROR_CHECK(Buffer_Write(buffer, gStatTypeStrings[sample->stat_info.type], 3));
+    BIN_ERROR_CHECK(Buffer_WriteU32(buffer, sample->stat_info.value.uvalue));
+    BIN_ERROR_CHECK(Buffer_WriteU32(buffer, sample->stat_info.desc));
     BIN_ERROR_CHECK(bin_SampleArray(buffer, sample));
 
     return RMT_ERROR_NONE;

@@ -5,7 +5,8 @@
 #include "../lib/Remotery.h"
 
 void aggregateFunction() {
-    rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);    
+    rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);
+        rmt_StatI32(MyCounter, 1, 0, RMT_Stat_None, "test");
     rmt_EndCPUSample();
 }
 void recursiveFunction(int depth) {
