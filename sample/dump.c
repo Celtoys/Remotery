@@ -138,7 +138,7 @@ int main() {
     }
 
     rmt_StatDeclareGroupNoParent(Sample, "Top scope");
-    rmt_StatDeclareS32(AggregateCallCount, Sample, 7, RMT_StatOperation_Add, "Sums up all calls");
+    rmt_StatDeclareS32(AggregateCallCount, Sample, 0, RMT_StatOperation_Add, "Sums up all calls");
     rmt_StatDeclareS32(RecursiveCallDepth, Sample, 0, RMT_StatOperation_Set, "Shows the max depth");
 
     int max_count = 5;
