@@ -210,9 +210,6 @@ typedef unsigned char rmtU8;
 typedef unsigned short rmtU16;
 typedef unsigned int rmtU32;
 typedef unsigned long long rmtU64;
-typedef signed int rmtI32;
-typedef float rmtF32;
-
 
 // Signed integer types
 typedef char rmtS8;
@@ -220,6 +217,8 @@ typedef short rmtS16;
 typedef int rmtS32;
 typedef long long rmtS64;
 
+// Floating point types
+typedef float rmtF32;
 
 // Const, null-terminated string pointer
 typedef const char* rmtPStr;
@@ -317,18 +316,6 @@ typedef enum rmtSampleFlags
     RMTSF_Root = 4,
 } rmtSampleFlags;
 
-
-typedef enum rmtStatFlags
-{
-    // Default behaviour
-    RMT_Stat_None = 0,
-
-    // Counters are cleared each frame
-    RMT_Stat_Counter = 1,
-
-} rmtStatFlags;
-
-
 typedef enum rmtSampleType
 {
     RMT_SampleType_CPU,
@@ -342,11 +329,18 @@ typedef enum rmtSampleType
 
 typedef enum rmtStatType
 {
-    RMT_StatType_I32,
+    RMT_StatType_S32,
     RMT_StatType_F32,
     RMT_StatType_Text,
+    RMT_StatType_Group,
     RMT_StatType_Count,
 } rmtStatType;
+
+typedef enum rmtStatOperation
+{
+    RMT_StatOperation_Add = 1 << 8,   // Adds each stat. Cleared each frame
+    RMT_StatOperation_Set = 1 << 9,   // Set the value
+} rmtStatOperation;
 
 // Struct to hold iterator info
 typedef struct rmtSampleIterator
@@ -450,13 +444,51 @@ typedef struct rmtSampleIterator
 #define rmt_SampleGetStatDesc(sample)                                                   \
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStatDesc(sample), 0)
 
-#define rmt_SampleGetStatValueI32(sample)                                               \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStatValueI32(sample), 0)
+#define rmt_SampleGetStatValueS32(sample)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStatValueS32(sample), 0)
 
-#define rmt_StatI32(name, value, default_value, flags, desc)                            \
-    RMT_OPTIONAL(RMT_ENABLED, {                                                         \
-        static rmtU32 rmt_stat_hash_##name = 0;                                         \
-        _rmt_StatI32(#name, value, default_value, flags, desc, &rmt_stat_hash_##name);         \
+#define _rmt_NameConcat3(x, y, z)   x ## y ## z
+#define _rmt_CreateSymbol3(x, y, z) _rmt_NameConcat3(x, y, z)
+
+// Q: Do we want to provide a user data, that they can use to categorize their stats?
+// compare with Unreal which has
+
+
+#define rmt_StatDeclareGroupNoParent(name, desc)                                            \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                             \
+        static rmtU32 _rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__) = 0;               \
+        _rmt_StatDeclareGroup(#name, 0, desc,                                               \
+                                &_rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__), 0);    \
+    })
+
+#define rmt_StatDeclareGroup(name, group, desc)                                             \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                             \
+        static rmtU32 _rmt_CreateSymbol3(rmt_stat_hash_, group, __LINE__) = 0;              \
+        static rmtU32 _rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__) = 0;               \
+        _rmt_StatDeclareGroup(#name, #group, desc,                                          \
+                                &_rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__)         \
+                                &_rmt_CreateSymbol3(rmt_stat_hash_, group, __LINE__));      \
+    })
+
+#define rmt_StatDeclareS32(name, group, default_value, flags, desc)                         \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                             \
+        static rmtU32 _rmt_CreateSymbol3(rmt_stat_hash_, group, __LINE__) = 0;              \
+        static rmtU32 _rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__) = 0;               \
+        _rmt_StatDeclareS32(#name, #group, default_value, flags, desc,                      \
+                                &_rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__),        \
+                                &_rmt_CreateSymbol3(rmt_stat_hash_, group, __LINE__));      \
+    })
+
+#define rmt_StatSetS32(name, value)                                                         \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                             \
+        static rmtU32 _rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__) = 0;               \
+        _rmt_StatSetS32(#name, value, &_rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__)); \
+    })
+
+#define rmt_StatAddS32(name, value)                                                         \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                             \
+        static rmtU32 _rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__) = 0;               \
+        _rmt_StatAddS32(#name, value, &_rmt_CreateSymbol3(rmt_stat_hash_, name, __LINE__)); \
     })
 
 
@@ -769,8 +801,10 @@ RMT_API void _rmt_EndMetalSample(void);
 #endif
 
 // Statistics
-RMT_API void _rmt_StatI32(const char* name, rmtI32 value, rmtI32 default_value, rmtU32 flags, const char* desc, rmtU32* hash_cache);
-
+RMT_API void _rmt_StatDeclareGroup(const char* name, const char* group_name, const char* desc, rmtU32* hash_cache, rmtU32* group_hash_cache);
+RMT_API void _rmt_StatDeclareS32(const char* name, const char* group_name, rmtS32 default_value, rmtU32 flags, const char* desc, rmtU32* hash_cache, rmtU32* group_hash_cache);
+RMT_API void _rmt_StatSetS32(const char* name, rmtS32 value, rmtU32* hash_cache);
+RMT_API void _rmt_StatAddS32(const char* name, rmtS32 value, rmtU32* hash_cache);
 
 // Iterator
 RMT_API void                _rmt_IterateChildren(rmtSampleIterator* iter, rmtSample* sample);
@@ -790,7 +824,7 @@ RMT_API rmtU64              _rmt_SampleGetSelfTime(rmtSample* sample);
 RMT_API void                _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* b);
 RMT_API rmtSampleType       _rmt_SampleGetType(rmtSample* sample);
 RMT_API rmtStatType         _rmt_SampleGetStatType(rmtSample* sample);
-RMT_API rmtI32              _rmt_SampleGetStatValueI32(rmtSample* sample);
+RMT_API rmtS32              _rmt_SampleGetStatValueS32(rmtSample* sample);
 RMT_API const char*         _rmt_SampleGetStatDesc(rmtSample* sample);
 
 #ifdef __cplusplus

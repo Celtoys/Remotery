@@ -10,11 +10,12 @@
 
 void aggregateFunction() {
     rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);
-        rmt_StatI32(MyCounter, 1, 0, RMT_Stat_None, "test");
+    rmt_StatAddS32(AggregateCallCount, 1);
     rmt_EndCPUSample();
 }
 void recursiveFunction(int depth) {
     rmt_BeginCPUSample(recursive, RMTSF_Recursive);
+    rmt_StatSetS32(RecursiveCallDepth, depth);
     if (depth < 5) {
         recursiveFunction(depth + 1);
     }
@@ -58,14 +59,20 @@ void printSample(rmtSample* sample, int indent)
 
     if (stat_type != RMT_StatType_Count)
     {
-        if (stat_type == RMT_StatType_I32)
+        rmtStatType stat_type = rmt_SampleGetStatType(sample);
+        const char* desc = rmt_SampleGetStatDesc(sample);
+        if (stat_type == RMT_StatType_S32)
         {
-            rmtI32 value = rmt_SampleGetStatValueI32(sample);
-            const char* desc = rmt_SampleGetStatDesc(sample);
+            rmtS32 value = rmt_SampleGetStatValueS32(sample);
             printf("STAT: %s type: %s value: %d  desc: %s\n", name, "RMT_StatType_I32", value, desc ? desc : "-");
         }
+        else if (stat_type == RMT_StatType_Group)
+        {
+            printf("STAT: %s type: %s desc: %s\n", name, "RMT_StatType_Group", desc ? desc : "-");
+        }
         else
-            printf("STAT: %s type: %d value: ??\n", name, stat_type);
+            printf("STAT: %s type: %d value: ??  %p\n", name, stat_type, sample);
+
     }
     else
     {
@@ -129,6 +136,10 @@ int main() {
 		printf("Error launching Remotery %d\n", error);
         return -1;
     }
+
+    rmt_StatDeclareGroupNoParent(Sample, "Top scope");
+    rmt_StatDeclareS32(AggregateCallCount, Sample, 7, RMT_StatOperation_Add, "Sums up all calls");
+    rmt_StatDeclareS32(RecursiveCallDepth, Sample, 0, RMT_StatOperation_Set, "Shows the max depth");
 
     int max_count = 5;
 

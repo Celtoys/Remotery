@@ -32,6 +32,7 @@
     @DYNBUF:        Dynamic Buffer
     @HASHTABLE:     Integer pair hash map for inserts/finds. No removes for added simplicity.
     @STRINGTABLE:	Map from string hash to string offset in local buffer
+    @ATOMICTABLE:   Atomic protected hash table
     @SOCKETS:       Sockets TCP/IP Wrapper
     @SHA1:          SHA-1 Cryptographic Hash Function
     @BASE64:        Base-64 encoder
@@ -2677,6 +2678,76 @@ static void StringTable_Insert(StringTable* table, rmtU32 name_hash, rmtPStr nam
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+   @ATOMICTABLE: Map from string hash to string offset in local buffer
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+typedef struct
+{
+    // Map from text hash to text location in the buffer
+    rmtHashTable* map;
+
+    rmtU32 lock;
+} AtomicTable;
+
+static void AtomicSpinLock(rmtU32 volatile* val)
+{
+    while (AtomicCompareAndSwap(val, 0, 1) == RMT_FALSE) {
+    }
+}
+
+static void AtomicSpinUnlock(rmtU32 volatile* val)
+{
+    *val = 0;
+}
+
+static rmtError AtomicTable_Constructor(AtomicTable* table, rmtU32 max_nb_slots)
+{
+    rmtError error;
+
+    // Default initialise
+    assert(table != NULL);
+    table->map = NULL;
+    table->lock = 0;
+
+    New_1(rmtHashTable, table->map, max_nb_slots);
+    if (error != RMT_ERROR_NONE)
+        return error;
+
+    return RMT_ERROR_NONE;
+}
+
+static void AtomicTable_Destructor(AtomicTable* table)
+{
+    assert(table != NULL);
+    AtomicSpinLock((rmtU32 volatile*)&table->lock);
+    Delete(rmtHashTable, table->map);
+    AtomicSpinUnlock((rmtU32 volatile*)&table->lock);
+}
+
+static rmtU64 AtomicTable_Find(AtomicTable* table, rmtU32 name_hash)
+{
+    AtomicSpinLock((rmtU32 volatile*)&table->lock);
+    rmtU64 match = rmtHashTable_Find(table->map, name_hash);
+    AtomicSpinUnlock((rmtU32 volatile*)&table->lock);
+    return match;
+}
+
+static void AtomicTable_Insert(AtomicTable* table, rmtU32 hash, rmtU64 value)
+{
+    AtomicSpinLock((rmtU32 volatile*)&table->lock);
+    rmtU64 text_offset = rmtHashTable_Find(table->map, hash);
+    if (text_offset == RMT_NOT_FOUND)
+    {
+        rmtHashTable_Insert(table->map, hash, value);
+    }
+    AtomicSpinUnlock((rmtU32 volatile*)&table->lock);
+}
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
    @SOCKETS: Sockets TCP/IP Wrapper
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -4311,16 +4382,21 @@ static void Server_Update(Server* server)
 
 #define SAMPLE_NAME_LEN 128
 
+typedef union {
+    rmtS32 ivalue;
+    rmtU32 uvalue;
+    rmtF32 fvalue;
+} StatValue;
+
 typedef struct StatInfo
 {
-    enum rmtStatType type;
-    union {
-        rmtI32 ivalue;
-        rmtU32 uvalue;
-        rmtF32 fvalue;
-    } value;
-    rmtU32 flags;
-    rmtU32 desc; // The hash of the description
+    // Points to the default value
+    struct Sample*          declaration;
+    StatValue               value;
+    rmtU32                  group_hash;
+    rmtU32                  flags;
+    rmtU32                  desc; // The hash of the description
+    enum rmtStatType        type;
 } StatInfo;
 
 typedef struct Sample
@@ -4368,12 +4444,14 @@ typedef struct Sample
 
 } Sample;
 
+
 static rmtError Sample_Constructor(Sample* sample)
 {
     assert(sample != NULL);
 
     ObjectLink_Constructor((ObjectLink*)sample);
 
+// TODO: Could we call a Sample_Clear() here?
     sample->type = RMT_SampleType_CPU;
     sample->name_hash = 0;
     sample->unique_id = 0;
@@ -4394,6 +4472,10 @@ static rmtError Sample_Constructor(Sample* sample)
     sample->max_recurse_depth = 0;
     sample->stat_info.type = RMT_StatType_Count;
     sample->stat_info.desc = 0;
+    sample->stat_info.flags = 0;
+    sample->stat_info.group_hash = 0;
+    sample->stat_info.value.ivalue = 0;
+    sample->stat_info.declaration = NULL;
 
     return RMT_ERROR_NONE;
 }
@@ -4403,8 +4485,27 @@ static void Sample_Destructor(Sample* sample)
     RMT_UNREFERENCED_PARAMETER(sample);
 }
 
+static rmtError Stat_Constructor(Sample* sample)
+{
+    assert(sample != NULL);
+
+    // Chain to sample constructor
+    Sample_Constructor(sample);
+    sample->type = RMT_SampleType_Stat;
+    sample->stat_info.type = RMT_StatType_Count;
+
+    return RMT_ERROR_NONE;
+}
+
+static void Stat_Destructor(Sample* sample)
+{
+    Sample_Destructor(sample);
+}
+
 static void Sample_Prepare(Sample* sample, rmtU32 name_hash, Sample* parent)
 {
+// TODO: Could we call a Sample_Clear() here, followed by setting the actual values?
+// I argue that the list of settings is getting long, and might be better suited to be cleared in one place
     sample->name_hash = name_hash;
     sample->unique_id = 0;
     sample->parent = parent;
@@ -4421,6 +4522,10 @@ static void Sample_Prepare(Sample* sample, rmtU32 name_hash, Sample* parent)
     sample->max_recurse_depth = 0;
     sample->stat_info.type = RMT_StatType_Count;
     sample->stat_info.desc = 0;
+    sample->stat_info.flags = 0;
+    sample->stat_info.group_hash = 0;
+    sample->stat_info.value.ivalue = 0;
+    sample->stat_info.declaration = NULL;
 }
 
 static void Sample_Close(Sample* sample, rmtU64 us_end)
@@ -4460,6 +4565,7 @@ static void Sample_CopyState(Sample* dst_sample, const Sample* src_sample)
     dst_sample->call_count = src_sample->call_count;
     dst_sample->recurse_depth = src_sample->recurse_depth;
     dst_sample->max_recurse_depth = src_sample->max_recurse_depth;
+    dst_sample->stat_info = src_sample->stat_info;
 
     // Prepare empty tree links
     dst_sample->parent = NULL;
@@ -4478,9 +4584,10 @@ static void Sample_CopyState(Sample* dst_sample, const Sample* src_sample)
 static rmtError bin_SampleArray(Buffer* buffer, Sample* parent_sample);
 
 static const char* gStatTypeStrings[] = {
-    "I32",
+    "S32",
     "F32",
     "TXT",
+    "GRP",
     "NUL",
 };
 
@@ -4608,6 +4715,49 @@ static rmtU32 HashCombine(rmtU32 hash_a, rmtU32 hash_b)
     return hash_a;
 }
 
+static void Sample_AddChild(Sample* parent, Sample* child)
+{
+    parent->nb_children++;
+    if (parent->first_child == NULL)
+    {
+        parent->first_child = child;
+        parent->last_child = child;
+    }
+    else
+    {
+        assert(parent->last_child != NULL);
+        parent->last_child->next_sibling = child;
+        parent->last_child = child;
+    }
+}
+
+static rmtError SampleTree_Add(SampleTree* tree, rmtU32 name_hash, Sample* parent, Sample** sample)
+{
+    rmtError error;
+    rmtU32 unique_id;
+
+    assert(tree != NULL);
+
+    // Allocate a new sample
+    error = ObjectAllocator_Alloc(tree->allocator, (void**)sample);
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+    Sample_Prepare(*sample, name_hash, parent);
+    (*sample)->stat_info.group_hash = parent->name_hash;
+
+    // Generate a unique ID for this sample in the tree
+    unique_id = parent->unique_id;
+    unique_id = HashCombine(unique_id, (*sample)->name_hash);
+    unique_id = HashCombine(unique_id, parent->nb_children);
+    (*sample)->unique_id = unique_id;
+
+    Sample_AddChild(parent, *sample);
+
+    return RMT_ERROR_NONE;
+}
+
 static rmtError SampleTree_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags, Sample** sample)
 {
     Sample* parent;
@@ -4670,18 +4820,7 @@ static rmtError SampleTree_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags
     (*sample)->unique_id = unique_id;
 
     // Add sample to its parent
-    parent->nb_children++;
-    if (parent->first_child == NULL)
-    {
-        parent->first_child = *sample;
-        parent->last_child = *sample;
-    }
-    else
-    {
-        assert(parent->last_child != NULL);
-        parent->last_child->next_sibling = *sample;
-        parent->last_child = *sample;
-    }
+    Sample_AddChild(parent, *sample);
 
     // Make this sample the new parent of any newly created samples
     tree->currentParent = *sample;
@@ -4974,6 +5113,14 @@ static rmtError ThreadProfiler_Constructor(rmtMessageQueue* mq_to_rmt, ThreadPro
     {
         return error;
     }
+
+// Let the stats live in the regular sample tree
+    // New_3(SampleTree, thread_profiler->sampleTrees[RMT_SampleType_Stat], sizeof(Sample), (ObjConstructor)Stat_Constructor,
+    //       (ObjDestructor)Stat_Destructor);
+    // if (error != RMT_ERROR_NONE)
+    // {
+    //     return error;
+    // }
 
 #if RMT_USE_D3D11
     error = D3D11_Create(&thread_profiler->d3d11);
@@ -5906,7 +6053,22 @@ struct Remotery
     Metal* metal;
 #endif
 
+
     ThreadProfilers* threadProfilers;
+
+    // Allocator for all stat declarations
+    ObjectAllocator* stat_allocator;
+    // Root sample for all declared stat samples
+    Sample* root_stat;
+    // Map from name hash to stat declaration
+    AtomicTable* stat_decl_map;
+
+    // Sample tree recreated from the declared stats
+    struct SampleTree* stat_sample_tree;
+    // A map from name hash -> Sample (inside the currently built sample tree)
+    // Used during the gather phase
+    AtomicTable* stat_map;
+    rmtBool stat_sample_tree_dirty; // If set, it was updated and should be sent
 };
 
 //
@@ -6061,6 +6223,10 @@ static rmtError bin_SampleTree(Buffer* buffer, Msg_SampleTree* msg)
     if (root_sample->type == RMT_SampleType_Metal)
     {
         strncat_s(thread_name, sizeof(thread_name), " (Metal)", 8);
+    }
+    if (root_sample->type == RMT_SampleType_Stat)
+    {
+        strncat_s(thread_name, sizeof(thread_name), " (Stat)", 7);
     }
 
     // Get digest hash of samples so that viewer can efficiently rebuild its tables
@@ -6247,6 +6413,58 @@ static rmtError Remotery_SendThreadName(Remotery* rmt, Message* message)
     return RMT_ERROR_NONE;
 }
 
+static void StatTree_GatherStats(Remotery* rmt, Sample* sample);
+static void StatTree_Build(Remotery* rmt, SampleTree* tree);
+
+static void Remotery_BuildStatTree(Remotery* rmt)
+{
+    rmt->stat_sample_tree_dirty = RMT_FALSE;
+    StatTree_Build(rmt, rmt->stat_sample_tree);
+}
+
+static void Remotery_GatherStats(Remotery* rmt, Message* message)
+{
+    Msg_SampleTree* sample_tree = (Msg_SampleTree*)message->payload;
+    StatTree_GatherStats(rmt, sample_tree->rootSample);
+}
+
+static void Remotery_SendStatTree(Remotery* rmt)
+{
+    rmtError error;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (rmt->stat_sample_tree_dirty == RMT_FALSE)
+        return;
+
+    ObjectAllocator* allocator = rmt->stat_sample_tree->allocator;
+
+    rmtSampleTree sample_tree;
+    sample_tree.rootSample = rmt->stat_sample_tree->root;
+    sample_tree.allocator = allocator;
+    sample_tree.threadName = "Remotery Stat Tree";
+    sample_tree.partialTree = RMT_FALSE;
+    if (g_Settings.sampletree_handler != NULL)
+    {
+        g_Settings.sampletree_handler(g_Settings.sampletree_context, &sample_tree);
+    }
+
+    // Reset the data (take care to not delete the root node)
+    Sample* sample = rmt->stat_sample_tree->root->first_child;
+    for (; sample != NULL; sample = sample->next_sibling)
+    {
+        FreeSamples(sample, allocator);
+    }
+    rmt->stat_sample_tree->root->first_child = NULL;
+    rmt->stat_sample_tree->root->last_child = NULL;
+    rmt->stat_sample_tree->root->nb_children = 0;
+
+    // Until there is a Clear() function
+    Delete(AtomicTable, rmt->stat_map);
+    New_1(AtomicTable, rmt->stat_map, 64);
+}
+
 static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
 {
     rmtU32 nb_messages_sent = 0;
@@ -6280,6 +6498,7 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
                 break;
             case MsgID_SampleTree:
                 rmt_BeginCPUSample(SendSampleTreeMessage, RMTSF_Aggregate);
+                Remotery_GatherStats(rmt, message);
                 error = Remotery_SendSampleTreeMessage(rmt, message);
                 nb_messages_sent++;
                 rmt_EndCPUSample();
@@ -6384,8 +6603,16 @@ static rmtError Remotery_ThreadMain(rmtThread* thread)
         Server_Update(rmt->server);
         rmt_EndCPUSample();
 
+        rmt_BeginCPUSample(UpdateStatTree, 0);
+        Remotery_BuildStatTree(rmt);
+        rmt_EndCPUSample();
+
         rmt_BeginCPUSample(ConsumeMessageQueue, 0);
         Remotery_ConsumeMessageQueue(rmt);
+        rmt_EndCPUSample();
+
+        rmt_BeginCPUSample(SendStatTree, 0);
+        Remotery_SendStatTree(rmt);
         rmt_EndCPUSample();
 
         rmt_EndCPUSample();
@@ -6487,6 +6714,11 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->map_message_queue_fn = NULL;
     rmt->map_message_queue_data = NULL;
     rmt->threadProfilers = NULL;
+    rmt->stat_decl_map = NULL;
+    rmt->stat_map = NULL;
+    rmt->root_stat = NULL;
+    rmt->stat_sample_tree = NULL;
+    rmt->stat_allocator = NULL;
 
 #if RMT_USE_CUDA
     rmt->cuda.CtxSetCurrent = NULL;
@@ -6578,10 +6810,23 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     // Create the thread profilers container
     New_2(ThreadProfilers, rmt->threadProfilers, &rmt->timer, rmt->mq_to_rmt_thread);
     if (error != RMT_ERROR_NONE)
-    {
         return error;
-    }
+    New_3(ObjectAllocator, rmt->stat_allocator, sizeof(Sample), (ObjConstructor)Stat_Constructor, (ObjDestructor)Stat_Destructor);
+    if (error != RMT_ERROR_NONE)
+        return error;
+    error = ObjectAllocator_Alloc(rmt->stat_allocator, (void**)&rmt->root_stat);
+    if (error != RMT_ERROR_NONE)
+        return error;
 
+    New_3(SampleTree, rmt->stat_sample_tree, sizeof(Sample), (ObjConstructor)Stat_Constructor, (ObjDestructor)Stat_Destructor);
+    if (error != RMT_ERROR_NONE)
+        return error;
+    New_1(AtomicTable, rmt->stat_decl_map, 64);
+    if (error != RMT_ERROR_NONE)
+        return error;
+    New_1(AtomicTable, rmt->stat_map, 64);
+    if (error != RMT_ERROR_NONE)
+        return error;
     // Set as the global instance before creating any threads that uses it for sampling itself
     assert(g_Remotery == NULL);
     g_Remotery = rmt;
@@ -6619,6 +6864,21 @@ static void Remotery_Destructor(Remotery* rmt)
 #endif
 
     rmtCloseFile(rmt->logfile);
+
+    Delete(AtomicTable, rmt->stat_map);
+    Delete(AtomicTable, rmt->stat_decl_map);
+
+    if (rmt->stat_sample_tree != NULL && rmt->stat_sample_tree->root != NULL)
+    {
+        FreeSamples(rmt->stat_sample_tree->root, rmt->stat_sample_tree->allocator);
+        rmt->stat_sample_tree->root = NULL;
+    }
+    Delete(SampleTree, rmt->stat_sample_tree);
+    if (rmt->root_stat != NULL)
+    {
+        FreeSamples(rmt->root_stat, rmt->stat_allocator);
+    }
+    Delete(ObjectAllocator, rmt->stat_allocator);
 
     Delete(StringTable, rmt->string_table);
     Delete(rmtMessageQueue, rmt->mq_to_rmt_thread);
@@ -8855,7 +9115,180 @@ RMT_API void _rmt_EndMetalSample(void)
  ------------------------------------------------------------------------------------------------------------------------
  ------------------------------------------------------------------------------------------------------------------------
  */
-RMT_API void _rmt_StatI32(const char* name, rmtI32 value, rmtI32 default_value, rmtU32 flags, const char* desc, rmtU32* hash_cache)
+
+static Sample* SampleTable_Find(AtomicTable* table, rmtU32 hash)
+{
+    rmtU64 match = AtomicTable_Find(table, hash);
+    if (match == RMT_NOT_FOUND)
+        return NULL;
+    return (Sample*)match;
+}
+
+// Construct a SampleTree given the stat declarations
+static void StatTree_Build(Remotery* rmt, SampleTree* tree)
+{
+    rmtError error;
+
+    if (rmt == NULL)
+        return;
+
+// TODO: Make this thread safe (e.g. what happens if a thread add a new declaration while we're editing it?)
+
+    // Build/update the sample tree using the declarations
+    Sample* declaration = rmt->root_stat->first_child;
+    for (; declaration != NULL; declaration = declaration->next_sibling)
+    {
+        Sample* sample;
+        Sample* parent;
+
+        parent = (Sample*)SampleTable_Find(rmt->stat_map, declaration->stat_info.group_hash);
+        if (parent == NULL)
+            parent = rmt->stat_sample_tree->root;
+
+        sample = (Sample*)SampleTable_Find(rmt->stat_map, declaration->name_hash);
+        if (sample == 0)
+        {
+            SampleTree_Add(rmt->stat_sample_tree, declaration->name_hash, parent, &sample);
+            assert(sample != NULL);
+
+            sample->stat_info = declaration->stat_info;
+            sample->stat_info.declaration = declaration;
+
+            AtomicTable_Insert(rmt->stat_map, declaration->name_hash, (rmtU64)sample);
+        }
+        sample->stat_info.value = declaration->stat_info.value;
+        sample->call_count = 0;
+    }
+}
+
+static void StatAddS32(StatInfo* a, StatInfo* b) {
+    a->value.ivalue += b->value.ivalue;
+}
+static void StatSetS32(StatInfo* a, StatInfo* b) {
+    a->value.ivalue = b->value.ivalue;
+}
+
+// Traverse a sample tree and collect all stat and apply them on the main stat sample tree
+static void StatTree_GatherStats(Remotery* rmt, Sample* sample)
+{
+    Sample* main_sample = 0;
+    Sample* child;
+
+    if (sample->stat_info.type != RMT_StatType_Count)
+    {
+        main_sample = SampleTable_Find(rmt->stat_map, sample->name_hash);
+    }
+
+    if (main_sample != NULL)
+    {
+        StatInfo* a = &main_sample->stat_info;
+        StatInfo* b = &sample->stat_info;
+        rmtStatType stat_type = a->type;
+
+        if (stat_type == b->type)
+        {
+            rmt->stat_sample_tree_dirty = RMT_TRUE;
+
+            rmtBool add = (b->flags & RMT_StatOperation_Add) != 0 ? RMT_TRUE : RMT_FALSE;
+
+            switch (stat_type)
+            {
+            case RMT_StatType_S32:
+                if (add)    StatAddS32(a, b);
+                else        StatSetS32(a, b);
+                break;
+            default: break;
+            }
+        }
+    }
+
+    for (child = sample->first_child; child != NULL; child = child->next_sibling)
+    {
+        StatTree_GatherStats(rmt, child);
+    }
+}
+
+RMT_API void _rmt_StatDeclareGroup(const char* name, const char* group_name, const char* desc, rmtU32* hash_cache, rmtU32* group_hash_cache)
+{
+    ThreadProfiler* thread_profiler;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
+    {
+        if (hash_cache == NULL || *hash_cache != 0)
+            return; // If it's not the first time
+
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        rmtU32 group_hash = group_name == NULL ? 0 : ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, group_name, group_hash_cache);
+
+        // If I understand this correctly, this is already thread safe?
+        Sample* sample;
+        rmtError error = ObjectAllocator_Alloc(g_Remotery->stat_allocator, (void**)&sample);
+        if (error != RMT_ERROR_NONE)
+        {
+            return;
+        }
+
+        Sample_Prepare(sample, name_hash, 0);
+
+        // At this stage, we collect all stats under the root sample
+        Sample_AddChild(g_Remotery->root_stat, sample);
+        sample->stat_info.group_hash = group_hash;
+        sample->stat_info.type = RMT_StatType_Group;
+
+        if (desc != NULL)
+        {
+            ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, desc, &sample->stat_info.desc);
+        }
+
+        AtomicTable_Insert(g_Remotery->stat_decl_map, name_hash, (rmtU64)sample);
+    }
+}
+
+RMT_API void _rmt_StatDeclareS32(const char* name, const char* group_name, rmtS32 default_value, rmtU32 flags, const char* desc, rmtU32* hash_cache, rmtU32* group_hash_cache)
+{
+    ThreadProfiler* thread_profiler;
+
+    if (g_Remotery == NULL)
+        return;
+
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
+    {
+        if (hash_cache == NULL || *hash_cache != 0)
+            return; // If it's not the first time
+
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+        rmtU32 group_hash = group_name == NULL ? 0 : ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, group_name, group_hash_cache);
+
+        // If I understand this correctly, this is already thread safe?
+        Sample* sample;
+        rmtError error = ObjectAllocator_Alloc(g_Remotery->stat_allocator, (void**)&sample);
+        if (error != RMT_ERROR_NONE)
+        {
+            return;
+        }
+
+        Sample_Prepare(sample, name_hash, 0);
+
+        // At this stage, we collect all stats under the root sample
+        Sample_AddChild(g_Remotery->root_stat, sample);
+        sample->stat_info.group_hash = group_hash;
+        sample->stat_info.type = RMT_StatType_S32;
+        sample->stat_info.flags = flags;
+        sample->stat_info.value.ivalue = default_value;
+
+        if (desc != NULL)
+        {
+            ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, desc, &sample->stat_info.desc);
+        }
+
+        AtomicTable_Insert(g_Remotery->stat_decl_map, name_hash, (rmtU64)sample);
+    }
+}
+
+RMT_API void _rmt_StatSetS32(const char* name, rmtS32 value, rmtU32* hash_cache)
 {
     ThreadProfiler* thread_profiler;
 
@@ -8865,30 +9298,47 @@ RMT_API void _rmt_StatI32(const char* name, rmtI32 value, rmtI32 default_value, 
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
         Sample* sample;
-        rmtU32 sample_flags = RMTSF_Aggregate;
         rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
-        
-        if (ThreadProfiler_Push(thread_profiler->sampleTrees[RMT_SampleType_CPU], name_hash, sample_flags, &sample) == RMT_ERROR_NONE)
+
+        Sample* declaration = (Sample*)SampleTable_Find(g_Remotery->stat_decl_map, name_hash);
+        if (declaration == NULL)
+            return;
+
+        if (ThreadProfiler_Push(thread_profiler->sampleTrees[RMT_SampleType_CPU], name_hash, RMTSF_None, &sample) == RMT_ERROR_NONE)
         {
-            rmtBool first_setup = sample->stat_info.type == RMT_StatType_Count;
-            if (first_setup)
-            {
-                sample->us_start = usTimer_Get(&g_Remotery->timer);
-                sample->stat_info.type = RMT_StatType_I32;
-                sample->stat_info.flags = flags;
-                sample->stat_info.value.ivalue = default_value;
-                sample->stat_info.desc = 0;
+            sample->stat_info.value.ivalue = value;
+            sample->stat_info.declaration = declaration;
+            sample->stat_info.type = RMT_StatType_S32;
+            sample->stat_info.flags |= RMT_StatOperation_Set;
 
-                if (desc != NULL)
-                {
-                    ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, desc, &sample->stat_info.desc);
-                }
-            }
+            ThreadProfiler_Pop(thread_profiler, g_Remotery->mq_to_rmt_thread, sample);
+        }
+    }
+}
 
-            sample->stat_info.value.ivalue += value; // Operation base on the flags (add, set, ...)
+RMT_API void _rmt_StatAddS32(const char* name, rmtS32 value, rmtU32* hash_cache)
+{
+    ThreadProfiler* thread_profiler;
 
-            rmtU64 us_end = usTimer_Get(&g_Remotery->timer);
-            Sample_Close(sample, us_end);
+    if (g_Remotery == NULL)
+        return;
+
+    if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
+    {
+        Sample* sample;
+        rmtU32 name_hash = ThreadProfiler_GetNameHash(thread_profiler, g_Remotery->mq_to_rmt_thread, name, hash_cache);
+
+        Sample* declaration = (Sample*)SampleTable_Find(g_Remotery->stat_decl_map, name_hash);
+        if (declaration == NULL)
+            return;
+
+        if (ThreadProfiler_Push(thread_profiler->sampleTrees[RMT_SampleType_CPU], name_hash, RMTSF_None, &sample) == RMT_ERROR_NONE)
+        {
+            sample->stat_info.value.ivalue += value;
+            sample->stat_info.declaration = declaration;
+            sample->stat_info.type = RMT_StatType_S32;
+            sample->stat_info.flags |= RMT_StatOperation_Add;
+
             ThreadProfiler_Pop(thread_profiler, g_Remotery->mq_to_rmt_thread, sample);
         }
     }
@@ -8984,9 +9434,9 @@ RMT_API const char* _rmt_SampleGetStatDesc(rmtSample* sample)
 
 // TODO: How to deal with getting wrong type?
 // SHould it return an rmtError instead?
-RMT_API rmtI32 _rmt_SampleGetStatValueI32(rmtSample* sample)
+RMT_API rmtS32 _rmt_SampleGetStatValueS32(rmtSample* sample)
 {
-    if (sample->stat_info.type != RMT_StatType_I32)
+    if (sample->stat_info.type != RMT_StatType_S32)
         return 0;
     return sample->stat_info.value.ivalue;
 }
