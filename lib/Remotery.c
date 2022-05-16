@@ -1670,7 +1670,11 @@ static const char* itoa_s(rmtS32 value)
 ------------------------------------------------------------------------------------------------------------------------
 */
 
+#ifdef RMT_ARCH_64BIT
 typedef rmtU64 rmtThreadId;
+#else
+typedef rmtU32 rmtThreadId;
+#endif
 
 #ifdef RMT_PLATFORM_WINDOWS
 typedef HANDLE rmtThreadHandle;
@@ -6969,9 +6973,9 @@ static rmtBool rmtMessageQueue_IsEmpty(rmtMessageQueue* queue)
     return queue->write_pos - queue->read_pos == 0;
 }
 
-typedef struct GatherQueuedSampleData
+typedef struct
 {
-    SampleType sample_type;
+    rmtSampleType sample_type;
     Buffer* flush_samples;
 } GatherQueuedSampleData;
 
@@ -7011,7 +7015,7 @@ static void GatherQueuedSamples(Remotery* rmt, Message* message)
     }
 }
 
-static void FreePendingSampleTrees(Remotery* rmt, SampleType sample_type, Buffer* flush_samples)
+static void FreePendingSampleTrees(Remotery* rmt, rmtSampleType sample_type, Buffer* flush_samples)
 {
     rmtU8* data;
     rmtU8* data_end;
