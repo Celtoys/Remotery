@@ -1,7 +1,6 @@
 
-
 /*
-Copyright 2014-2018 Celtoys Ltd
+Copyright 2014-2022 Celtoys Ltd
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -15,7 +14,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
 
 /*
 
@@ -107,13 +105,9 @@ documented just below this comment.
 #endif
 
 
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
+/*--------------------------------------------------------------------------------------------------------------------------------
    Compiler/Platform Detection and Preprocessor Utilities
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
+---------------------------------------------------------------------------------------------------------------------------------*/
 
 
 // Platform identification
@@ -188,15 +182,9 @@ documented just below this comment.
 #define RMT_OPTIONAL_RET(macro, x, y) IFDEF_ ## macro(x, (y))
 
 
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
+/*--------------------------------------------------------------------------------------------------------------------------------
    Types
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
+--------------------------------------------------------------------------------------------------------------------------------*/
 
 
 // Boolean
@@ -204,20 +192,17 @@ typedef unsigned int rmtBool;
 #define RMT_TRUE ((rmtBool)1)
 #define RMT_FALSE ((rmtBool)0)
 
-
 // Unsigned integer types
 typedef unsigned char rmtU8;
 typedef unsigned short rmtU16;
 typedef unsigned int rmtU32;
 typedef unsigned long long rmtU64;
 
-
 // Signed integer types
 typedef char rmtS8;
 typedef short rmtS16;
 typedef int rmtS32;
 typedef long long rmtS64;
-
 
 // Const, null-terminated string pointer
 typedef const char* rmtPStr;
@@ -299,128 +284,10 @@ typedef enum rmtError
 } rmtError;
 // clang-format on
 
-typedef enum rmtSampleFlags
-{
-    // Default behaviour
-    RMTSF_None = 0,
 
-    // Search parent for same-named samples and merge timing instead of adding a new sample
-    RMTSF_Aggregate = 1,
-
-    // Merge sample with parent if it's the same sample
-    RMTSF_Recursive = 2,
-
-    // Set this flag on any of your root samples so that Remotery will assert if it ends up *not* being the root sample.
-    // This will quickly allow you to detect Begin/End mismatches causing a sample tree imbalance.
-    RMTSF_Root = 4,
-} rmtSampleFlags;
-
-
-typedef enum rmtSampleType
-{
-    RMT_SampleType_CPU,
-    RMT_SampleType_CUDA,
-    RMT_SampleType_D3D11,
-    RMT_SampleType_OpenGL,
-    RMT_SampleType_Metal,
-    RMT_SampleType_Count,
-} rmtSampleType;
-
-// Struct to hold iterator info
-typedef struct rmtSampleIterator
-{
-// public
-    rmtSample* sample;
-// private
-    rmtSample* initial;
-} rmtSampleIterator;
-
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-   Public Interface
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
-
-
-// Can call remotery functions on a null pointer
-// TODO: Can embed extern "C" in these macros?
-
-#define rmt_Settings()                                                              \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_Settings(), NULL )
-
-#define rmt_CreateGlobalInstance(rmt)                                               \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
-
-#define rmt_DestroyGlobalInstance(rmt)                                              \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_DestroyGlobalInstance(rmt))
-
-#define rmt_SetGlobalInstance(rmt)                                                  \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SetGlobalInstance(rmt))
-
-#define rmt_GetGlobalInstance()                                                     \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_GetGlobalInstance(), NULL)
-
-#define rmt_SetCurrentThreadName(rmt)                                               \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SetCurrentThreadName(rmt))
-
-#define rmt_LogText(text)                                                           \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_LogText(text))
-
-#define rmt_BeginCPUSample(name, flags)                                             \
-    RMT_OPTIONAL(RMT_ENABLED, {                                                     \
-        static rmtU32 rmt_sample_hash_##name = 0;                                   \
-        _rmt_BeginCPUSample(#name, flags, &rmt_sample_hash_##name);                 \
-    })
-
-#define rmt_BeginCPUSampleDynamic(namestr, flags)                                   \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_BeginCPUSample(namestr, flags, NULL))
-
-#define rmt_EndCPUSample()                                                          \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
-
-
-#define rmt_IterateChildren(iter, sample)                                           \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_IterateChildren(iter, sample))
-
-#define rmt_IterateNext(iter)                                                       \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_IterateNext(iter), RMT_FALSE)
-
-
-#define rmt_SampleTreeGetThreadName(sample_tree)                                    \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetThreadName(sample_tree), NULL)
-
-#define rmt_SampleTreeGetRootSample(sample_tree)                                    \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetRootSample(sample_tree), NULL)
-
-// Should only called from within the sample tree callback,
-// when the internal string lookup table is valid (i.e. on the main Remotery thread)
-#define rmt_SampleGetName(sample)                                                   \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetName(sample), NULL)
-
-#define rmt_SampleGetNameHash(sample)                                               \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetNameHash(sample), 0U)
-
-#define rmt_SampleGetCallCount(sample)                                              \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetCallCount(sample), 0U)
-
-#define rmt_SampleGetStart(sample)                                                  \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStart(sample), 0LLU)
-
-#define rmt_SampleGetTime(sample)                                                   \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetTime(sample), 0LLU)
-
-#define rmt_SampleGetSelfTime(sample)                                               \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetSelfTime(sample), 0LLU)
-
-#define rmt_SampleGetColour(sample, r, g, b)                                        \
-    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetColour(sample, r, g, b))
-
-#define rmt_SampleGetType(sample)                                                   \
-    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetType(sample), RMT_SampleType_Count)
+/*--------------------------------------------------------------------------------------------------------------------------------
+   Runtime Settings
+--------------------------------------------------------------------------------------------------------------------------------*/
 
 
 // Callback function pointer types
@@ -429,7 +296,6 @@ typedef void* (*rmtReallocPtr)(void* mm_context, void* ptr, rmtU32 size);
 typedef void (*rmtFreePtr)(void* mm_context, void* ptr);
 typedef void (*rmtInputHandlerPtr)(const char* text, void* context);
 typedef void (*rmtSampleTreeHandlerPtr)(void* cbk_context, rmtSampleTree* sample_tree);
-
 
 // Struture to fill in to modify Remotery default settings
 typedef struct rmtSettings
@@ -486,6 +352,68 @@ typedef struct rmtSettings
     rmtPStr logPath;
 } rmtSettings;
 
+// Retrieve and configure the global rmtSettings object; returns `rmtSettings*`.
+// This can be done before or after Remotery is initialised, however some fields are only referenced on initialisation.
+#define rmt_Settings()                                                              \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_Settings(), NULL )
+
+
+/*--------------------------------------------------------------------------------------------------------------------------------
+   Initialisation/Shutdown
+--------------------------------------------------------------------------------------------------------------------------------*/
+
+
+// Can call remotery functions on a null pointer
+// TODO: Can embed extern "C" in these macros?
+
+// Initialises Remotery and sets its internal global instance pointer.
+// Parameter is `Remotery**`, returning you the pointer for further use.
+#define rmt_CreateGlobalInstance(rmt)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
+
+// Shutsdown Remotery, requiring its pointer to be passed to ensure you are destroying the correct instance.
+#define rmt_DestroyGlobalInstance(rmt)                                              \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_DestroyGlobalInstance(rmt))
+
+// For use in the presence of DLLs/SOs if each of them are linking Remotery statically.
+// If Remotery is hosted in its own DLL and linked dynamically then there is no need to use this.
+// Otherwise, pass the result of `rmt_CreateGlobalInstance` from your main DLL to this in your other DLLs.
+#define rmt_SetGlobalInstance(rmt)                                                  \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_SetGlobalInstance(rmt))
+
+// Get a pointer to the current global Remotery instance.
+#define rmt_GetGlobalInstance()                                                     \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_GetGlobalInstance(), NULL)
+
+
+/*--------------------------------------------------------------------------------------------------------------------------------
+   CPU Sampling
+--------------------------------------------------------------------------------------------------------------------------------*/
+
+
+#define rmt_SetCurrentThreadName(rmt)                                               \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_SetCurrentThreadName(rmt))
+
+#define rmt_LogText(text)                                                           \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_LogText(text))
+
+#define rmt_BeginCPUSample(name, flags)                                             \
+    RMT_OPTIONAL(RMT_ENABLED, {                                                     \
+        static rmtU32 rmt_sample_hash_##name = 0;                                   \
+        _rmt_BeginCPUSample(#name, flags, &rmt_sample_hash_##name);                 \
+    })
+
+#define rmt_BeginCPUSampleDynamic(namestr, flags)                                   \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_BeginCPUSample(namestr, flags, NULL))
+
+#define rmt_EndCPUSample()                                                          \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
+
+
+/*--------------------------------------------------------------------------------------------------------------------------------
+   GPU Sampling
+--------------------------------------------------------------------------------------------------------------------------------*/
+
 
 // Structure to fill in when binding CUDA to Remotery
 typedef struct rmtCUDABind
@@ -507,7 +435,6 @@ typedef struct rmtCUDABind
     void* EventElapsedTime;
 
 } rmtCUDABind;
-
 
 // Call once after you've initialised CUDA to bind it to Remotery
 #define rmt_BindCUDA(bind)                                                  \
@@ -582,16 +509,88 @@ typedef struct rmtCUDABind
     RMT_OPTIONAL(RMT_USE_METAL, _rmt_EndMetalSample())
 
 
+/*--------------------------------------------------------------------------------------------------------------------------------
+   Sample Tree API for walking `rmtSampleTree` Objects in the Sample Tree Handler.
+--------------------------------------------------------------------------------------------------------------------------------*/
 
 
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
+typedef enum rmtSampleFlags
+{
+    // Default behaviour
+    RMTSF_None = 0,
+
+    // Search parent for same-named samples and merge timing instead of adding a new sample
+    RMTSF_Aggregate = 1,
+
+    // Merge sample with parent if it's the same sample
+    RMTSF_Recursive = 2,
+
+    // Set this flag on any of your root samples so that Remotery will assert if it ends up *not* being the root sample.
+    // This will quickly allow you to detect Begin/End mismatches causing a sample tree imbalance.
+    RMTSF_Root = 4,
+} rmtSampleFlags;
+
+typedef enum rmtSampleType
+{
+    RMT_SampleType_CPU,
+    RMT_SampleType_CUDA,
+    RMT_SampleType_D3D11,
+    RMT_SampleType_OpenGL,
+    RMT_SampleType_Metal,
+    RMT_SampleType_Count,
+} rmtSampleType;
+
+// Struct to hold iterator info
+typedef struct rmtSampleIterator
+{
+// public
+    rmtSample* sample;
+// private
+    rmtSample* initial;
+} rmtSampleIterator;
+
+#define rmt_IterateChildren(iter, sample)                                           \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_IterateChildren(iter, sample))
+
+#define rmt_IterateNext(iter)                                                       \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_IterateNext(iter), RMT_FALSE)
+
+#define rmt_SampleTreeGetThreadName(sample_tree)                                    \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetThreadName(sample_tree), NULL)
+
+#define rmt_SampleTreeGetRootSample(sample_tree)                                    \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleTreeGetRootSample(sample_tree), NULL)
+
+// Should only called from within the sample tree callback,
+// when the internal string lookup table is valid (i.e. on the main Remotery thread)
+#define rmt_SampleGetName(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetName(sample), NULL)
+
+#define rmt_SampleGetNameHash(sample)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetNameHash(sample), 0U)
+
+#define rmt_SampleGetCallCount(sample)                                              \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetCallCount(sample), 0U)
+
+#define rmt_SampleGetStart(sample)                                                  \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetStart(sample), 0LLU)
+
+#define rmt_SampleGetTime(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetTime(sample), 0LLU)
+
+#define rmt_SampleGetSelfTime(sample)                                               \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetSelfTime(sample), 0LLU)
+
+#define rmt_SampleGetColour(sample, r, g, b)                                        \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_SampleGetColour(sample, r, g, b))
+
+#define rmt_SampleGetType(sample)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetType(sample), RMT_SampleType_Count)
+
+
+/*--------------------------------------------------------------------------------------------------------------------------------
    C++ Public Interface Extensions
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
+--------------------------------------------------------------------------------------------------------------------------------*/
 
 
 #ifdef __cplusplus
@@ -658,7 +657,6 @@ struct rmt_EndMetalSampleOnScopeExit
 #endif
 
 
-
 // Pairs a call to rmt_Begin<TYPE>Sample with its call to rmt_End<TYPE>Sample when leaving scope
 #define rmt_ScopedCPUSample(name, flags)                                                                \
         RMT_OPTIONAL(RMT_ENABLED, rmt_BeginCPUSample(name, flags));                                     \
@@ -679,15 +677,9 @@ struct rmt_EndMetalSampleOnScopeExit
 #endif
 
 
-
-/*
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
+/*--------------------------------------------------------------------------------------------------------------------------------
    Private Interface - don't directly call these
-------------------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------------------
-*/
-
+--------------------------------------------------------------------------------------------------------------------------------*/
 
 
 #if RMT_ENABLED
