@@ -76,6 +76,7 @@ Remotery = (function()
         this.SampleWindows = { };
         this.FrameHistory = { };
         this.ProcessorFrameHistory = { };
+        this.PropertyFrameHistory = [ ];
         this.SelectedFrames = { };
         this.sampleNames = new NameMap(this.SampleTimelineWindow.textBuffer);
         this.threadNames = new NameMap(this.ProcessorTimelineWindow.textBuffer);
@@ -84,6 +85,7 @@ Remotery = (function()
         this.Server.AddMessageHandler("SSMP", Bind(OnSampleName, this));
         this.Server.AddMessageHandler("PRTH", Bind(OnProcessorThreads, this));
         this.Server.AddMessageHandler("THRN", Bind(OnThreadNames, this));
+        this.Server.AddMessageHandler("PSNP", Bind(OnPropertySnapshots, this));
 
         // Kick-off the auto-connect loop
         AutoConnect(this);
@@ -122,6 +124,7 @@ Remotery = (function()
         // Clear runtime data
         this.FrameHistory = { };
         this.ProcessorFrameHistory = { };
+        this.PropertyFrameHistory = [ ];
         this.SelectedFrames = { };
         this.sampleNames = new NameMap(this.SampleTimelineWindow.textBuffer);
         this.threadNames = new NameMap(this.ProcessorTimelineWindow.textBuffer);
@@ -443,6 +446,118 @@ Remotery = (function()
         self.threadNames.Set(name_hash, name_string);
     }
 
+
+    function DecodeSnapshot(self, data_view_reader)
+    {
+        var snapshot = {};
+
+        // Dispatch value decode on type
+        snapshot.type = data_view_reader.GetUInt32();
+        switch (snapshot.type)
+        {
+            case 0:
+                // Groups have no value
+                break;
+            case 1:
+                snapshot.value = data_view_reader.GetBool();
+                break;
+            case 2:
+                snapshot.value = data_view_reader.GetInt32();
+                break;
+            case 3:
+                snapshot.value = data_view_reader.GetUInt32();
+                break;
+            case 4:
+                snapshot.value = data_view_reader.GetFloat32();
+                break;
+            case 5:
+                snapshot.value = data_view_reader.GetInt64();
+                break;
+            case 6:
+                snapshot.value = data_view_reader.GetUInt64();
+                break;
+            case 7:
+                snapshot.value = data_view_reader.GetFloat64();
+                 break;
+        }
+
+        // Get name hash and look it up in the name map
+        snapshot.name_hash = data_view_reader.GetUInt32();
+        let [ name_exists, name ] = self.sampleNames.Get(snapshot.name_hash);
+        snapshot.name = name;
+
+        // If the name doesn't exist in the map yet, request it from the server
+        if (!name_exists)
+        {
+            if (self.Server.Connected())
+            {
+                self.Server.Send("GSMP" + snapshot.name_hash);
+            }
+        }
+
+        // Recurse into children
+        snapshot.children = [];
+        DecodeSnapshotArray(self, data_view_reader, snapshot.children);
+
+        return snapshot;
+    }
+
+    function DecodeSnapshotArray(self, data_view_reader, snapshots)
+    {
+        const nb_snapshots = data_view_reader.GetUInt32();
+        for (var i = 0; i < nb_snapshots; i++)
+        {
+            const snapshot = DecodeSnapshot(self, data_view_reader);
+            snapshots.push(snapshot)
+        }
+    }
+
+
+    function DecodeSnapshots(self, data_view_reader)
+    {
+        // Message-specific header
+        let message = { };
+        message.nbSnapshots = data_view_reader.GetUInt32();
+
+        // Read snapshots
+        message.snapshots = [];
+        message.snapshots.push(DecodeSnapshot(self, data_view_reader));
+
+        return message;
+    }
+
+
+    function OnPropertySnapshots(self, socket, data_view_reader)
+    {
+        // Binary decode incoming snapshot data
+        const message = DecodeSnapshots(self, data_view_reader);
+
+        // Add to frame history
+        const thread_frame = new PropertySnapshotFrame(message);
+        const frame_history = self.PropertyFrameHistory;
+        frame_history.push(thread_frame);
+
+        // Discard old frames to keep memory-use constant
+        var max_nb_frames = 10000;
+        var extra_frames = frame_history.length - max_nb_frames;
+        if (extra_frames > 0)
+            frame_history.splice(0, extra_frames);
+
+        // Create sample windows on-demand
+        //if (!(name in self.SampleWindows))
+        //{
+        //    self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
+        //    self.SampleWindows[name].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
+        //    self.NbSampleWindows++;
+        //    MoveSampleWindows(this);
+        //}
+
+        // Set on the window if connected as this implies a trace is being loaded, which we want to speed up
+        if (self.Server.Connected())
+        {
+            //self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
+        }
+    }
 
     function OnTimelineCheck(self, name, evt)
     {

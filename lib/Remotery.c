@@ -1,5 +1,5 @@
 //
-// Copyright 2014-2012 Celtoys Ltd
+// Copyright 2014-2022 Celtoys Ltd
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -49,6 +49,8 @@
     @D3D11:         Direct3D 11 event sampling
     @OPENGL:        OpenGL event sampling
     @METAL:         Metal event sampling
+    @SAMPLEAPI:     Sample API for user callbacks
+    @PROPERTIES:    Property API
 */
 
 #define RMT_IMPL
@@ -2331,6 +2333,11 @@ static void U32ToByteArray(rmtU8* dest, rmtU32 value)
     dest[3] = value >> 24;
 }
 
+static rmtError Buffer_WriteBool(Buffer* buffer, rmtBool value)
+{
+    return Buffer_Write(buffer, &value, 1);
+}
+
 static rmtError Buffer_WriteU32(Buffer* buffer, rmtU32 value)
 {
     assert(buffer != NULL);
@@ -2367,10 +2374,8 @@ static rmtBool IsLittleEndian()
     return u.c[0] == 1 ? RMT_TRUE : RMT_FALSE;
 }
 
-static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
+static rmtError Buffer_WriteF64(Buffer* buffer, rmtF64 value)
 {
-    // Write as a double as Javascript DataView doesn't have a 64-bit integer read
-
     assert(buffer != NULL);
 
     // Reallocate the buffer on overflow
@@ -2383,7 +2388,7 @@ static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
 
 // Copy all bytes
 #if RMT_ASSUME_LITTLE_ENDIAN
-    *(double*)(buffer->data + buffer->bytes_used) = (double)value;
+    *(rmtF64*)(buffer->data + buffer->bytes_used) = value;
 #else
     {
         union {
@@ -2391,7 +2396,7 @@ static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
             unsigned char c[sizeof(double)];
         } u;
         rmtU8* dest = buffer->data + buffer->bytes_used;
-        u.d = (double)value;
+        u.d = value;
         if (IsLittleEndian())
         {
             dest[0] = u.c[0];
@@ -2420,6 +2425,12 @@ static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
     buffer->bytes_used += sizeof(value);
 
     return RMT_ERROR_NONE;
+}
+
+static rmtError Buffer_WriteU64(Buffer* buffer, rmtU64 value)
+{
+    // Write as a double as Javascript DataView doesn't have a 64-bit integer read
+    return Buffer_WriteF64(buffer, (double)value);
 }
 
 static rmtError Buffer_WriteStringWithLength(Buffer* buffer, rmtPStr string)
@@ -3912,6 +3923,7 @@ typedef enum MessageID
     MsgID_ProcessorThreads,
     MsgID_ThreadName,
     MsgID_None,
+    MsgID_PropertySnapshot,
     MsgID_Force32Bits = 0xFFFFFFFF,
 } MessageID;
 
@@ -5844,6 +5856,47 @@ static rmtError Metal_Create(Metal** metal);
 static void Metal_Destructor(Metal* metal);
 #endif
 
+typedef struct PropertySnapshot
+{
+    // Inherit so that property states can be quickly allocated
+    ObjectLink Link;
+
+    // Data copied from the property at the time of the snapshot
+    rmtPropertyType type;
+    rmtPropertyValue value;
+    rmtU32 nameHash;
+
+    // Link to the next property snapshot
+    rmtU32 nbChildren;
+    struct PropertySnapshot* nextSnapshot;
+} PropertySnapshot;
+
+typedef struct Msg_PropertySnapshot
+{
+    PropertySnapshot* rootSnapshot;
+    rmtU32 nbSnapshots;
+} Msg_PropertySnapshot;
+
+static rmtError PropertySnapshot_Constructor(PropertySnapshot* snapshot)
+{
+    assert(snapshot != NULL);
+
+    ObjectLink_Constructor((ObjectLink*)snapshot);
+
+    snapshot->type = RMT_PropertyType_rmtBool;
+    snapshot->value.Bool = RMT_FALSE;
+    snapshot->nameHash = 0;
+    snapshot->nbChildren = 0;
+    snapshot->nextSnapshot = NULL;
+
+    return RMT_ERROR_NONE;
+}
+
+static void PropertySnapshot_Destructor(PropertySnapshot* snapshot)
+{
+    RMT_UNREFERENCED_PARAMETER(snapshot);
+}
+
 struct Remotery
 {
     Server* server;
@@ -5880,6 +5933,13 @@ struct Remotery
 #endif
 
     ThreadProfilers* threadProfilers;
+
+    // Root of all registered properties, guarded by mutex as property register can come from any thread
+    rmtMutex propertyMutex;
+    rmtProperty rootProperty;
+
+    // Allocator for property values that get sent to the viewer
+    ObjectAllocator* propertyAllocator;
 };
 
 //
@@ -6062,6 +6122,26 @@ static rmtBool AreCUDASamplesReady(Sample* sample);
 static rmtBool GetCUDASampleTimes(Sample* root_sample, Sample* sample);
 #endif
 
+static rmtError Remotery_SendToViewerAndLog(Remotery* rmt, Buffer* bin_buf, rmtU32 timeout)
+{
+    rmtError error = RMT_ERROR_NONE;
+
+    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
+    {
+        rmt_BeginCPUSample(Server_Send, RMTSF_Aggregate);
+        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, timeout);
+        rmt_EndCPUSample();
+    }
+
+    if (rmt->logfile != NULL)
+    {
+        // Write the data after the websocket header
+        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
+    }
+
+    return error;
+}
+
 static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 {
     rmtError error = RMT_ERROR_NONE;
@@ -6122,21 +6202,8 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
         return error;
     }
 
-    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
-    {
-        // Send to the viewer with a reasonably long timeout as the size of the sample data may be large
-        rmt_BeginCPUSample(Server_Send, RMTSF_Aggregate);
-        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50000);
-        rmt_EndCPUSample();
-    }
-
-    if (rmt->logfile != NULL)
-    {
-        // Write the data after the websocket header
-        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
-    }
-
-    return error;
+    // Send to the viewer with a reasonably long timeout as the size of the sample data may be large
+    return Remotery_SendToViewerAndLog(rmt, bin_buf, 50000);
 }
 
 static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
@@ -6173,19 +6240,7 @@ static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
         }
     }
 
-    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
-    {
-        // Send to the viewer
-        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50);
-    }
-
-    if (rmt->logfile != NULL)
-    {
-        // Write the data after the websocket header
-        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
-    }
-
-    return error;
+    return Remotery_SendToViewerAndLog(rmt, bin_buf, 50);
 }
 
 static rmtError Remotery_SendThreadName(Remotery* rmt, Message* message)
@@ -6205,19 +6260,75 @@ static rmtError Remotery_SendThreadName(Remotery* rmt, Message* message)
     name_length = *(rmtU32*)(message->payload + 4);
     BIN_ERROR_CHECK(Buffer_Write(bin_buf, message->payload + 8, name_length));
 
-    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
+    return Remotery_SendToViewerAndLog(rmt, bin_buf, 50);
+}
+
+static void FreePropertySnapshots(PropertySnapshot* snapshot)
+{
+    // Allows root call to pass null
+    if (snapshot == NULL)
     {
-        // Send to the viewer
-        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 50);
+        return;
     }
 
-    if (rmt->logfile != NULL)
+    // Depth first free
+    if (snapshot->nextSnapshot != NULL)
     {
-        // Write the data after the websocket header
-        rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
+        FreePropertySnapshots(snapshot->nextSnapshot);
     }
 
-    return RMT_ERROR_NONE;
+    ObjectAllocator_Free(g_Remotery->propertyAllocator, snapshot);
+}
+
+static rmtError Remotery_SendPropertySnapshot(Remotery* rmt, Message* message)
+{
+    Msg_PropertySnapshot* msg_snapshot = (Msg_PropertySnapshot*)message->payload;
+
+    rmtError error = RMT_ERROR_NONE;
+
+    Buffer* bin_buf;
+
+    PropertySnapshot* snapshot;
+
+    // Reset the buffer for sending a websocket message
+    bin_buf = rmt->server->bin_buf;
+    WebSocket_PrepareBuffer(bin_buf);
+
+    // Serialise the message
+    BIN_ERROR_CHECK(Buffer_Write(bin_buf, (void*)"PSNP", 4));
+    BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, msg_snapshot->nbSnapshots));
+    for (snapshot = msg_snapshot->rootSnapshot; snapshot != NULL; snapshot = snapshot->nextSnapshot)
+    {
+        BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->type));
+        switch (snapshot->type)
+        {
+            case RMT_PropertyType_rmtGroup:
+                break;
+            case RMT_PropertyType_rmtBool:
+                BIN_ERROR_CHECK(Buffer_WriteBool(bin_buf, snapshot->value.Bool));
+                break;
+            case RMT_PropertyType_rmtS32:
+            case RMT_PropertyType_rmtU32:
+            case RMT_PropertyType_rmtF32:   // assume IEEE-754 LE, for now
+                BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->value.U32));
+                break;
+            case RMT_PropertyType_rmtS64:
+            case RMT_PropertyType_rmtU64:
+                BIN_ERROR_CHECK(Buffer_WriteU64(bin_buf, snapshot->value.U64));
+                break;
+            case RMT_PropertyType_rmtF64:
+                BIN_ERROR_CHECK(Buffer_WriteF64(bin_buf, snapshot->value.F64));
+                break;
+        }
+        BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->nameHash));
+        BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->nbChildren));
+    }
+    
+    error = Remotery_SendToViewerAndLog(rmt, bin_buf, 50);
+
+    FreePropertySnapshots(msg_snapshot->rootSnapshot);
+
+    return error;
 }
 
 static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
@@ -6263,6 +6374,9 @@ static rmtError Remotery_ConsumeMessageQueue(Remotery* rmt)
                 break;
             case MsgID_ThreadName:
                 Remotery_SendThreadName(rmt, message);
+                break;
+            case MsgID_PropertySnapshot:
+                error = Remotery_SendPropertySnapshot(rmt, message);
                 break;
 
             default:
@@ -6460,6 +6574,22 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->map_message_queue_fn = NULL;
     rmt->map_message_queue_data = NULL;
     rmt->threadProfilers = NULL;
+    rmt->propertyAllocator = NULL;
+
+    // Set default state on the root property
+    rmtProperty* root_property = &rmt->rootProperty;
+    root_property->initialised = RMT_TRUE;
+    root_property->type = RMT_PropertyType_rmtGroup;
+    root_property->value.Bool = RMT_FALSE;
+    root_property->flags = RMT_PropertyFlags_NoFlags;
+    root_property->name = "Root Property";
+    root_property->description = "";
+    root_property->defaultValue.Bool = RMT_FALSE;
+    root_property->parent = NULL;
+    root_property->firstChild = NULL;
+    root_property->lastChild = NULL;
+    root_property->nextSibling = NULL;
+    root_property->nameHash = 0;
 
 #if RMT_USE_CUDA
     rmt->cuda.CtxSetCurrent = NULL;
@@ -6555,6 +6685,15 @@ static rmtError Remotery_Constructor(Remotery* rmt)
         return error;
     }
 
+    mtxInit(&rmt->propertyMutex);
+
+    // Create the property state allocator
+    New_3(ObjectAllocator, rmt->propertyAllocator, sizeof(PropertySnapshot), (ObjConstructor)PropertySnapshot_Constructor, (ObjDestructor)PropertySnapshot_Destructor);
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+
     // Set as the global instance before creating any threads that uses it for sampling itself
     assert(g_Remotery == NULL);
     g_Remotery = rmt;
@@ -6580,6 +6719,10 @@ static void Remotery_Destructor(Remotery* rmt)
         g_Remotery = NULL;
         g_RemoteryCreated = RMT_FALSE;
     }
+
+    Delete(ObjectAllocator, rmt->propertyAllocator);
+
+    mtxDelete(&rmt->propertyMutex);
 
     Delete(ThreadProfilers, rmt->threadProfilers);
 
@@ -8821,6 +8964,14 @@ RMT_API void _rmt_EndMetalSample(void)
 
 #endif // RMT_USE_METAL
 
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+@SAMPLEAPI: Sample API for user callbacks
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
 // Iterator
 RMT_API void _rmt_IterateChildren(rmtSampleIterator* iterator, rmtSample* sample)
 {
@@ -8911,5 +9062,232 @@ RMT_API void _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* 
     *b = _rmt_HexDigitToByte(p[4]) << 4 | _rmt_HexDigitToByte(p[5]);
 }
 
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+@PROPERTIES: Property API
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+static void RegisterProperty(rmtProperty* property, rmtBool can_lock)
+{
+    if (property->initialised == RMT_FALSE)
+    {
+        // Apply for a lock once at the start of the recursive walk
+        if (can_lock)
+        {
+            mtxLock(&g_Remotery->propertyMutex);
+        }
+
+        // Multiple threads accessing the same property can apply for the lock at the same time as the `initialised` property for
+        // each of them may not be set yet. One thread only will get the lock successfully while the others will only come through
+        // here when the first thread has finished initialising. The first thread through will have `initialised` set to RMT_FALSE
+        // while all other threads will see it in its initialised state. Skip those so that we don't register multiple times.
+        if (property->initialised == RMT_FALSE)
+        {
+            rmtU32 name_len;
+
+            // With no parent, add this to the root property
+            rmtProperty* parent_property = property->parent;
+            if (parent_property == NULL)
+            {
+                property->parent = &g_Remotery->rootProperty;
+                parent_property = property->parent;
+            }
+
+            // Walk up to parent properties first in case they haven't been registered
+            RegisterProperty(parent_property, RMT_FALSE);
+
+            // Link this property into the parent's list
+            if (parent_property->firstChild != NULL)
+            {
+                parent_property->lastChild->nextSibling = property;
+                parent_property->lastChild = property;
+            }
+            else
+            {
+                parent_property->firstChild = property;
+                parent_property->lastChild = property;
+            }
+
+            // Calculate the name hash and send it to the viewer
+            name_len = strnlen_s(property->name, 256);
+            property->nameHash = MurmurHash3_x86_32(property->name, name_len, 0);
+            QueueAddToStringTable(g_Remotery->mq_to_rmt_thread, property->nameHash, property->name, name_len, NULL);
+
+            property->initialised = RMT_TRUE;
+        }
+
+        // Unlock on the way out of recursive walk
+        if (can_lock)
+        {
+            mtxUnlock(&g_Remotery->propertyMutex);
+        }
+    }
+}
+
+RMT_API void _rmt_PropertySetValue(rmtProperty* property)
+{
+    if (g_Remotery == NULL)
+    {
+        return;
+    }
+
+    RegisterProperty(property, RMT_TRUE);
+
+    // on this thread, create a new sample that encodes the value just set
+
+    // send the sample to remotery UI and disk log
+
+    // value resets and sets don't have delta values, really
+}
+
+RMT_API void _rmt_PropertyAddValue(rmtProperty* property, rmtPropertyValue add_value)
+{
+    if (g_Remotery == NULL)
+    {
+        return;
+    }
+
+    RegisterProperty(property, RMT_TRUE);
+
+    // use `add_value` to determine how much this property was changed
+
+    // on this thread, create a new sample that encodes the delta and parents itself to `property`
+    // could also encode the current value of the property at this point
+
+    // send the sample to remotery UI and disk log
+}
+
+static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* parent_snapshot, PropertySnapshot** first_snapshot, PropertySnapshot** prev_snapshot)
+{
+    rmtError error;
+    rmtProperty* child_property;
+
+    // Allocate some state for the property
+    PropertySnapshot* snapshot;
+    error = ObjectAllocator_Alloc(g_Remotery->propertyAllocator, (void**)&snapshot);
+    if (error != RMT_ERROR_NONE)
+    {
+        return error;
+    }
+
+    // Snapshot the property
+    snapshot->type = property->type;
+    snapshot->value = property->value;
+    snapshot->nameHash = property->nameHash;
+    snapshot->nbChildren = 0;
+    snapshot->nextSnapshot = NULL;
+
+    // Keep count of the number of children in the parent
+    if (parent_snapshot != NULL)
+    {
+        parent_snapshot->nbChildren++;
+    }
+
+    // Link into the linear list
+    if (*first_snapshot == NULL)
+    {
+        *first_snapshot = snapshot;
+    }
+    if (*prev_snapshot != NULL)
+    {
+        (*prev_snapshot)->nextSnapshot = snapshot;
+    }
+    *prev_snapshot = snapshot;
+
+    // Snapshot the children
+    for (child_property = property->firstChild; child_property != NULL; child_property = child_property->nextSibling)
+    {
+        error = TakePropertySnapshot(child_property, snapshot, first_snapshot, prev_snapshot);
+        if (error != RMT_ERROR_NONE)
+        {
+            return error;
+        }
+    }
+
+    return RMT_ERROR_NONE;
+}
+
+RMT_API rmtError _rmt_PropertySnapshotAll()
+{
+    rmtError error;
+    PropertySnapshot* first_snapshot;
+    PropertySnapshot* prev_snapshot;
+    Msg_PropertySnapshot* payload;
+    Message* message;
+    rmtU32 nb_snapshot_allocs;
+
+    if (g_Remotery == NULL)
+    {
+        return RMT_ERROR_REMOTERY_NOT_CREATED;
+    }
+
+    // Don't do anything if any properties haven't been registered yet
+    if (g_Remotery->rootProperty.firstChild == NULL)
+    {
+        return RMT_ERROR_NONE;
+    }
+
+    // Mark current allocation count so we can quickly calculate the number of snapshots being sent
+    nb_snapshot_allocs = g_Remotery->propertyAllocator->nb_allocated;
+    
+    // Snapshot from the root into a linear list
+    first_snapshot = NULL;
+    prev_snapshot = NULL;
+    mtxLock(&g_Remotery->propertyMutex);
+    error = TakePropertySnapshot(&g_Remotery->rootProperty, NULL, &first_snapshot, &prev_snapshot);
+    mtxUnlock(&g_Remotery->propertyMutex);
+    if (error != RMT_ERROR_NONE)
+    {
+        FreePropertySnapshots(first_snapshot);
+        return error;
+    }
+
+    // Attempt to allocate a message for sending the snapshot to the viewer
+    message = rmtMessageQueue_AllocMessage(g_Remotery->mq_to_rmt_thread, sizeof(Msg_PropertySnapshot), NULL);
+    if (message == NULL)
+    {
+        FreePropertySnapshots(first_snapshot);
+        return RMT_ERROR_UNKNOWN;
+    }
+
+    // Populate and commit
+    payload = (Msg_PropertySnapshot*)message->payload;
+    payload->rootSnapshot = first_snapshot;
+    payload->nbSnapshots = g_Remotery->propertyAllocator->nb_allocated - nb_snapshot_allocs;
+    rmtMessageQueue_CommitMessage(message, MsgID_PropertySnapshot);
+
+    return RMT_ERROR_NONE;
+}
+
+static void PropertyFrameReset(rmtProperty* first_property)
+{
+    for (rmtProperty* property = first_property; property != NULL; property = property->nextSibling)
+    {
+        if (property->type == RMT_PropertyType_rmtGroup)
+        {
+            PropertyFrameReset(property->firstChild);
+        }
+
+        else if ((property->flags & RMT_PropertyFlags_FrameReset) != 0)
+        {
+            property->value = property->defaultValue;
+        }
+    }
+}
+
+RMT_API void _rmt_PropertyFrameResetAll()
+{
+    if (g_Remotery == NULL)
+    {
+        return;
+    }
+        
+    mtxLock(&g_Remotery->propertyMutex);
+    PropertyFrameReset(g_Remotery->rootProperty.firstChild);
+    mtxUnlock(&g_Remotery->propertyMutex);
+}
 
 #endif // RMT_ENABLED
