@@ -223,6 +223,16 @@ typedef struct Remotery Remotery;
 // Forward declaration
 struct rmtProperty;
 
+typedef enum rmtSampleType
+{
+    RMT_SampleType_CPU,
+    RMT_SampleType_CUDA,
+    RMT_SampleType_D3D11,
+    RMT_SampleType_OpenGL,
+    RMT_SampleType_Metal,
+    RMT_SampleType_Count,
+} rmtSampleType;
+
 // All possible error codes
 // clang-format off
 typedef enum rmtError
@@ -728,16 +738,6 @@ typedef enum rmtSampleFlags
     // This will quickly allow you to detect Begin/End mismatches causing a sample tree imbalance.
     RMTSF_Root = 4,
 } rmtSampleFlags;
-
-typedef enum rmtSampleType
-{
-    RMT_SampleType_CPU,
-    RMT_SampleType_CUDA,
-    RMT_SampleType_D3D11,
-    RMT_SampleType_OpenGL,
-    RMT_SampleType_Metal,
-    RMT_SampleType_Count,
-} rmtSampleType;
 
 // Struct to hold iterator info
 typedef struct rmtSampleIterator
