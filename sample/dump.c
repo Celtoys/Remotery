@@ -153,8 +153,8 @@ int main() {
         settings->sampletree_handler = dumpTree;
         settings->sampletree_context = 0;
 
-        settings->property_handler = dumpProperties;
-        settings->property_context = 0;
+        settings->snapshot_callback = dumpProperties;
+        settings->snapshot_context = 0;
     }
 
 	error = rmt_CreateGlobalInstance(&rmt);
@@ -173,6 +173,8 @@ int main() {
 
         rmt_PropertySet_Bool(WasUpdated, RMT_TRUE);
         rmt_PropertyAdd_U32(FrameCounter, 1);
+
+        rmt_PropertySnapshotAll();
         rmt_PropertyFrameResetAll();
     }
 

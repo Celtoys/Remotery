@@ -6781,8 +6781,8 @@ RMT_API rmtSettings* _rmt_Settings(void)
         g_Settings.logPath = NULL;
         g_Settings.sampletree_handler = NULL;
         g_Settings.sampletree_context = NULL;
-        g_Settings.property_handler = NULL;
-        g_Settings.property_context = NULL;
+        g_Settings.snapshot_callback = NULL;
+        g_Settings.snapshot_context = NULL;
 
         g_SettingsInitialized = RMT_TRUE;
     }
@@ -9298,6 +9298,12 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
     prev_snapshot = NULL;
     mtxLock(&g_Remotery->propertyMutex);
     error = TakePropertySnapshot(&g_Remotery->rootProperty, NULL, &first_snapshot, &prev_snapshot);
+
+    if (g_Settings.snapshot_callback != NULL)
+    {
+        g_Settings.snapshot_callback(g_Settings.snapshot_context, &g_Remotery->rootProperty);
+    }
+
     mtxUnlock(&g_Remotery->propertyMutex);
     if (error != RMT_ERROR_NONE)
     {
@@ -9347,11 +9353,6 @@ RMT_API void _rmt_PropertyFrameResetAll()
     }
 
     mtxLock(&g_Remotery->propertyMutex);
-    if (g_Settings.property_handler != NULL)
-    {
-        g_Settings.property_handler(g_Settings.property_context, &g_Remotery->rootProperty);
-    }
-
     PropertyFrameReset(g_Remotery->rootProperty.firstChild);
     mtxUnlock(&g_Remotery->propertyMutex);
 }

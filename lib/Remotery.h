@@ -365,8 +365,8 @@ typedef struct rmtSettings
     void* sampletree_context;
 
     // Callback pointer for traversing the prpperty graph
-    rmtPropertyHandlerPtr property_handler;
-    void* property_context;
+    rmtPropertyHandlerPtr snapshot_callback;
+    void* snapshot_context;
 
     // Context pointer that gets sent to Remotery console callback function
     void* input_handler_context;
@@ -561,6 +561,62 @@ typedef enum
     RMT_PropertyType_rmtF64,
 } rmtPropertyType;
 
+// A property value as a union of all its possible types
+typedef union rmtPropertyValue
+{
+    // C++ requires function-based construction of property values because it has no designated initialiser support until C++20
+    #ifdef __cplusplus
+        // These are static Make calls, rather than overloaded constructors, because `rmtBool` is the same type as `rmtU32`
+        static rmtPropertyValue MakeBool(rmtBool v) { rmtPropertyValue pv; pv.Bool = v; return pv; }
+        static rmtPropertyValue MakeS32(rmtS32 v) { rmtPropertyValue pv; pv.S32 = v; return pv; }
+        static rmtPropertyValue MakeU32(rmtU32 v) { rmtPropertyValue pv; pv.U32 = v; return pv; }
+        static rmtPropertyValue MakeF32(rmtF32 v) { rmtPropertyValue pv; pv.F32 = v; return pv; }
+        static rmtPropertyValue MakeS64(rmtS64 v) { rmtPropertyValue pv; pv.S64 = v; return pv; }
+        static rmtPropertyValue MakeU64(rmtU64 v) { rmtPropertyValue pv; pv.U64 = v; return pv; }
+        static rmtPropertyValue MakeF64(rmtF64 v) { rmtPropertyValue pv; pv.F64 = v; return pv; }
+    #endif
+
+    rmtBool Bool;
+    rmtS32 S32;
+    rmtU32 U32;
+    rmtF32 F32;
+    rmtS64 S64;
+    rmtU64 U64;
+    rmtF64 F64;
+} rmtPropertyValue;
+
+// Definition of a property that should be stored globally
+// Note:
+//  Use the callback api and the rmt_PropertyGetxxx accessors to traverse this structure
+typedef struct rmtProperty
+{
+    // Gets set to RMT_TRUE after a property has been modified, when it gets initialised for the first time
+    rmtBool initialised;
+
+    // Runtime description
+    rmtPropertyType type;
+    rmtPropertyValue value;
+    rmtPropertyFlags flags;
+
+    // Text description
+    const char* name;
+    const char* description;
+
+    // Default value for Reset calls
+    rmtPropertyValue defaultValue;
+
+    // Parent link specifically placed after default value so that variadic macro can initialise it
+    struct rmtProperty* parent;
+
+    // Links within the property tree
+    struct rmtProperty* firstChild;
+    struct rmtProperty* lastChild;
+    struct rmtProperty* nextSibling;
+
+    // Hash for efficient sending of properties to the viewer
+    rmtU32 nameHash;
+} rmtProperty;
+
 // Define properties of different types at global scope:
 //
 //    * Never define properties in a header file that gets included multiple times.
@@ -616,64 +672,6 @@ typedef enum
 
 
 /* --- Private Details ---------------------------------------------------------------------------------------------------------*/
-
-
-// A property value as a union of all its possible types
-typedef union rmtPropertyValue
-{
-    // C++ requires function-based construction of property values because it has no designated initialiser support until C++20
-    #ifdef __cplusplus
-        // These are static Make calls, rather than overloaded constructors, because `rmtBool` is the same type as `rmtU32`
-        static rmtPropertyValue MakeBool(rmtBool v) { rmtPropertyValue pv; pv.Bool = v; return pv; }
-        static rmtPropertyValue MakeS32(rmtS32 v) { rmtPropertyValue pv; pv.S32 = v; return pv; }
-        static rmtPropertyValue MakeU32(rmtU32 v) { rmtPropertyValue pv; pv.U32 = v; return pv; }
-        static rmtPropertyValue MakeF32(rmtF32 v) { rmtPropertyValue pv; pv.F32 = v; return pv; }
-        static rmtPropertyValue MakeS64(rmtS64 v) { rmtPropertyValue pv; pv.S64 = v; return pv; }
-        static rmtPropertyValue MakeU64(rmtU64 v) { rmtPropertyValue pv; pv.U64 = v; return pv; }
-        static rmtPropertyValue MakeF64(rmtF64 v) { rmtPropertyValue pv; pv.F64 = v; return pv; }
-    #endif
-
-    rmtBool Bool;
-    rmtS32 S32;
-    rmtU32 U32;
-    rmtF32 F32;
-    rmtS64 S64;
-    rmtU64 U64;
-    rmtF64 F64;
-} rmtPropertyValue;
-
-// Definition of a property that should be stored globally
-// Note:
-//  This struct implementation is private and subject to change
-//  Use the callback api and the rmt_PropertyGetxxx accessors to traverse this structure
-typedef struct rmtProperty
-{
-    // Gets set to RMT_TRUE after a property has been modified, when it gets initialised for the first time
-    rmtBool initialised;
-
-    // Runtime description
-    rmtPropertyType type;
-    rmtPropertyValue value;
-    rmtPropertyFlags flags;
-
-    // Text description
-    const char* name;
-    const char* description;
-
-    // Default value for Reset calls
-    rmtPropertyValue defaultValue;
-
-    // Parent link specifically placed after default value so that variadic macro can initialise it
-    struct rmtProperty* parent;
-
-    // Links within the property tree
-    struct rmtProperty* firstChild;
-    struct rmtProperty* lastChild;
-    struct rmtProperty* nextSibling;
-
-    // Hash for efficient sending of properties to the viewer
-    rmtU32 nameHash;
-} rmtProperty;
 
 
 // Used to define properties from typed macro callers
