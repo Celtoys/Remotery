@@ -220,6 +220,9 @@ typedef struct Sample rmtSample;
 // Handle to the main remotery instance
 typedef struct Remotery Remotery;
 
+// Forward declaration
+struct rmtProperty;
+
 // All possible error codes
 // clang-format off
 typedef enum rmtError
@@ -300,6 +303,7 @@ typedef void* (*rmtReallocPtr)(void* mm_context, void* ptr, rmtU32 size);
 typedef void (*rmtFreePtr)(void* mm_context, void* ptr);
 typedef void (*rmtInputHandlerPtr)(const char* text, void* context);
 typedef void (*rmtSampleTreeHandlerPtr)(void* cbk_context, rmtSampleTree* sample_tree);
+typedef void (*rmtPropertyHandlerPtr)(void* cbk_context, struct rmtProperty* root);
 
 // Struture to fill in to modify Remotery default settings
 typedef struct rmtSettings
@@ -349,6 +353,10 @@ typedef struct rmtSettings
     // Callback pointer for traversing the sample tree graph
     rmtSampleTreeHandlerPtr sampletree_handler;
     void* sampletree_context;
+
+    // Callback pointer for traversing the prpperty graph
+    rmtPropertyHandlerPtr property_handler;
+    void* property_context;
 
     // Context pointer that gets sent to Remotery console callback function
     void* input_handler_context;
@@ -530,6 +538,19 @@ typedef enum
     RMT_PropertyFlags_FrameReset = 1,
 } rmtPropertyFlags;
 
+// All possible property types that can be recorded and sent to the viewer
+typedef enum
+{
+    RMT_PropertyType_rmtGroup,
+    RMT_PropertyType_rmtBool,
+    RMT_PropertyType_rmtS32,
+    RMT_PropertyType_rmtU32,
+    RMT_PropertyType_rmtF32,
+    RMT_PropertyType_rmtS64,
+    RMT_PropertyType_rmtU64,
+    RMT_PropertyType_rmtF64,
+} rmtPropertyType;
+
 // Define properties of different types at global scope:
 //
 //    * Never define properties in a header file that gets included multiple times.
@@ -587,19 +608,6 @@ typedef enum
 /* --- Private Details ---------------------------------------------------------------------------------------------------------*/
 
 
-// All possible property types that can be recorded and sent to the viewer
-typedef enum
-{
-    RMT_PropertyType_rmtGroup,
-    RMT_PropertyType_rmtBool,
-    RMT_PropertyType_rmtS32,
-    RMT_PropertyType_rmtU32,
-    RMT_PropertyType_rmtF32,
-    RMT_PropertyType_rmtS64,
-    RMT_PropertyType_rmtU64,
-    RMT_PropertyType_rmtF64,
-} rmtPropertyType;
-
 // A property value as a union of all its possible types
 typedef union rmtPropertyValue
 {
@@ -625,6 +633,9 @@ typedef union rmtPropertyValue
 } rmtPropertyValue;
 
 // Definition of a property that should be stored globally
+// Note:
+//  This struct implementation is private and subject to change
+//  Use the callback api and the rmt_PropertyGetxxx accessors to traverse this structure
 typedef struct rmtProperty
 {
     // Gets set to RMT_TRUE after a property has been modified, when it gets initialised for the first time
@@ -776,6 +787,38 @@ typedef struct rmtSampleIterator
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetType(sample), RMT_SampleType_Count)
 
 
+// Struct to hold iterator info
+typedef struct rmtPropertyIterator
+{
+// public
+    rmtProperty* property;
+// private
+    rmtProperty* initial;
+} rmtPropertyIterator;
+
+#define rmt_PropertyIterateChildren(iter, property)                                     \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_PropertyIterateChildren(iter, property))
+
+#define rmt_PropertyIterateNext(iter)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyIterateNext(iter), RMT_FALSE)
+
+// Should only called from within the property callback,
+// when the internal string lookup table is valid (i.e. on the main Remotery thread)
+
+#define rmt_PropertyGetType(property)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetType(property), RMT_PropertyType_Count)
+
+#define rmt_PropertyGetName(property)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetName(property), NULL)
+
+#define rmt_PropertyGetDescription(property)                                            \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetDescription(property), 0U)
+
+#define rmt_PropertyGetValue(property)                                                  \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetValue(property), 0U)
+
+
+
 /*--------------------------------------------------------------------------------------------------------------------------------
    C++ Public Interface Extensions
 --------------------------------------------------------------------------------------------------------------------------------*/
@@ -911,7 +954,7 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndMetalSample(void);
 #endif
 
-// Iterator
+// Sample iterator
 RMT_API void                _rmt_IterateChildren(rmtSampleIterator* iter, rmtSample* sample);
 RMT_API rmtBool             _rmt_IterateNext(rmtSampleIterator* iter);
 
@@ -928,6 +971,17 @@ RMT_API rmtU64              _rmt_SampleGetTime(rmtSample* sample);
 RMT_API rmtU64              _rmt_SampleGetSelfTime(rmtSample* sample);
 RMT_API void                _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* b);
 RMT_API rmtSampleType       _rmt_SampleGetType(rmtSample* sample);
+
+// Property iterator
+RMT_API void                _rmt_PropertyIterateChildren(rmtPropertyIterator* iter, rmtProperty* property);
+RMT_API rmtBool             _rmt_PropertyIterateNext(rmtPropertyIterator* iter);
+
+// Property accessors
+RMT_API rmtPropertyType     _rmt_PropertyGetType(rmtProperty* property);
+RMT_API rmtU32              _rmt_PropertyGetNameHash(rmtProperty* property);
+RMT_API const char*         _rmt_PropertyGetName(rmtProperty* property);
+RMT_API const char*         _rmt_PropertyGetDescription(rmtProperty* property);
+RMT_API rmtPropertyValue    _rmt_PropertyGetValue(rmtProperty* property);
 
 #ifdef __cplusplus
 
