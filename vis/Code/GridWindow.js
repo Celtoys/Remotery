@@ -1,7 +1,87 @@
+class SampleGridConfig
+{
+    constructor()
+    {
+        this.titleCellData =
+        {
+            Name: "Samples",
+            Length: "Time (ms)",
+            Self: "Self (ms)",
+            Calls: "Calls",
+            Recurse: "Recurse",
+        };
+        this.titleCellClasses =
+        {
+            Name: "SampleTitleNameCell",
+            Length: "SampleTitleTimeCell",
+            Self: "SampleTitleTimeCell",
+            Calls: "SampleTitleCountCell",
+            Recurse: "SampleTitleCountCell",
+        };
+
+        this.rowCellData =
+        {
+            Name: "",
+            Length: "",
+            Self: "",
+            Calls: "",
+            Recurse: "",
+        };
+        this.rowCellClasses =
+        {
+            Name: "SampleNameCell",
+            Length: "SampleTimeCell",
+            Self: "SampleTimeCell",
+            Calls: "SampleCountCell",
+            Recurse: "SampleCountCell",
+        };
+    }
+
+    SetRowData(row, entry)
+    {
+        row.CellNodes["Length"].innerHTML = entry.ms_length;
+        row.CellNodes["Self"].innerHTML = entry.ms_self;
+        row.CellNodes["Calls"].innerHTML = entry.call_count;
+        row.CellNodes["Recurse"].innerHTML = entry.recurse_depth;
+    }
+}
+
+class PropertyGridConfig
+{
+    constructor()
+    {
+        this.titleCellData =
+        {
+            Name: "Property",
+            Value: "Value",
+        };
+        this.titleCellClasses =
+        {
+            Name: "SampleTitleNameCell",
+            Value: "PropertyTitleValueCell",
+        };
+
+        this.rowCellData =
+        {
+            Name: "",
+            Value: "",
+        };
+        this.rowCellClasses =
+        {
+            Name: "SampleNameCell",
+            Value: "PropertyValueCell",
+        };
+    }
+
+    SetRowData(row, entry)
+    {
+        row.CellNodes["Value"].innerHTML = entry.value;
+    }
+}
 
 class GridWindow
 {
-    constructor(wm, name, offset)
+    constructor(wm, name, offset, config)
     {
         // Digest for checking if grid needs to be repopulated
         this.nbEntries = 0;
@@ -18,24 +98,10 @@ class GridWindow
 
         // Create a grid that's indexed by the unique entry ID
         this.grid = this.window.AddControlNew(new WM.Grid());
-        const cell_data =
-        {
-            Name: "Samples",
-            Length: "Time (ms)",
-            Self: "Self (ms)",
-            Calls: "Calls",
-            Recurse: "Recurse",
-        };
-        const cell_classes =
-        {
-            Name: "SampleTitleNameCell",
-            Length: "SampleTitleTimeCell",
-            Self: "SampleTitleTimeCell",
-            Calls: "SampleTitleCountCell",
-            Recurse: "SampleTitleCountCell",
-        };
-        this.rootRow = this.grid.Rows.Add(cell_data, "GridGroup", cell_classes);
+        this.rootRow = this.grid.Rows.Add(config.titleCellData, "GridGroup", config.titleCellClasses);
         this.rootRow.Rows.AddIndex("_ID");
+
+        this.config = config;
     }
 
     Close()
@@ -49,10 +115,10 @@ class GridWindow
         self.WindowResized(top_window, bottom_window);
     }
 
-   SetXPos(xpos, top_window, bottom_window)
+    SetXPos(xpos, top_window, bottom_window)
     {
         Anim.Animate(
-            Bind(AnimatedMove, this, top_window, bottom_window),
+            Bind(GridWindow.AnimatedMove, this, top_window, bottom_window),
             this.xPos, 10 + xpos * 410, 0.25);
     }
 
@@ -76,32 +142,16 @@ class GridWindow
         this.window.SetSize(400, bottom_window.Position[1] - 10 - top);
     }
 
-    static GrowGrid(parent_row, nb_entries)
+    GrowGrid(parent_row, nb_entries)
     {
         parent_row.Rows.Clear();
 
         for (let i = 0; i < nb_entries; i++)
         {
-            const cell_data =
-            {
-                _ID: i,
-                Name: "",
-                Length: "",
-                Self: "",
-                Calls: "",
-                Recurse: "",
-            };
-
-            const cell_classes =
-            {
-                Name: "SampleNameCell",
-                Length: "SampleTimeCell",
-                Self: "SampleTimeCell",
-                Calls: "SampleCountCell",
-                Recurse: "SampleCountCell",
-            };
-
-            parent_row.Rows.Add(cell_data, null, cell_classes);
+            const cell_data = Object.assign({}, this.config.rowCellData);
+            cell_data._ID = i;
+            
+            parent_row.Rows.Add(cell_data, null, this.config.rowCellClasses);
         }
     }
 
@@ -118,7 +168,7 @@ class GridWindow
         // Recreate all the HTML if the number of entries gets bigger
         if (nb_entries > this.nbEntries)
         {
-            GridWindow.GrowGrid(this.rootRow, nb_entries);
+            this.GrowGrid(this.rootRow, nb_entries);
             this.nbEntries = nb_entries;
         }
 
@@ -126,7 +176,7 @@ class GridWindow
         if (this.layoutDigest != layout_digest)
         {
             this.rootRow.Rows.ClearIndex("_ID");
-            const index = GridWindow.UpdateAllEntryFields(this.rootRow, entries, 0, "");
+            const index = this.UpdateAllEntryFields(this.rootRow, entries, 0, "");
             this.layoutDigest = layout_digest;
 
             // Clear out any left-over rows
@@ -140,11 +190,11 @@ class GridWindow
         else if (this.visible)
         {
             // Otherwise just update the existing entry fields
-            GridWindow.UpdateChangedEntryFields(this.rootRow, entries, "");
+            this.UpdateChangedEntryFields(this.rootRow, entries, "");
         }
     }
 
-    static UpdateAllEntryFields(parent_row, entries, index, indent)
+    UpdateAllEntryFields(parent_row, entries, index, indent)
     {
         for (let i in entries)
         {
@@ -169,18 +219,15 @@ class GridWindow
             name_node.innerHTML = indent + entry.name.string;
             DOM.Node.SetColour(name_node, entry.colour);
 
-            row.CellNodes["Length"].innerHTML = entry.ms_length;
-            row.CellNodes["Self"].innerHTML = entry.ms_self;
-            row.CellNodes["Calls"].innerHTML = entry.call_count;
-            row.CellNodes["Recurse"].innerHTML = entry.recurse_depth;
+            this.config.SetRowData(row, entry);
 
-            index = GridWindow.UpdateAllEntryFields(parent_row, entry.children, index, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
+            index = this.UpdateAllEntryFields(parent_row, entry.children, index, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
         }
 
         return index;
     }
 
-    static UpdateChangedEntryFields(parent_row, entries, indent)
+    UpdateChangedEntryFields(parent_row, entries, indent)
     {
         for (let i in entries)
         {
@@ -189,10 +236,7 @@ class GridWindow
             const row = parent_row.Rows.GetBy("_ID", entry.id);
             if (row)
             {
-                row.CellNodes["Length"].innerHTML = entry.ms_length;
-                row.CellNodes["Self"].innerHTML = entry.ms_self;
-                row.CellNodes["Calls"].innerHTML = entry.call_count;
-                row.CellNodes["Recurse"].innerHTML = entry.recurse_depth;
+                this.config.SetRowData(row, entry);
 
                 // Entry name will change when it switches from hash ID to network-retrieved 
                 // name. Quickly check that before re-applying the HTML for the name.
@@ -204,7 +248,7 @@ class GridWindow
                 }
             }
 
-            GridWindow.UpdateChangedEntryFields(parent_row, entry.children, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
+            this.UpdateChangedEntryFields(parent_row, entry.children, indent + "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
         }
     }
 }

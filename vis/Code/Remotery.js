@@ -121,6 +121,8 @@ Remotery = (function()
         this.nbGridWindows = 0;
         this.gridWindows = { };
 
+        this.AddGridWindow("__rmt__global__properties__", "Global Properties", new PropertyGridConfig());
+        
         // Clear runtime data
         this.FrameHistory = { };
         this.ProcessorFrameHistory = { };
@@ -281,6 +283,15 @@ Remotery = (function()
     }
 
 
+    Remotery.prototype.AddGridWindow = function(name, display_name, config)
+    {
+        this.gridWindows[name] = new GridWindow(this.WindowManager, display_name, this.nbGridWindows, config);
+        this.gridWindows[name].WindowResized(this.SampleTimelineWindow.Window, this.Console.Window);
+        this.nbGridWindows++;
+        MoveGridWindows(this);
+}
+
+
     function OnSamples(self, socket, data_view_reader)
     {
         // Discard any new samples while paused and connected
@@ -318,10 +329,7 @@ Remotery = (function()
         // Create sample windows on-demand
         if (!(name in self.gridWindows))
         {
-            self.gridWindows[name] = new GridWindow(self.WindowManager, name, self.nbGridWindows);
-            self.gridWindows[name].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
-            self.nbGridWindows++;
-            MoveGridWindows(this);
+            self.AddGridWindow(name, name, new SampleGridConfig());
         }
 
         // Set on the window and timeline if connected as this implies a trace is being loaded, which we want to speed up
@@ -546,15 +554,6 @@ Remotery = (function()
         if (extra_frames > 0)
             frame_history.splice(0, extra_frames);
 
-        // Create sample windows on-demand
-        //if (!(name in self.gridWindows))
-        //{
-        //    self.gridWindows[name] = new GridWindow(self.WindowManager, name, self.nbGridWindows);
-        //    self.gridWindows[name].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
-        //    self.nbGridWindows++;
-        //    MoveGridWindows(this);
-        //}
-
         // Set on the window if connected as this implies a trace is being loaded, which we want to speed up
         if (self.Server.Connected())
         {
@@ -578,7 +577,7 @@ Remotery = (function()
         for (let i in self.gridWindows)
         {
             const grid_window = self.gridWindows[i];
-            if (grid_window.Visible)
+            if (grid_window.visible)
             {
                 grid_window.SetXPos(xpos++, self.SampleTimelineWindow.Window, self.Console.Window);
             }
