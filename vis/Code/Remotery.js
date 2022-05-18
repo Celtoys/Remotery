@@ -72,8 +72,8 @@ Remotery = (function()
 
         this.TraceDrop = new TraceDrop(this);
 
-        this.NbSampleWindows = 0;
-        this.SampleWindows = { };
+        this.nbGridWindows = 0;
+        this.gridWindows = { };
         this.FrameHistory = { };
         this.ProcessorFrameHistory = { };
         this.PropertyFrameHistory = [ ];
@@ -113,13 +113,13 @@ Remotery = (function()
         this.ProcessorTimelineWindow.Clear();
 
         // Close and clear all sample windows
-        for (var i in this.SampleWindows)
+        for (var i in this.gridWindows)
         {
-            var sample_window = this.SampleWindows[i];
-            sample_window.Close();
+            const grid_window = this.gridWindows[i];
+            grid_window.Close();
         }
-        this.NbSampleWindows = 0;
-        this.SampleWindows = { };
+        this.nbGridWindows = 0;
+        this.gridWindows = { };
 
         // Clear runtime data
         this.FrameHistory = { };
@@ -316,18 +316,18 @@ Remotery = (function()
             frame_history.splice(0, extra_frames);
 
         // Create sample windows on-demand
-        if (!(name in self.SampleWindows))
+        if (!(name in self.gridWindows))
         {
-            self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
-            self.SampleWindows[name].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
-            self.NbSampleWindows++;
-            MoveSampleWindows(this);
+            self.gridWindows[name] = new GridWindow(self.WindowManager, name, self.nbGridWindows);
+            self.gridWindows[name].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
+            self.nbGridWindows++;
+            MoveGridWindows(this);
         }
 
         // Set on the window and timeline if connected as this implies a trace is being loaded, which we want to speed up
         if (self.Server.Connected())
         {
-            self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
+            self.gridWindows[name].UpdateEntries(message.nb_samples, message.sample_digest, message.samples);
             self.SampleTimelineWindow.OnSamples(name, frame_history);
         }
     }
@@ -544,18 +544,18 @@ Remotery = (function()
             frame_history.splice(0, extra_frames);
 
         // Create sample windows on-demand
-        //if (!(name in self.SampleWindows))
+        //if (!(name in self.gridWindows))
         //{
-        //    self.SampleWindows[name] = new SampleWindow(self.WindowManager, name, self.NbSampleWindows);
-        //    self.SampleWindows[name].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
-        //    self.NbSampleWindows++;
-        //    MoveSampleWindows(this);
+        //    self.gridWindows[name] = new GridWindow(self.WindowManager, name, self.nbGridWindows);
+        //    self.gridWindows[name].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
+        //    self.nbGridWindows++;
+        //    MoveGridWindows(this);
         //}
 
         // Set on the window if connected as this implies a trace is being loaded, which we want to speed up
         if (self.Server.Connected())
         {
-            //self.SampleWindows[name].OnSamples(message.nb_samples, message.sample_digest, message.samples);
+            //self.gridWindows[name].UpdateEntries(message.nb_samples, message.sample_digest, message.samples);
         }
     }
 
@@ -563,21 +563,21 @@ Remotery = (function()
     {
         // Show/hide the equivalent sample window and move all the others to occupy any left-over space
         var target = DOM.Event.GetNode(evt);
-        self.SampleWindows[name].SetVisible(target.checked);
-        MoveSampleWindows(self);
+        self.gridWindows[name].SetVisible(target.checked);
+        MoveGridWindows(self);
     }
 
 
-    function MoveSampleWindows(self)
+    function MoveGridWindows(self)
     {
         // Stack all windows next to each other
-        var xpos = 0;
-        for (var i in self.SampleWindows)
+        let xpos = 0;
+        for (let i in self.gridWindows)
         {
-            var sample_window = self.SampleWindows[i];
-            if (sample_window.Visible)
+            const grid_window = self.gridWindows[i];
+            if (grid_window.Visible)
             {
-                sample_window.SetXPos(xpos++, self.SampleTimelineWindow.Window, self.Console.Window);
+                grid_window.SetXPos(xpos++, self.SampleTimelineWindow.Window, self.Console.Window);
             }
         }
     }
@@ -590,15 +590,15 @@ Remotery = (function()
             return;
         }
 
-        for (let window_thread_name in self.SampleWindows)
+        for (let window_thread_name in self.gridWindows)
         {
-            let sample_window = self.SampleWindows[window_thread_name];
+            const grid_window = self.gridWindows[window_thread_name];
 
             if (window_thread_name == thread_name && hover != null)
             {
                 // Populate with sample under hover
                 let frame = hover[0];
-                sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+                grid_window.UpdateEntries(frame.NbSamples, frame.SampleDigest, frame.Samples);
             }
             else
             {
@@ -606,7 +606,7 @@ Remotery = (function()
                 if (self.SelectedFrames[window_thread_name])
                 {
                     const frame = self.SelectedFrames[window_thread_name];
-                    sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+                    grid_window.UpdateEntries(frame.NbSamples, frame.SampleDigest, frame.Samples);
                 }
             }
         }
@@ -616,12 +616,12 @@ Remotery = (function()
     function OnSampleSelected(self, thread_name, select)
     {
         // Lookup sample window set the frame samples on it
-        if (select && thread_name in self.SampleWindows)
+        if (select && thread_name in self.gridWindows)
         {
-            var sample_window = self.SampleWindows[thread_name];
-            var frame = select[0];
+            const grid_window = self.gridWindows[thread_name];
+            const frame = select[0];
             self.SelectedFrames[thread_name] = frame;
-            sample_window.OnSamples(frame.NbSamples, frame.SampleDigest, frame.Samples);
+            grid_window.UpdateEntries(frame.NbSamples, frame.SampleDigest, frame.Samples);
         }
     }
 
@@ -635,9 +635,9 @@ Remotery = (function()
         self.TitleWindow.WindowResized(w, h);
         self.SampleTimelineWindow.WindowResized(10, w / 2 - 5, self.TitleWindow.Window);
         self.ProcessorTimelineWindow.WindowResized(w / 2 + 5, w / 2 - 5, self.TitleWindow.Window);
-        for (var i in self.SampleWindows)
+        for (var i in self.gridWindows)
         {
-            self.SampleWindows[i].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
+            self.gridWindows[i].WindowResized(self.SampleTimelineWindow.Window, self.Console.Window);
         }
     }
 
