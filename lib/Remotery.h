@@ -220,6 +220,19 @@ typedef struct Sample rmtSample;
 // Handle to the main remotery instance
 typedef struct Remotery Remotery;
 
+// Forward declaration
+struct rmtProperty;
+
+typedef enum rmtSampleType
+{
+    RMT_SampleType_CPU,
+    RMT_SampleType_CUDA,
+    RMT_SampleType_D3D11,
+    RMT_SampleType_OpenGL,
+    RMT_SampleType_Metal,
+    RMT_SampleType_Count,
+} rmtSampleType;
+
 // All possible error codes
 // clang-format off
 typedef enum rmtError
@@ -300,6 +313,7 @@ typedef void* (*rmtReallocPtr)(void* mm_context, void* ptr, rmtU32 size);
 typedef void (*rmtFreePtr)(void* mm_context, void* ptr);
 typedef void (*rmtInputHandlerPtr)(const char* text, void* context);
 typedef void (*rmtSampleTreeHandlerPtr)(void* cbk_context, rmtSampleTree* sample_tree);
+typedef void (*rmtPropertyHandlerPtr)(void* cbk_context, struct rmtProperty* root);
 
 // Struture to fill in to modify Remotery default settings
 typedef struct rmtSettings
@@ -349,6 +363,10 @@ typedef struct rmtSettings
     // Callback pointer for traversing the sample tree graph
     rmtSampleTreeHandlerPtr sampletree_handler;
     void* sampletree_context;
+
+    // Callback pointer for traversing the prpperty graph
+    rmtPropertyHandlerPtr snapshot_callback;
+    void* snapshot_context;
 
     // Context pointer that gets sent to Remotery console callback function
     void* input_handler_context;
@@ -530,21 +548,90 @@ typedef enum
     RMT_PropertyFlags_FrameReset = 1,
 } rmtPropertyFlags;
 
+// All possible property types that can be recorded and sent to the viewer
+typedef enum
+{
+    RMT_PropertyType_rmtGroup,
+    RMT_PropertyType_rmtBool,
+    RMT_PropertyType_rmtS32,
+    RMT_PropertyType_rmtU32,
+    RMT_PropertyType_rmtF32,
+    RMT_PropertyType_rmtS64,
+    RMT_PropertyType_rmtU64,
+    RMT_PropertyType_rmtF64,
+} rmtPropertyType;
+
+// A property value as a union of all its possible types
+typedef union rmtPropertyValue
+{
+    // C++ requires function-based construction of property values because it has no designated initialiser support until C++20
+    #ifdef __cplusplus
+        // These are static Make calls, rather than overloaded constructors, because `rmtBool` is the same type as `rmtU32`
+        static rmtPropertyValue MakeBool(rmtBool v) { rmtPropertyValue pv; pv.Bool = v; return pv; }
+        static rmtPropertyValue MakeS32(rmtS32 v) { rmtPropertyValue pv; pv.S32 = v; return pv; }
+        static rmtPropertyValue MakeU32(rmtU32 v) { rmtPropertyValue pv; pv.U32 = v; return pv; }
+        static rmtPropertyValue MakeF32(rmtF32 v) { rmtPropertyValue pv; pv.F32 = v; return pv; }
+        static rmtPropertyValue MakeS64(rmtS64 v) { rmtPropertyValue pv; pv.S64 = v; return pv; }
+        static rmtPropertyValue MakeU64(rmtU64 v) { rmtPropertyValue pv; pv.U64 = v; return pv; }
+        static rmtPropertyValue MakeF64(rmtF64 v) { rmtPropertyValue pv; pv.F64 = v; return pv; }
+    #endif
+
+    rmtBool Bool;
+    rmtS32 S32;
+    rmtU32 U32;
+    rmtF32 F32;
+    rmtS64 S64;
+    rmtU64 U64;
+    rmtF64 F64;
+} rmtPropertyValue;
+
+// Definition of a property that should be stored globally
+// Note:
+//  Use the callback api and the rmt_PropertyGetxxx accessors to traverse this structure
+typedef struct rmtProperty
+{
+    // Gets set to RMT_TRUE after a property has been modified, when it gets initialised for the first time
+    rmtBool initialised;
+
+    // Runtime description
+    rmtPropertyType type;
+    rmtPropertyValue value;
+    rmtPropertyFlags flags;
+
+    // Text description
+    const char* name;
+    const char* description;
+
+    // Default value for Reset calls
+    rmtPropertyValue defaultValue;
+
+    // Parent link specifically placed after default value so that variadic macro can initialise it
+    struct rmtProperty* parent;
+
+    // Links within the property tree
+    struct rmtProperty* firstChild;
+    struct rmtProperty* lastChild;
+    struct rmtProperty* nextSibling;
+
+    // Hash for efficient sending of properties to the viewer
+    rmtU32 nameHash;
+} rmtProperty;
+
 // Define properties of different types at global scope:
 //
 //    * Never define properties in a header file that gets included multiple times.
 //    * The property gets defined exactly as `name` in the global scope.
-//    * `flags` are specified without the `RMT_PropertyFlags_` prefix.
+//    * `flag` is specified without the `RMT_PropertyFlags_` prefix.
 //    * Property parents are optional and can be specified as the last parameter, referencing `&name`.
 //
 #define rmt_PropertyDefine_Group(name, desc, ...) _rmt_PropertyDefine(rmtGroup, name, _rmt_MakePropertyValue(Bool, 0), RMT_PropertyFlags_NoFlags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_Bool(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtBool, name, _rmt_MakePropertyValue(Bool, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_S32(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtS32, name, _rmt_MakePropertyValue(S32, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_U32(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtU32, name, _rmt_MakePropertyValue(U32, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_F32(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtF32, name, _rmt_MakePropertyValue(F32, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_S64(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtS64, name, _rmt_MakePropertyValue(S64, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_U64(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtU64, name, _rmt_MakePropertyValue(U64, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_F64(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtF64, name, _rmt_MakePropertyValue(F64, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_Bool(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtBool, name, _rmt_MakePropertyValue(Bool, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_S32(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtS32, name, _rmt_MakePropertyValue(S32, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_U32(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtU32, name, _rmt_MakePropertyValue(U32, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_F32(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtF32, name, _rmt_MakePropertyValue(F32, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_S64(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtS64, name, _rmt_MakePropertyValue(S64, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_U64(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtU64, name, _rmt_MakePropertyValue(U64, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_F64(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtF64, name, _rmt_MakePropertyValue(F64, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
 
 // As properties need to be defined at global scope outside header files, use this to declare properties in header files to be
 // modified in other translation units.
@@ -585,74 +672,6 @@ typedef enum
 
 
 /* --- Private Details ---------------------------------------------------------------------------------------------------------*/
-
-
-// All possible property types that can be recorded and sent to the viewer
-typedef enum
-{
-    RMT_PropertyType_rmtGroup,
-    RMT_PropertyType_rmtBool,
-    RMT_PropertyType_rmtS32,
-    RMT_PropertyType_rmtU32,
-    RMT_PropertyType_rmtF32,
-    RMT_PropertyType_rmtS64,
-    RMT_PropertyType_rmtU64,
-    RMT_PropertyType_rmtF64,
-} rmtPropertyType;
-
-// A property value as a union of all its possible types
-typedef union rmtPropertyValue
-{
-    // C++ requires function-based construction of property values because it has no designated initialiser support until C++20
-    #ifdef __cplusplus
-        // These are static Make calls, rather than overloaded constructors, because `rmtBool` is the same type as `rmtU32`
-        static rmtPropertyValue MakeBool(rmtBool v) { rmtPropertyValue pv; pv.Bool = v; return pv; }
-        static rmtPropertyValue MakeS32(rmtS32 v) { rmtPropertyValue pv; pv.S32 = v; return pv; }
-        static rmtPropertyValue MakeU32(rmtU32 v) { rmtPropertyValue pv; pv.U32 = v; return pv; }
-        static rmtPropertyValue MakeF32(rmtF32 v) { rmtPropertyValue pv; pv.F32 = v; return pv; }
-        static rmtPropertyValue MakeS64(rmtS64 v) { rmtPropertyValue pv; pv.S64 = v; return pv; }
-        static rmtPropertyValue MakeU64(rmtU64 v) { rmtPropertyValue pv; pv.U64 = v; return pv; }
-        static rmtPropertyValue MakeF64(rmtF64 v) { rmtPropertyValue pv; pv.F64 = v; return pv; }
-    #endif
-
-    rmtBool Bool;
-    rmtS32 S32;
-    rmtU32 U32;
-    rmtF32 F32;
-    rmtS64 S64;
-    rmtU64 U64;
-    rmtF64 F64;
-} rmtPropertyValue;
-
-// Definition of a property that should be stored globally
-typedef struct rmtProperty
-{
-    // Gets set to RMT_TRUE after a property has been modified, when it gets initialised for the first time
-    rmtBool initialised;
-
-    // Runtime description
-    rmtPropertyType type;
-    rmtPropertyValue value;
-    rmtPropertyFlags flags;
-
-    // Text description
-    const char* name;
-    const char* description;
-
-    // Default value for Reset calls
-    rmtPropertyValue defaultValue;
-
-    // Parent link specifically placed after default value so that variadic macro can initialise it
-    struct rmtProperty* parent;
-
-    // Links within the property tree
-    struct rmtProperty* firstChild;
-    struct rmtProperty* lastChild;
-    struct rmtProperty* nextSibling;
-
-    // Hash for efficient sending of properties to the viewer
-    rmtU32 nameHash;
-} rmtProperty;
 
 
 // Used to define properties from typed macro callers
@@ -718,16 +737,6 @@ typedef enum rmtSampleFlags
     RMTSF_Root = 4,
 } rmtSampleFlags;
 
-typedef enum rmtSampleType
-{
-    RMT_SampleType_CPU,
-    RMT_SampleType_CUDA,
-    RMT_SampleType_D3D11,
-    RMT_SampleType_OpenGL,
-    RMT_SampleType_Metal,
-    RMT_SampleType_Count,
-} rmtSampleType;
-
 // Struct to hold iterator info
 typedef struct rmtSampleIterator
 {
@@ -774,6 +783,38 @@ typedef struct rmtSampleIterator
 
 #define rmt_SampleGetType(sample)                                                   \
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_SampleGetType(sample), RMT_SampleType_Count)
+
+
+// Struct to hold iterator info
+typedef struct rmtPropertyIterator
+{
+// public
+    rmtProperty* property;
+// private
+    rmtProperty* initial;
+} rmtPropertyIterator;
+
+#define rmt_PropertyIterateChildren(iter, property)                                     \
+    RMT_OPTIONAL(RMT_ENABLED, _rmt_PropertyIterateChildren(iter, property))
+
+#define rmt_PropertyIterateNext(iter)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyIterateNext(iter), RMT_FALSE)
+
+// Should only called from within the property callback,
+// when the internal string lookup table is valid (i.e. on the main Remotery thread)
+
+#define rmt_PropertyGetType(property)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetType(property), RMT_PropertyType_Count)
+
+#define rmt_PropertyGetName(property)                                                   \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetName(property), NULL)
+
+#define rmt_PropertyGetDescription(property)                                            \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetDescription(property), 0U)
+
+#define rmt_PropertyGetValue(property)                                                  \
+    RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_PropertyGetValue(property), 0U)
+
 
 
 /*--------------------------------------------------------------------------------------------------------------------------------
@@ -911,7 +952,7 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndMetalSample(void);
 #endif
 
-// Iterator
+// Sample iterator
 RMT_API void                _rmt_IterateChildren(rmtSampleIterator* iter, rmtSample* sample);
 RMT_API rmtBool             _rmt_IterateNext(rmtSampleIterator* iter);
 
@@ -928,6 +969,17 @@ RMT_API rmtU64              _rmt_SampleGetTime(rmtSample* sample);
 RMT_API rmtU64              _rmt_SampleGetSelfTime(rmtSample* sample);
 RMT_API void                _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* b);
 RMT_API rmtSampleType       _rmt_SampleGetType(rmtSample* sample);
+
+// Property iterator
+RMT_API void                _rmt_PropertyIterateChildren(rmtPropertyIterator* iter, rmtProperty* property);
+RMT_API rmtBool             _rmt_PropertyIterateNext(rmtPropertyIterator* iter);
+
+// Property accessors
+RMT_API rmtPropertyType     _rmt_PropertyGetType(rmtProperty* property);
+RMT_API rmtU32              _rmt_PropertyGetNameHash(rmtProperty* property);
+RMT_API const char*         _rmt_PropertyGetName(rmtProperty* property);
+RMT_API const char*         _rmt_PropertyGetDescription(rmtProperty* property);
+RMT_API rmtPropertyValue    _rmt_PropertyGetValue(rmtProperty* property);
 
 #ifdef __cplusplus
 

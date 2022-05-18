@@ -50,6 +50,7 @@
     @OPENGL:        OpenGL event sampling
     @METAL:         Metal event sampling
     @SAMPLEAPI:     Sample API for user callbacks
+    @PROPERTYAPI:   Property API for user callbacks
     @PROPERTIES:    Property API
 */
 
@@ -6780,6 +6781,8 @@ RMT_API rmtSettings* _rmt_Settings(void)
         g_Settings.logPath = NULL;
         g_Settings.sampletree_handler = NULL;
         g_Settings.sampletree_context = NULL;
+        g_Settings.snapshot_callback = NULL;
+        g_Settings.snapshot_context = NULL;
 
         g_SettingsInitialized = RMT_TRUE;
     }
@@ -9065,6 +9068,63 @@ RMT_API void _rmt_SampleGetColour(rmtSample* sample, rmtU8* r, rmtU8* g, rmtU8* 
 /*
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
+@PROPERTYAPI: Property API for user callbacks
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+// Iterator
+RMT_API void _rmt_PropertyIterateChildren(rmtPropertyIterator* iterator, rmtProperty* property)
+{
+    iterator->property = 0;
+    iterator->initial = property != NULL ? property->firstChild : 0;
+}
+
+RMT_API rmtBool _rmt_PropertyIterateNext(rmtPropertyIterator* iter)
+{
+    if (iter->initial != NULL)
+    {
+        iter->property = iter->initial;
+        iter->initial = 0;
+    }
+    else
+    {
+        if (iter->property != NULL)
+            iter->property = iter->property->nextSibling;
+    }
+
+    return iter->property != NULL ? RMT_TRUE : RMT_FALSE;
+}
+
+// Property accessors
+RMT_API const char* _rmt_PropertyGetName(rmtProperty* property)
+{
+    return property->name;
+}
+
+RMT_API const char* _rmt_PropertyGetDescription(rmtProperty* property)
+{
+    return property->description;
+}
+
+RMT_API rmtU32 _rmt_PropertyGetNameHash(rmtProperty* property)
+{
+    return property->nameHash;
+}
+
+RMT_API rmtPropertyType _rmt_PropertyGetType(rmtProperty* property)
+{
+    return property->type;
+}
+
+RMT_API rmtPropertyValue _rmt_PropertyGetValue(rmtProperty* property)
+{
+    return property->value;
+}
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
 @PROPERTIES: Property API
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------
@@ -9238,6 +9298,12 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
     prev_snapshot = NULL;
     mtxLock(&g_Remotery->propertyMutex);
     error = TakePropertySnapshot(&g_Remotery->rootProperty, NULL, &first_snapshot, &prev_snapshot);
+
+    if (g_Settings.snapshot_callback != NULL)
+    {
+        g_Settings.snapshot_callback(g_Settings.snapshot_context, &g_Remotery->rootProperty);
+    }
+
     mtxUnlock(&g_Remotery->propertyMutex);
     if (error != RMT_ERROR_NONE)
     {
@@ -9264,7 +9330,8 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
 
 static void PropertyFrameReset(rmtProperty* first_property)
 {
-    for (rmtProperty* property = first_property; property != NULL; property = property->nextSibling)
+    rmtProperty* property;
+    for (property = first_property; property != NULL; property = property->nextSibling)
     {
         if (property->type == RMT_PropertyType_rmtGroup)
         {
@@ -9284,7 +9351,7 @@ RMT_API void _rmt_PropertyFrameResetAll()
     {
         return;
     }
-        
+
     mtxLock(&g_Remotery->propertyMutex);
     PropertyFrameReset(g_Remotery->rootProperty.firstChild);
     mtxUnlock(&g_Remotery->propertyMutex);
