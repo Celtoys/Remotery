@@ -6281,21 +6281,12 @@ static void FreePropertySnapshots(PropertySnapshot* snapshot)
     ObjectAllocator_Free(g_Remotery->propertyAllocator, snapshot);
 }
 
-static rmtError Remotery_SendPropertySnapshot(Remotery* rmt, Message* message)
+static rmtError Remotery_SerialisePropertySnapshots(Remotery* rmt, Buffer* bin_buf, Msg_PropertySnapshot* msg_snapshot)
 {
-    Msg_PropertySnapshot* msg_snapshot = (Msg_PropertySnapshot*)message->payload;
+    PropertySnapshot* snapshot;
 
     rmtError error = RMT_ERROR_NONE;
 
-    Buffer* bin_buf;
-
-    PropertySnapshot* snapshot;
-
-    // Reset the buffer for sending a websocket message
-    bin_buf = rmt->server->bin_buf;
-    WebSocket_PrepareBuffer(bin_buf);
-
-    // Serialise the message
     BIN_ERROR_CHECK(Buffer_Write(bin_buf, (void*)"PSNP", 4));
     BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, msg_snapshot->nbSnapshots));
     for (snapshot = msg_snapshot->rootSnapshot; snapshot != NULL; snapshot = snapshot->nextSnapshot)
@@ -6324,8 +6315,28 @@ static rmtError Remotery_SendPropertySnapshot(Remotery* rmt, Message* message)
         BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->nameHash));
         BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->nbChildren));
     }
-    
-    error = Remotery_SendToViewerAndLog(rmt, bin_buf, 50);
+
+    return RMT_ERROR_NONE;
+}
+
+static rmtError Remotery_SendPropertySnapshot(Remotery* rmt, Message* message)
+{
+    Msg_PropertySnapshot* msg_snapshot = (Msg_PropertySnapshot*)message->payload;
+
+    rmtError error = RMT_ERROR_NONE;
+
+    Buffer* bin_buf;
+
+    // Reset the buffer for sending a websocket message
+    bin_buf = rmt->server->bin_buf;
+    WebSocket_PrepareBuffer(bin_buf);
+
+    // Serialise the message and send
+    error = Remotery_SerialisePropertySnapshots(rmt, bin_buf, msg_snapshot);
+    if (error == RMT_ERROR_NONE)
+    {
+        error = Remotery_SendToViewerAndLog(rmt, bin_buf, 50);
+    }
 
     FreePropertySnapshots(msg_snapshot->rootSnapshot);
 
@@ -6416,6 +6427,12 @@ static void Remotery_FlushMessageQueue(Remotery* rmt)
             case MsgID_SampleTree: {
                 Msg_SampleTree* sample_tree = (Msg_SampleTree*)message->payload;
                 FreeSamples(sample_tree->rootSample, sample_tree->allocator);
+                break;
+            }
+
+            case MsgID_PropertySnapshot: {
+                Msg_PropertySnapshot* msg_snapshot = (Msg_PropertySnapshot*)message->payload;
+                FreePropertySnapshots(msg_snapshot->rootSnapshot);
                 break;
             }
 
