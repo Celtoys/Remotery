@@ -534,17 +534,17 @@ typedef enum
 //
 //    * Never define properties in a header file that gets included multiple times.
 //    * The property gets defined exactly as `name` in the global scope.
-//    * `flags` are specified without the `RMT_PropertyFlags_` prefix.
+//    * `flag` is specified without the `RMT_PropertyFlags_` prefix.
 //    * Property parents are optional and can be specified as the last parameter, referencing `&name`.
 //
 #define rmt_PropertyDefine_Group(name, desc, ...) _rmt_PropertyDefine(rmtGroup, name, _rmt_MakePropertyValue(Bool, 0), RMT_PropertyFlags_NoFlags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_Bool(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtBool, name, _rmt_MakePropertyValue(Bool, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_S32(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtS32, name, _rmt_MakePropertyValue(S32, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_U32(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtU32, name, _rmt_MakePropertyValue(U32, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_F32(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtF32, name, _rmt_MakePropertyValue(F32, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_S64(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtS64, name, _rmt_MakePropertyValue(S64, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_U64(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtU64, name, _rmt_MakePropertyValue(U64, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
-#define rmt_PropertyDefine_F64(name, default_value, flags, desc, ...) _rmt_PropertyDefine(rmtF64, name, _rmt_MakePropertyValue(F64, default_value), RMT_PropertyFlags_##flags, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_Bool(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtBool, name, _rmt_MakePropertyValue(Bool, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_S32(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtS32, name, _rmt_MakePropertyValue(S32, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_U32(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtU32, name, _rmt_MakePropertyValue(U32, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_F32(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtF32, name, _rmt_MakePropertyValue(F32, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_S64(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtS64, name, _rmt_MakePropertyValue(S64, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_U64(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtU64, name, _rmt_MakePropertyValue(U64, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
+#define rmt_PropertyDefine_F64(name, default_value, flag, desc, ...) _rmt_PropertyDefine(rmtF64, name, _rmt_MakePropertyValue(F64, default_value), RMT_PropertyFlags_##flag, desc, __VA_ARGS__)
 
 // As properties need to be defined at global scope outside header files, use this to declare properties in header files to be
 // modified in other translation units.
