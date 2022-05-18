@@ -486,6 +486,9 @@ Remotery = (function()
         let [ name_exists, name ] = self.sampleNames.Get(snapshot.name_hash);
         snapshot.name = name;
 
+        // Assign the unique ID
+        sample.id = data_view_reader.GetUInt32();
+
         // If the name doesn't exist in the map yet, request it from the server
         if (!name_exists)
         {

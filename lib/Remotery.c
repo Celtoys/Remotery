@@ -5866,6 +5866,7 @@ typedef struct PropertySnapshot
     rmtPropertyType type;
     rmtPropertyValue value;
     rmtU32 nameHash;
+    rmtU32 uniqueID;
 
     // Link to the next property snapshot
     rmtU32 nbChildren;
@@ -5887,6 +5888,7 @@ static rmtError PropertySnapshot_Constructor(PropertySnapshot* snapshot)
     snapshot->type = RMT_PropertyType_rmtBool;
     snapshot->value.Bool = RMT_FALSE;
     snapshot->nameHash = 0;
+    snapshot->uniqueID = 0;
     snapshot->nbChildren = 0;
     snapshot->nextSnapshot = NULL;
 
@@ -6313,6 +6315,7 @@ static rmtError Remotery_SerialisePropertySnapshots(Remotery* rmt, Buffer* bin_b
                 break;
         }
         BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->nameHash));
+        BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->uniqueID));
         BIN_ERROR_CHECK(Buffer_WriteU32(bin_buf, snapshot->nbChildren));
     }
 
@@ -6608,6 +6611,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     root_property->lastChild = NULL;
     root_property->nextSibling = NULL;
     root_property->nameHash = 0;
+    root_property->uniqueID = 0;
 
 #if RMT_USE_CUDA
     rmt->cuda.CtxSetCurrent = NULL;
@@ -9193,6 +9197,10 @@ static void RegisterProperty(rmtProperty* property, rmtBool can_lock)
             property->nameHash = MurmurHash3_x86_32(property->name, name_len, 0);
             QueueAddToStringTable(g_Remotery->mq_to_rmt_thread, property->nameHash, property->name, name_len, NULL);
 
+            // Generate a unique ID for this property in the tree
+            property->uniqueID = parent_property->uniqueID;
+            property->uniqueID = HashCombine(property->uniqueID, property->nameHash);
+
             property->initialised = RMT_TRUE;
         }
 
@@ -9254,6 +9262,7 @@ static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* pa
     snapshot->type = property->type;
     snapshot->value = property->value;
     snapshot->nameHash = property->nameHash;
+    snapshot->uniqueID = property->uniqueID;
     snapshot->nbChildren = 0;
     snapshot->nextSnapshot = NULL;
 

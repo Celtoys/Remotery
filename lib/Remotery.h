@@ -615,6 +615,9 @@ typedef struct rmtProperty
 
     // Hash for efficient sending of properties to the viewer
     rmtU32 nameHash;
+
+    // Unique, persistent ID among all properties
+    rmtU32 uniqueID;
 } rmtProperty;
 
 // Define properties of different types at global scope:
