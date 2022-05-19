@@ -529,6 +529,7 @@ Remotery = (function()
         // Message-specific header
         let message = { };
         message.nbSnapshots = data_view_reader.GetUInt32();
+        message.snapshotDigest = data_view_reader.GetUInt32();
 
         // Read snapshots
         message.snapshots = [];

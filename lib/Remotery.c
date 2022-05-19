@@ -5733,6 +5733,7 @@ typedef struct Msg_PropertySnapshot
 {
     PropertySnapshot* rootSnapshot;
     rmtU32 nbSnapshots;
+    rmtU32 snapshotDigest;
 } Msg_PropertySnapshot;
 
 static rmtError PropertySnapshot_Constructor(PropertySnapshot* snapshot)
@@ -6141,6 +6142,7 @@ static rmtError Remotery_SerialisePropertySnapshots(Remotery* rmt, Buffer* bin_b
 
     rmtTry(Buffer_Write(bin_buf, (void*)"PSNP", 4));
     rmtTry(Buffer_WriteU32(bin_buf, msg_snapshot->nbSnapshots));
+    rmtTry(Buffer_WriteU32(bin_buf, msg_snapshot->snapshotDigest));
     for (snapshot = msg_snapshot->rootSnapshot; snapshot != NULL; snapshot = snapshot->nextSnapshot)
     {
         rmtTry(Buffer_WriteU32(bin_buf, snapshot->type));
@@ -9048,7 +9050,7 @@ RMT_API void _rmt_PropertyAddValue(rmtProperty* property, rmtPropertyValue add_v
     // send the sample to remotery UI and disk log
 }
 
-static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* parent_snapshot, PropertySnapshot** first_snapshot, PropertySnapshot** prev_snapshot)
+static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* parent_snapshot, PropertySnapshot** first_snapshot, PropertySnapshot** prev_snapshot, rmtU32* snapshot_digest)
 {
     rmtError error;
     rmtProperty* child_property;
@@ -9068,6 +9070,9 @@ static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* pa
     snapshot->uniqueID = property->uniqueID;
     snapshot->nbChildren = 0;
     snapshot->nextSnapshot = NULL;
+    
+    // Keep a running hash of all snapshots being sent
+    *snapshot_digest = HashCombine(*snapshot_digest, snapshot->nameHash);
 
     // Keep count of the number of children in the parent
     if (parent_snapshot != NULL)
@@ -9089,7 +9094,7 @@ static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* pa
     // Snapshot the children
     for (child_property = property->firstChild; child_property != NULL; child_property = child_property->nextSibling)
     {
-        error = TakePropertySnapshot(child_property, snapshot, first_snapshot, prev_snapshot);
+        error = TakePropertySnapshot(child_property, snapshot, first_snapshot, prev_snapshot, snapshot_digest);
         if (error != RMT_ERROR_NONE)
         {
             return error;
@@ -9125,8 +9130,9 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
     // Snapshot from the root into a linear list
     first_snapshot = NULL;
     prev_snapshot = NULL;
+    rmtU32 snapshot_digest = 0;
     mtxLock(&g_Remotery->propertyMutex);
-    error = TakePropertySnapshot(&g_Remotery->rootProperty, NULL, &first_snapshot, &prev_snapshot);
+    error = TakePropertySnapshot(&g_Remotery->rootProperty, NULL, &first_snapshot, &prev_snapshot, &snapshot_digest);
 
     if (g_Settings.snapshot_callback != NULL)
     {
@@ -9152,6 +9158,7 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
     payload = (Msg_PropertySnapshot*)message->payload;
     payload->rootSnapshot = first_snapshot;
     payload->nbSnapshots = g_Remotery->propertyAllocator->nb_allocated - nb_snapshot_allocs;
+    payload->snapshotDigest = snapshot_digest;
     rmtMessageQueue_CommitMessage(message, MsgID_PropertySnapshot);
 
     return RMT_ERROR_NONE;
