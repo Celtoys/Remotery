@@ -29,8 +29,9 @@ Supported GPU Profiling APIS:
 Features:
 
 * Lightweight instrumentation of multiple threads running on the CPU.
-* Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server
-  transmits sample data to the browser on a latent thread.
+* Web viewer that runs in Chrome, Firefox and Safari. Custom WebSockets server transmits sample data to the browser on a latent thread.
+* Automatic thread sampler that tells you what processor cores your threads are running on without requiring Administrator privileges.
+* Save and load of traces with no data loss for inspection of historical runs.
 * Profiles itself and shows how it's performing in the viewer.
 * Console output for logging text.
 * Console input for sending commands to your game.
