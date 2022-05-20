@@ -1665,7 +1665,7 @@ static const char* itoa_s(rmtS32 value)
 typedef DWORD rmtThreadId;
 typedef HANDLE rmtThreadHandle;
 #else
-typedef rmtU32 rmtThreadId;
+typedef uintptr_t rmtThreadId;
 typedef pthread_t rmtThreadHandle;
 #endif
 
