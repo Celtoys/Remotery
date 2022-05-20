@@ -17,9 +17,9 @@ jobs:
         run: sudo apt-get install gcc-multilib g++-multilib
 
       - name: Build
-        run: ./scripts/compile.sh ${{ matrix.arch }}
+        run: .github/scripts/compile.sh ${{ matrix.arch }}
       - name: Run
-        run: ./scripts/run_tests.sh
+        run: .github/scripts/run_tests.sh
 
   build-macos:
     runs-on: macos-latest
@@ -27,9 +27,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build
-        run: ./scripts/compile.sh x64
+        run: .github/scripts/compile.sh x64
       - name: Run
-        run: ./scripts/run_tests.sh
+        run: .github/scripts/run_tests.sh
 
 
   build-windows:
@@ -48,6 +48,6 @@ jobs:
           arch: ${{ matrix.arch }}
           toolset: ${{ matrix.toolset }}
       - name: Build
-        run: ./scripts/compile.bat ${{ matrix.arch }} ${{ matrix.buildmode }}
+        run: .github/scripts/compile.bat ${{ matrix.arch }} ${{ matrix.buildmode }}
       - name: Run
-        run: ./scripts/run_tests.bat
+        run: .github/scripts/run_tests.bat
