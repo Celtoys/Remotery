@@ -1,0 +1,53 @@
+name: Build
+
+on: [push, pull_request_target]
+
+jobs:
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arch: ['x86', 'x64']
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install 32 bit support
+        run: sudo apt-get install gcc-multilib g++-multilib
+
+      - name: Build
+        run: ./scripts/compile.sh ${{ matrix.arch }}
+      - name: Run
+        run: ./scripts/run_tests.sh
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        run: ./scripts/compile.sh x64
+      - name: Run
+        run: ./scripts/run_tests.sh
+
+
+  build-windows:
+    runs-on: 'windows-latest'
+
+    strategy:
+      matrix:
+        arch: ['x86', 'x64']
+        buildmode: ['debug', 'release']
+        toolset: ['14.3','14.2','14.1']
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+          toolset: ${{ matrix.toolset }}
+      - name: Build
+        run: ./scripts/compile.bat ${{ matrix.arch }} ${{ matrix.buildmode }}
+      - name: Run
+        run: ./scripts/run_tests.bat
