@@ -1661,15 +1661,11 @@ static const char* itoa_s(rmtS32 value)
 ------------------------------------------------------------------------------------------------------------------------
 */
 
-#ifdef RMT_ARCH_64BIT
-typedef rmtU64 rmtThreadId;
-#else
-typedef rmtU32 rmtThreadId;
-#endif
-
 #ifdef RMT_PLATFORM_WINDOWS
+typedef DWORD rmtThreadId;
 typedef HANDLE rmtThreadHandle;
 #else
+typedef rmtU32 rmtThreadId;
 typedef pthread_t rmtThreadHandle;
 #endif
 
@@ -3544,7 +3540,7 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
     {
         r_size_t limit_host_len = strnlen_s(limit_host, 128);
         char* found = NULL;
-        if (strstr_s(host, buffer_end - host, limit_host, limit_host_len, &found) != EOK)
+        if (strstr_s(host, (rsize_t)(buffer_end - host), limit_host, limit_host_len, &found) != EOK)
             return RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_HOST;
     }
 
@@ -3552,14 +3548,14 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
     key = GetField(buffer, buffer_len, "Sec-WebSocket-Key:");
     if (key == NULL)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_NO_KEY;
-    if (strstr_s(key, buffer_end - key, "\r\n", 2, &key_end) != EOK)
+    if (strstr_s(key, (rsize_t)(buffer_end - key), "\r\n", 2, &key_end) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_KEY;
     *key_end = 0;
 
     // Concatenate the browser's key with the WebSocket Protocol GUID and base64 encode
     // the hash, to prove to the browser that this is a bonafide WebSocket server
     buffer[0] = 0;
-    if (strncat_s(buffer, buffer_len, key, key_end - key) != EOK)
+    if (strncat_s(buffer, buffer_len, key, (rsize_t)(key_end - key)) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL;
     if (strncat_s(buffer, buffer_len, websocket_guid, sizeof(websocket_guid)) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL;
@@ -5530,7 +5526,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
         do
         {
             rmtU32 thread_index;
-            rmtU32 thread_id;
+            rmtThreadId thread_id;
             ThreadProfiler* thread_profiler;
             rmtThreadHandle thread_handle;
             rmtU64 sample_time_us;
