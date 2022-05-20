@@ -3324,7 +3324,7 @@ static rmtU32 rotl32(rmtU32 x, rmtS8 r)
 static rmtU32 getblock32(const rmtU32* p, int i)
 {
     rmtU32 result;
-    const rmtU8* src = ((const rmtU8*)p) + i * sizeof(rmtU32);
+    const rmtU8* src = ((const rmtU8*)p) + i * (int)sizeof(rmtU32);
     memcpy(&result, src, sizeof(result));
     return result;
 }
@@ -3938,7 +3938,11 @@ static rmtU32 rmtMessageQueue_SizeForPayload(rmtU32 payload_size)
 {
     // Add message header and align for ARM platforms
     rmtU32 size = sizeof(Message) + payload_size;
+#if defined(RMT_ARCH_64BIT)
+    size = (size + 7) & ~7U;
+#else
     size = (size + 3) & ~3U;
+#endif
     return size;
 }
 
