@@ -769,12 +769,25 @@ static rmtU32 GaloisLFSRNext(rmtU32 value, rmtU32 xor_mask)
         obj = NULL;             \
     }
 
-// New will allocate enough space for the object and call the constructor
-// If allocation fails the constructor won't be called
-// If the constructor fails, the destructor is called and memory is released
-// NOTE: Use of sizeof() requires that the type be defined at the point of call
-// This is a disadvantage over requiring only a custom Create function
-#define rmtTryNew(type, obj, ...)                              \
+
+#define _VA_ARGS_SELECT(PREFIX,_5,_4,_3,_2,_1,SUFFIX,...) PREFIX ## _ ## SUFFIX
+
+#define _rmtTryNew_1(type, obj)                                \
+    {                                                          \
+        obj = (type*)rmtMalloc(sizeof(type));                  \
+        if (obj == NULL)                                       \
+        {                                                      \
+            return RMT_ERROR_MALLOC_FAIL;                      \
+        }                                                      \
+        rmtError error = type##_Constructor(obj);              \
+        if (error != RMT_ERROR_NONE)                           \
+        {                                                      \
+            rmtDelete(type, obj);                              \
+            return error;                                      \
+        }                                                      \
+    }
+
+#define _rmtTryNew_N(type, obj, ...)                           \
     {                                                          \
         obj = (type*)rmtMalloc(sizeof(type));                  \
         if (obj == NULL)                                       \
@@ -788,6 +801,14 @@ static rmtU32 GaloisLFSRNext(rmtU32 value, rmtU32 xor_mask)
             return error;                                      \
         }                                                      \
     }
+
+// New will allocate enough space for the object and call the constructor
+// If allocation fails the constructor won't be called
+// If the constructor fails, the destructor is called and memory is released
+// NOTE: Use of sizeof() requires that the type be defined at the point of call
+// This is a disadvantage over requiring only a custom Create function
+#define rmtTryNew(...)                                         \
+    _VA_ARGS_SELECT(_rmtTryNew,__VA_ARGS__,N,N,N,1,1)(__VA_ARGS__)
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
