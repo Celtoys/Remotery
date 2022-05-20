@@ -3942,7 +3942,11 @@ static rmtU32 rmtMessageQueue_SizeForPayload(rmtU32 payload_size)
 {
     // Add message header and align for ARM platforms
     rmtU32 size = sizeof(Message) + payload_size;
+#if defined(RMT_ARCH_64BIT)
+    size = (size + 7) & ~7U;
+#else
     size = (size + 3) & ~3U;
+#endif
     return size;
 }
 
