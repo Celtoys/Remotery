@@ -770,45 +770,25 @@ static rmtU32 GaloisLFSRNext(rmtU32 value, rmtU32 xor_mask)
     }
 
 
-#define _VA_ARGS_SELECT(PREFIX,_5,_4,_3,_2,_1,SUFFIX,...) PREFIX ## _ ## SUFFIX
-
-#define _rmtTryNew_1(type, obj)                                \
-    {                                                          \
-        obj = (type*)rmtMalloc(sizeof(type));                  \
-        if (obj == NULL)                                       \
-        {                                                      \
-            return RMT_ERROR_MALLOC_FAIL;                      \
-        }                                                      \
-        rmtError error = type##_Constructor(obj);              \
-        if (error != RMT_ERROR_NONE)                           \
-        {                                                      \
-            rmtDelete(type, obj);                              \
-            return error;                                      \
-        }                                                      \
-    }
-
-#define _rmtTryNew_N(type, obj, ...)                           \
-    {                                                          \
-        obj = (type*)rmtMalloc(sizeof(type));                  \
-        if (obj == NULL)                                       \
-        {                                                      \
-            return RMT_ERROR_MALLOC_FAIL;                      \
-        }                                                      \
-        rmtError error = type##_Constructor(obj, __VA_ARGS__); \
-        if (error != RMT_ERROR_NONE)                           \
-        {                                                      \
-            rmtDelete(type, obj);                              \
-            return error;                                      \
-        }                                                      \
-    }
-
 // New will allocate enough space for the object and call the constructor
 // If allocation fails the constructor won't be called
 // If the constructor fails, the destructor is called and memory is released
 // NOTE: Use of sizeof() requires that the type be defined at the point of call
 // This is a disadvantage over requiring only a custom Create function
-#define rmtTryNew(...)                                         \
-    _VA_ARGS_SELECT(_rmtTryNew,__VA_ARGS__,N,N,N,1,1)(__VA_ARGS__)
+#define rmtTryNew(type, obj, ...)                              \
+    {                                                          \
+        obj = (type*)rmtMalloc(sizeof(type));                  \
+        if (obj == NULL)                                       \
+        {                                                      \
+            return RMT_ERROR_MALLOC_FAIL;                      \
+        }                                                      \
+        rmtError error = type##_Constructor(obj, ##__VA_ARGS__); \
+        if (error != RMT_ERROR_NONE)                           \
+        {                                                      \
+            rmtDelete(type, obj);                              \
+            return error;                                      \
+        }                                                      \
+    }
 
 /*
 ------------------------------------------------------------------------------------------------------------------------
@@ -3561,7 +3541,7 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
     {
         r_size_t limit_host_len = strnlen_s(limit_host, 128);
         char* found = NULL;
-        if (strstr_s(host, (rsize_t)(buffer_end - host), limit_host, limit_host_len, &found) != EOK)
+        if (strstr_s(host, (r_size_t)(buffer_end - host), limit_host, limit_host_len, &found) != EOK)
             return RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_HOST;
     }
 
@@ -3569,14 +3549,14 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
     key = GetField(buffer, buffer_len, "Sec-WebSocket-Key:");
     if (key == NULL)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_NO_KEY;
-    if (strstr_s(key, (rsize_t)(buffer_end - key), "\r\n", 2, &key_end) != EOK)
+    if (strstr_s(key, (r_size_t)(buffer_end - key), "\r\n", 2, &key_end) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_BAD_KEY;
     *key_end = 0;
 
     // Concatenate the browser's key with the WebSocket Protocol GUID and base64 encode
     // the hash, to prove to the browser that this is a bonafide WebSocket server
     buffer[0] = 0;
-    if (strncat_s(buffer, buffer_len, key, (rsize_t)(key_end - key)) != EOK)
+    if (strncat_s(buffer, buffer_len, key, (r_size_t)(key_end - key)) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL;
     if (strncat_s(buffer, buffer_len, websocket_guid, sizeof(websocket_guid)) != EOK)
         return RMT_ERROR_WEBSOCKET_HANDSHAKE_STRING_FAIL;
