@@ -107,6 +107,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <time.h>
     #include <limits.h>
     #include <stdlib.h>
+    #include <stdint.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
         #include <winsock2.h>
