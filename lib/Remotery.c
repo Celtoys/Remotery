@@ -8134,7 +8134,7 @@ static rmtError OpenGL_Create(OpenGL** opengl)
     rmtTryNew(Buffer, (*opengl)->flush_samples, 8 * 1024);
     rmtTryNew(rmtMessageQueue, (*opengl)->mq_to_opengl_main, g_Settings.messageQueueSizeInBytes);
 
-    return error;
+    return RMT_ERROR_NONE;
 }
 
 static void OpenGL_Destructor(OpenGL* opengl)
