@@ -8390,7 +8390,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** ogl_tree = &thread_profiler->sampleTrees[RMT_SampleType_OpenGL];
         if (*ogl_tree == NULL)
         {
-            AllocateOpenGLSampleTree(old_tree);
+            AllocateOpenGLSampleTree(ogl_tree);
         }
 
         // Push the sample and activate the timestamp
