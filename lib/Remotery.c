@@ -8366,6 +8366,13 @@ RMT_API void _rmt_UnbindOpenGL(void)
     }
 }
 
+static rmtError AllocateOpenGLSampleTree(SampleTree** ogl_tree)
+{
+    rmtTryNew(SampleTree, *ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor,
+            (ObjDestructor)OpenGLSample_Destructor);
+    return RMT_ERROR_NONE;
+}
+
 RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
 {
     ThreadProfiler* thread_profiler;
@@ -8383,11 +8390,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** ogl_tree = &thread_profiler->sampleTrees[RMT_SampleType_OpenGL];
         if (*ogl_tree == NULL)
         {
-            rmtError error;
-            rmtTryNew(SampleTree, *ogl_tree, sizeof(OpenGLSample), (ObjConstructor)OpenGLSample_Constructor,
-                  (ObjDestructor)OpenGLSample_Destructor);
-            if (error != RMT_ERROR_NONE)
-                return;
+            AllocateOpenGLSampleTree(old_tree);
         }
 
         // Push the sample and activate the timestamp
