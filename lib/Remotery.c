@@ -119,10 +119,16 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #include <tlhelp32.h>
         #include <winnt.h>
         #include <processthreadsapi.h>
-        #ifdef _XBOX_ONE
+        typedef long NTSTATUS;  // winternl.h
+
+    #ifdef _XBOX_ONE
+        #ifdef _DURANGO
             #include "xmem.h"
         #endif
-        typedef long NTSTATUS;  // winternl.h
+    #else
+        #define RMT_ENABLE_THREAD_SAMPLER
+    #endif
+
     #endif
 
     #ifdef RMT_PLATFORM_LINUX
@@ -809,7 +815,7 @@ typedef struct VirtualMirrorBuffer
     rmtU8* ptr;
 
 #ifdef RMT_PLATFORM_WINDOWS
-#ifdef _XBOX_ONE
+#ifdef _DURANGO
     size_t page_count;
     size_t* page_mapping;
 #else
@@ -903,7 +909,7 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
     buffer->size = size;
     buffer->ptr = NULL;
 #ifdef RMT_PLATFORM_WINDOWS
-#ifdef _XBOX_ONE
+#ifdef _DURANGO
     buffer->page_count = 0;
     buffer->page_mapping = NULL;
 #else
@@ -912,7 +918,7 @@ static rmtError VirtualMirrorBuffer_Constructor(VirtualMirrorBuffer* buffer, rmt
 #endif
 
 #ifdef RMT_PLATFORM_WINDOWS
-#ifdef _XBOX_ONE
+#ifdef _DURANGO
 
     // Xbox version based on Windows version and XDK reference
 
@@ -1164,7 +1170,7 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
     assert(buffer != 0);
 
 #ifdef RMT_PLATFORM_WINDOWS
-#ifdef _XBOX_ONE
+#ifdef _DURANGO
     if (buffer->page_mapping != NULL)
     {
         VirtualFree(buffer->ptr, 0, MEM_DECOMMIT); // needed in conjunction with FreeTitlePhysicalPages
@@ -1783,7 +1789,7 @@ static void rmtCloseThreadHandle(rmtThreadHandle thread_handle)
 #endif
 }
 
-#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ENABLE_THREAD_SAMPLER
 DWORD_PTR GetThreadStartAddress(rmtThreadHandle thread_handle)
 {
     // Get NtQueryInformationThread from ntdll
@@ -1887,6 +1893,7 @@ static void rmtGetThreadName(rmtThreadId thread_id, rmtThreadHandle thread_handl
         }
     }
 
+    #ifndef _XBOX_ONE
     // At this point GetThreadDescription hasn't returned anything so let's get the thread module name and use that
     address = GetThreadStartAddress(thread_handle);
     if (address == 0)
@@ -1900,6 +1907,10 @@ static void rmtGetThreadName(rmtThreadId thread_id, rmtThreadHandle thread_handl
         rmtGetThreadNameFallback(out_thread_name, thread_name_size);
         return;
     }
+    #else
+        rmtGetThreadNameFallback(out_thread_name, thread_name_size);
+        return;
+    #endif
 
     // Concatenate thread name with then thread ID as that will be unique, whereas the start address won't be
     memset(out_thread_name, 0, thread_name_size);
@@ -5143,7 +5154,7 @@ static void GatherThreads(ThreadProfilers* thread_profilers)
 
     assert(thread_profilers != NULL);
 
-#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ENABLE_THREAD_SAMPLER
 
     // Create the snapshot - this is a slow call
     handle = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -5458,7 +5469,7 @@ static rmtError InitThreadSampling(ThreadProfilers* thread_profilers)
     // Kick-off the background thread that watches for new threads
     rmtTryNew(rmtThread, thread_profilers->threadGatherThread, GatherThreadsLoop, thread_profilers);
 
-#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ENABLE_THREAD_SAMPLER
     // Ensure we can wake up every millisecond
     if (timeBeginPeriod(1) != TIMERR_NOERROR)
     {
@@ -5686,7 +5697,7 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
         QueueProcessorThreads(thread_profilers->mqToRmtThread, processor_message_index++, nb_processors, processors);
     }
 
-#ifdef RMT_PLATFORM_WINDOWS
+#ifdef RMT_ENABLE_THREAD_SAMPLER
     timeEndPeriod(1);
 #endif
 
