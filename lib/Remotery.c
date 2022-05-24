@@ -776,7 +776,6 @@ static rmtU32 GaloisLFSRNext(rmtU32 value, rmtU32 xor_mask)
         obj = NULL;             \
     }
 
-
 // New will allocate enough space for the object and call the constructor
 // If allocation fails the constructor won't be called
 // If the constructor fails, the destructor is called and memory is released
