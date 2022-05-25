@@ -9227,7 +9227,7 @@ static void UpdateOpenGLFrame(void)
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
-        QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->threadName,
+        QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->threadName, 0,
                              message->threadProfiler, RMT_FALSE);
         rmtMessageQueue_ConsumeNextMessage(opengl->mq_to_opengl_main, message);
     }
@@ -9511,7 +9511,7 @@ static void UpdateMetalFrame(void)
             break;
 
         // Pass samples onto the remotery thread for sending to the viewer
-        QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->threadName,
+        QueueSampleTree(g_Remotery->mq_to_rmt_thread, sample, sample_tree->allocator, sample_tree->threadName, 0,
                              message->threadProfiler, RMT_FALSE);
         rmtMessageQueue_ConsumeNextMessage(metal->mq_to_metal_main, message);
     }
