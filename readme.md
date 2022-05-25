@@ -21,6 +21,7 @@ Supported Platforms:
 Supported GPU Profiling APIS:
 
 * D3D 11
+* D3D 12
 * OpenGL
 * CUDA
 * Metal
@@ -61,6 +62,7 @@ You can define some extra macros to modify what features are compiled into Remot
     RMT_USE_TINYCRT     0           Used by the Celtoys TinyCRT library (not released yet)
     RMT_USE_CUDA        0           Assuming CUDA headers/libs are setup, allow CUDA profiling
     RMT_USE_D3D11       0           Assuming Direct3D 11 headers/libs are setup, allow D3D11 GPU profiling
+    RMT_USE_D3D12       0           Allow D3D12 GPU profiling
     RMT_USE_OPENGL      0           Allow OpenGL GPU profiling (dynamically links OpenGL libraries on available platforms)
     RMT_USE_METAL       0           Allow Metal profiling of command buffers
 
