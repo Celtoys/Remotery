@@ -9256,7 +9256,7 @@ RMT_API void _rmt_EndOpenGLSample(void)
                 OpenGLTimestamp_End(ogl_sample->timestamp);
 
             // Send to the update loop for ready-polling
-            if (ThreadProfiler_Pop(thread_profiler, g_Remotery->opengl->mq_to_opengl_main, (Sample*)ogl_sample))
+            if (ThreadProfiler_Pop(thread_profiler, g_Remotery->opengl->mq_to_opengl_main, (Sample*)ogl_sample, 0))
                 // Perform ready-polling on popping of the root sample
                 UpdateOpenGLFrame();
         }
@@ -9540,7 +9540,7 @@ RMT_API void _rmt_EndMetalSample(void)
                 MetalTimestamp_End(metal_sample->timestamp);
 
             // Send to the update loop for ready-polling
-            if (ThreadProfiler_Pop(thread_profiler, g_Remotery->metal->mq_to_metal_main, (Sample*)metal_sample))
+            if (ThreadProfiler_Pop(thread_profiler, g_Remotery->metal->mq_to_metal_main, (Sample*)metal_sample, 0))
                 // Perform ready-polling on popping of the root sample
                 UpdateMetalFrame();
         }
