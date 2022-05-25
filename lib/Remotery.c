@@ -625,7 +625,7 @@ static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64* val, rmtU64 old_value, rmtU
         ? RMT_TRUE
         : RMT_FALSE;
     #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
-    return __sync_bool_compare_and_swap(val, old_value, new_val) ? RMT_TRUE_RMT_FALSE;
+    return __sync_bool_compare_and_swap(val, old_value, new_val) ? RMT_TRUE : RMT_FALSE;
     #endif
 }
 
