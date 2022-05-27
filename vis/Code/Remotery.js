@@ -121,7 +121,7 @@ Remotery = (function()
         this.nbGridWindows = 0;
         this.gridWindows = { };
 
-        this.AddGridWindow("__rmt__global__properties__", "Global Properties", new PropertyGridConfig());
+        this.propertyGridWindow = this.AddGridWindow("__rmt__global__properties__", "Global Properties", new PropertyGridConfig());
         
         // Clear runtime data
         this.FrameHistory = { };
@@ -285,10 +285,12 @@ Remotery = (function()
 
     Remotery.prototype.AddGridWindow = function(name, display_name, config)
     {
-        this.gridWindows[name] = new GridWindow(this.WindowManager, display_name, this.nbGridWindows, config);
+        const grid_window = new GridWindow(this.WindowManager, display_name, this.nbGridWindows, config);
+        this.gridWindows[name] = grid_window;
         this.gridWindows[name].WindowResized(this.SampleTimelineWindow.Window, this.Console.Window);
         this.nbGridWindows++;
         MoveGridWindows(this);
+        return grid_window;
 }
 
 
@@ -495,7 +497,8 @@ Remotery = (function()
         snapshot.name = name;
 
         // Assign the unique ID
-        sample.id = data_view_reader.GetUInt32();
+        snapshot.id = data_view_reader.GetUInt32();
+        snapshot.colour = "#FFFFFF";
 
         // If the name doesn't exist in the map yet, request it from the server
         if (!name_exists)
@@ -558,7 +561,7 @@ Remotery = (function()
         // Set on the window if connected as this implies a trace is being loaded, which we want to speed up
         if (self.Server.Connected())
         {
-            //self.gridWindows[name].UpdateEntries(message.nb_samples, message.sample_digest, message.samples);
+            self.propertyGridWindow.UpdateEntries(message.nbSnapshots, message.snapshotDigest, message.snapshots);
         }
     }
 
