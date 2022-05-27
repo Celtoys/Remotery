@@ -8543,6 +8543,7 @@ RMT_API void _rmt_UnbindD3D12(rmtD3D12Bind* bind)
 
     // Remove from the linked list
     {
+        mtxLock(&g_Remotery->d3d12BindsMutex);
         D3D12BindImpl* cur = g_Remotery->d3d12Binds;
         D3D12BindImpl* prev = NULL;
         for ( ; cur != NULL; cur = cur->next)
@@ -8561,7 +8562,6 @@ RMT_API void _rmt_UnbindD3D12(rmtD3D12Bind* bind)
                 break;
             }
         }
-        mtxLock(&g_Remotery->d3d12BindsMutex);
         mtxUnlock(&g_Remotery->d3d12BindsMutex);
     }
 
