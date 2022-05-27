@@ -90,6 +90,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <Memory/Memory.h>
 
     #define CreateFileMapping CreateFileMappingA
+    #define RMT_ENABLE_THREAD_SAMPLER
 
 #else
 
