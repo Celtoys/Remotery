@@ -6800,7 +6800,7 @@ RMT_API rmtSettings* _rmt_Settings(void)
         g_Settings.enableThreadSampler = RMT_TRUE;
         g_Settings.msSleepBetweenServerUpdates = 4;
         g_Settings.messageQueueSizeInBytes = 1024 * 1024;
-        g_Settings.maxNbMessagesPerUpdate = 50;
+        g_Settings.maxNbMessagesPerUpdate = 1000;
         g_Settings.malloc = CRTMalloc;
         g_Settings.free = CRTFree;
         g_Settings.realloc = CRTRealloc;
