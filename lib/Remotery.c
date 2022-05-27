@@ -9882,7 +9882,7 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
     }
 
     // Mark current allocation count so we can quickly calculate the number of snapshots being sent
-    nb_snapshot_allocs = g_Remotery->propertyAllocator->nb_allocated;
+    nb_snapshot_allocs = g_Remotery->propertyAllocator->nb_inuse;
     
     // Snapshot from the root into a linear list
     first_snapshot = NULL;
@@ -9914,7 +9914,7 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
     // Populate and commit
     payload = (Msg_PropertySnapshot*)message->payload;
     payload->rootSnapshot = first_snapshot;
-    payload->nbSnapshots = g_Remotery->propertyAllocator->nb_allocated - nb_snapshot_allocs;
+    payload->nbSnapshots = g_Remotery->propertyAllocator->nb_inuse - nb_snapshot_allocs;
     payload->snapshotDigest = snapshot_digest;
     rmtMessageQueue_CommitMessage(message, MsgID_PropertySnapshot);
 
