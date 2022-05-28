@@ -5864,6 +5864,8 @@ typedef struct PropertySnapshot
     // Data copied from the property at the time of the snapshot
     rmtPropertyType type;
     rmtPropertyValue value;
+    rmtPropertyValue prevValue;
+    rmtU32 prevValueFrame;
     rmtU32 nameHash;
     rmtU32 uniqueID;
 
@@ -5877,6 +5879,7 @@ typedef struct Msg_PropertySnapshot
     PropertySnapshot* rootSnapshot;
     rmtU32 nbSnapshots;
     rmtU32 snapshotDigest;
+    rmtU32 propertyFrame;
 } Msg_PropertySnapshot;
 
 static rmtError PropertySnapshot_Constructor(PropertySnapshot* snapshot)
@@ -5949,6 +5952,9 @@ struct Remotery
 
     // Allocator for property values that get sent to the viewer
     ObjectAllocator* propertyAllocator;
+
+    // Frame used to determine age of property changes
+    rmtU32 propertyFrame;
 };
 
 //
@@ -6287,15 +6293,14 @@ static void FreePropertySnapshots(PropertySnapshot* snapshot)
     ObjectAllocator_Free(g_Remotery->propertyAllocator, snapshot);
 }
 
-static rmtError Remotery_SerialisePropertySnapshots(Remotery* rmt, Buffer* bin_buf, Msg_PropertySnapshot* msg_snapshot)
+static rmtError Remotery_SerialisePropertySnapshots(Buffer* bin_buf, Msg_PropertySnapshot* msg_snapshot)
 {
     PropertySnapshot* snapshot;
-
-    rmtError error = RMT_ERROR_NONE;
 
     rmtTry(Buffer_Write(bin_buf, (void*)"PSNP", 4));
     rmtTry(Buffer_WriteU32(bin_buf, msg_snapshot->nbSnapshots));
     rmtTry(Buffer_WriteU32(bin_buf, msg_snapshot->snapshotDigest));
+    rmtTry(Buffer_WriteU32(bin_buf, msg_snapshot->propertyFrame));
     for (snapshot = msg_snapshot->rootSnapshot; snapshot != NULL; snapshot = snapshot->nextSnapshot)
     {
         rmtTry(Buffer_WriteU32(bin_buf, snapshot->type));
@@ -6305,20 +6310,25 @@ static rmtError Remotery_SerialisePropertySnapshots(Remotery* rmt, Buffer* bin_b
                 break;
             case RMT_PropertyType_rmtBool:
                 rmtTry(Buffer_WriteBool(bin_buf, snapshot->value.Bool));
+                rmtTry(Buffer_WriteBool(bin_buf, snapshot->prevValue.Bool));
                 break;
             case RMT_PropertyType_rmtS32:
             case RMT_PropertyType_rmtU32:
             case RMT_PropertyType_rmtF32:   // assume IEEE-754 LE, for now
                 rmtTry(Buffer_WriteU32(bin_buf, snapshot->value.U32));
+                rmtTry(Buffer_WriteU32(bin_buf, snapshot->prevValue.U32));
                 break;
             case RMT_PropertyType_rmtS64:
             case RMT_PropertyType_rmtU64:
                 rmtTry(Buffer_WriteU64(bin_buf, snapshot->value.U64));
+                rmtTry(Buffer_WriteU64(bin_buf, snapshot->prevValue.U64));
                 break;
             case RMT_PropertyType_rmtF64:
                 rmtTry(Buffer_WriteF64(bin_buf, snapshot->value.F64));
+                rmtTry(Buffer_WriteF64(bin_buf, snapshot->prevValue.F64));
                 break;
         }
+        rmtTry(Buffer_WriteU32(bin_buf, snapshot->prevValueFrame));
         rmtTry(Buffer_WriteU32(bin_buf, snapshot->nameHash));
         rmtTry(Buffer_WriteU32(bin_buf, snapshot->uniqueID));
         rmtTry(Buffer_WriteU32(bin_buf, snapshot->nbChildren));
@@ -6340,7 +6350,7 @@ static rmtError Remotery_SendPropertySnapshot(Remotery* rmt, Message* message)
     WebSocket_PrepareBuffer(bin_buf);
 
     // Serialise the message and send
-    error = Remotery_SerialisePropertySnapshots(rmt, bin_buf, msg_snapshot);
+    error = Remotery_SerialisePropertySnapshots(bin_buf, msg_snapshot);
     if (error == RMT_ERROR_NONE)
     {
         error = Remotery_SendToViewerAndLog(rmt, bin_buf, 50);
@@ -6599,6 +6609,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->map_message_queue_data = NULL;
     rmt->threadProfilers = NULL;
     rmt->propertyAllocator = NULL;
+    rmt->propertyFrame = 0;
 
     // Set default state on the root property
     rmtProperty* root_property = &rmt->rootProperty;
@@ -9823,6 +9834,8 @@ static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* pa
     // Snapshot the property
     snapshot->type = property->type;
     snapshot->value = property->value;
+    snapshot->prevValue = property->prevValue;
+    snapshot->prevValueFrame = property->prevValueFrame;
     snapshot->nameHash = property->nameHash;
     snapshot->uniqueID = property->uniqueID;
     snapshot->nbChildren = 0;
@@ -9916,22 +9929,49 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
     payload->rootSnapshot = first_snapshot;
     payload->nbSnapshots = g_Remotery->propertyAllocator->nb_inuse - nb_snapshot_allocs;
     payload->snapshotDigest = snapshot_digest;
+    payload->propertyFrame = g_Remotery->propertyFrame;
     rmtMessageQueue_CommitMessage(message, MsgID_PropertySnapshot);
 
     return RMT_ERROR_NONE;
 }
 
-static void PropertyFrameReset(rmtProperty* first_property)
+static void PropertyFrameReset(Remotery* rmt, rmtProperty* first_property)
 {
     rmtProperty* property;
     for (property = first_property; property != NULL; property = property->nextSibling)
     {
-        if (property->type == RMT_PropertyType_rmtGroup)
+        // TODO(don): It might actually be quicker to sign-extend assignments but this gives me a nice debug hook for now
+        rmtBool changed = RMT_FALSE;
+        switch (property->type)
         {
-            PropertyFrameReset(property->firstChild);
+            case RMT_PropertyType_rmtGroup:
+                PropertyFrameReset(rmt, property->firstChild);
+                break;
+
+            case RMT_PropertyType_rmtBool:
+                changed = property->prevValue.Bool != property->value.Bool;
+                break;
+
+            case RMT_PropertyType_rmtS32:
+            case RMT_PropertyType_rmtU32:
+            case RMT_PropertyType_rmtF32:
+                changed = property->prevValue.U32 != property->value.U32;
+                break;
+
+            case RMT_PropertyType_rmtS64:
+            case RMT_PropertyType_rmtU64:
+            case RMT_PropertyType_rmtF64:
+                changed = property->prevValue.U64 != property->value.U64;
+                break;
         }
 
-        else if ((property->flags & RMT_PropertyFlags_FrameReset) != 0)
+        if (changed)
+        {
+            property->prevValue = property->value;
+            property->prevValueFrame = rmt->propertyFrame;
+        }
+
+        if ((property->flags & RMT_PropertyFlags_FrameReset) != 0)
         {
             property->value = property->defaultValue;
         }
@@ -9946,8 +9986,10 @@ RMT_API void _rmt_PropertyFrameResetAll()
     }
 
     mtxLock(&g_Remotery->propertyMutex);
-    PropertyFrameReset(g_Remotery->rootProperty.firstChild);
+    PropertyFrameReset(g_Remotery, g_Remotery->rootProperty.firstChild);
     mtxUnlock(&g_Remotery->propertyMutex);
+
+    g_Remotery->propertyFrame++;
 }
 
 #endif // RMT_ENABLED
