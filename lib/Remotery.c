@@ -9949,27 +9949,29 @@ static void PropertyFrameReset(Remotery* rmt, rmtProperty* first_property)
                 break;
 
             case RMT_PropertyType_rmtBool:
-                changed = property->prevValue.Bool != property->value.Bool;
+                changed = property->lastFrameValue.Bool != property->value.Bool;
                 break;
 
             case RMT_PropertyType_rmtS32:
             case RMT_PropertyType_rmtU32:
             case RMT_PropertyType_rmtF32:
-                changed = property->prevValue.U32 != property->value.U32;
+                changed = property->lastFrameValue.U32 != property->value.U32;
                 break;
 
             case RMT_PropertyType_rmtS64:
             case RMT_PropertyType_rmtU64:
             case RMT_PropertyType_rmtF64:
-                changed = property->prevValue.U64 != property->value.U64;
+                changed = property->lastFrameValue.U64 != property->value.U64;
                 break;
         }
 
         if (changed)
         {
-            property->prevValue = property->value;
+            property->prevValue = property->lastFrameValue;
             property->prevValueFrame = rmt->propertyFrame;
         }
+
+        property->lastFrameValue = property->value;
 
         if ((property->flags & RMT_PropertyFlags_FrameReset) != 0)
         {

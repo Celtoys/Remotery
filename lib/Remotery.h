@@ -652,6 +652,9 @@ typedef struct rmtProperty
 
     // Current value
     rmtPropertyValue value;
+
+    // Last frame value to see if previous value needs to be updated
+    rmtPropertyValue lastFrameValue;
     
     // Previous value only if it's different from the current value, and when it changed
     rmtPropertyValue prevValue;
@@ -738,7 +741,7 @@ typedef struct rmtProperty
 
 // Used to define properties from typed macro callers
 #define _rmt_PropertyDefine(type, name, default_value, flags, desc, ...) \
-    rmtProperty name = { RMT_FALSE, RMT_PropertyType_##type, flags, default_value, default_value, 0, #name, desc, default_value, __VA_ARGS__ };
+    rmtProperty name = { RMT_FALSE, RMT_PropertyType_##type, flags, default_value, default_value, default_value, 0, #name, desc, default_value, __VA_ARGS__ };
 
 // C++ doesn't support designated initialisers until C++20
 // Worth checking for C++ designated initialisers to remove the function call in debug builds
