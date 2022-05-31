@@ -4413,6 +4413,9 @@ typedef struct Sample
     // Total sampled length of all children
     rmtU64 us_sampled_length;
 
+    // If this is a GPU sample, when the sample was issued on the GPU
+    rmtU64 usGpuIssueOnCpu;
+
     // Number of times this sample was used in a call in aggregate mode, 1 otherwise
     rmtU32 call_count;
 
@@ -4443,6 +4446,7 @@ static rmtError Sample_Constructor(Sample* sample)
     sample->us_end = 0;
     sample->us_length = 0;
     sample->us_sampled_length = 0;
+    sample->usGpuIssueOnCpu = 0;
     sample->call_count = 0;
     sample->recurse_depth = 0;
     sample->max_recurse_depth = 0;
@@ -4468,6 +4472,7 @@ static void Sample_Prepare(Sample* sample, rmtU32 name_hash, Sample* parent)
     sample->us_end = 0;
     sample->us_length = 0;
     sample->us_sampled_length = 0;
+    sample->usGpuIssueOnCpu = 0;
     sample->call_count = 1;
     sample->recurse_depth = 0;
     sample->max_recurse_depth = 0;
@@ -4507,6 +4512,7 @@ static void Sample_CopyState(Sample* dst_sample, const Sample* src_sample)
     dst_sample->us_end = src_sample->us_end;
     dst_sample->us_length = src_sample->us_length;
     dst_sample->us_sampled_length = src_sample->us_sampled_length;
+    dst_sample->usGpuIssueOnCpu = src_sample->usGpuIssueOnCpu;
     dst_sample->call_count = src_sample->call_count;
     dst_sample->recurse_depth = src_sample->recurse_depth;
     dst_sample->max_recurse_depth = src_sample->max_recurse_depth;
@@ -4530,6 +4536,7 @@ static rmtError bin_Sample(Buffer* buffer, Sample* sample)
     rmtTry(Buffer_WriteU64(buffer, sample->us_start));
     rmtTry(Buffer_WriteU64(buffer, sample->us_length));
     rmtTry(Buffer_WriteU64(buffer, maxS64(sample->us_length - sample->us_sampled_length, 0)));
+    rmtTry(Buffer_WriteU64(buffer, sample->usGpuIssueOnCpu));
     rmtTry(Buffer_WriteU32(buffer, sample->call_count));
     rmtTry(Buffer_WriteU32(buffer, sample->max_recurse_depth));
     rmtTry(bin_SampleArray(buffer, sample));
@@ -7493,6 +7500,7 @@ RMT_API void _rmt_BeginCUDASample(rmtPStr name, rmtU32* hash_cache, void* stream
         if (ThreadProfiler_Push(*cuda_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             CUDASample* cuda_sample = (CUDASample*)sample;
+            cuda_sample->base.usGpuIssueOnCpu = usTimer_Get(&g_Remotery->timer);
             CUDAEventRecord(cuda_sample->event_start, stream);
         }
     }
@@ -7999,6 +8007,7 @@ RMT_API void _rmt_BeginD3D11Sample(rmtPStr name, rmtU32* hash_cache)
         if (ThreadProfiler_Push(*d3d_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             D3D11Sample* d3d_sample = (D3D11Sample*)sample;
+            d3d_sample->base.usGpuIssueOnCpu = usTimer_Get(&g_Remotery->timer);
             D3D11Timestamp_Begin(d3d_sample->timestamp, d3d11->context);
         }
     }
@@ -8651,6 +8660,7 @@ RMT_API void _rmt_BeginD3D12Sample(rmtD3D12Bind* bind, void* command_list, rmtPS
             D3D12Sample* d3d_sample = (D3D12Sample*)sample;
             d3d_sample->bind = d3d_bind;
             d3d_sample->commandList = d3d_command_list;
+            d3d_sample->base.usGpuIssueOnCpu = usTimer_Get(&g_Remotery->timer);
 
             error = AllocQueryPair(d3d_bind, &d3d_sample->queryIndex);
             if (error == RMT_ERROR_NONE)
@@ -9163,6 +9173,7 @@ RMT_API void _rmt_BeginOpenGLSample(rmtPStr name, rmtU32* hash_cache)
         if (ThreadProfiler_Push(*ogl_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             OpenGLSample* ogl_sample = (OpenGLSample*)sample;
+            ogl_sample->base.usGpuIssueOnCpu = usTimer_Get(&g_Remotery->timer);
             OpenGLTimestamp_Begin(ogl_sample->timestamp);
         }
     }
@@ -9459,6 +9470,7 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
         if (ThreadProfiler_Push(*metal_tree, name_hash, 0, &sample) == RMT_ERROR_NONE)
         {
             MetalSample* metal_sample = (MetalSample*)sample;
+            metal_sample->base.usGpuIssueOnCpu = usTimer_Get(&g_Remotery->timer);
             MetalTimestamp_Begin(metal_sample->timestamp);
         }
     }
