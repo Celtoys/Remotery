@@ -8378,16 +8378,13 @@ static rmtError CopyTimestamps(D3D12BindImpl* bind, rmtU32 ring_pos_a, rmtU32 ri
     // Copy all timestamps to their expectant samples
     for (query_index = ring_pos_a; query_index < ring_pos_b; query_index += 2)
     {
-        D3D12Sample* sample = cpu_sample_buffer[query_index >> 1];
-        sample->base.us_start = (rmtU64)(cpu_timestamps[query_index] * gpu_ticks_to_us + gpu_to_cpu_timestamp_us);
-        sample->base.us_end = (rmtU64)(cpu_timestamps[query_index + 1] * gpu_ticks_to_us + gpu_to_cpu_timestamp_us);
-        sample->base.us_length = sample->base.us_end - sample->base.us_start;
+        rmtU64 us_start = (rmtU64)(cpu_timestamps[query_index] * gpu_ticks_to_us + gpu_to_cpu_timestamp_us);
+        rmtU64 us_end = (rmtU64)(cpu_timestamps[query_index + 1] * gpu_ticks_to_us + gpu_to_cpu_timestamp_us);
 
-        // Sum length on the parent to track un-sampled time in the parent
-        if (sample->base.parent != NULL)
-        {
-            sample->base.parent->us_sampled_length += sample->base.us_length;
-        }
+        D3D12Sample* sample = cpu_sample_buffer[query_index >> 1];
+        sample->base.us_start = us_start;
+        Sample_Close(&sample->base, us_end);
+        sample->base.us_end = us_end;
     }
 
     cpu_timestamp_buffer->lpVtbl->Unmap(cpu_timestamp_buffer, 0, NULL);
