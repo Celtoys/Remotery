@@ -2809,9 +2809,13 @@ static rmtError InitialiseNetwork()
 
     WSADATA wsa_data;
     if (WSAStartup(MAKEWORD(2, 2), &wsa_data))
-        return RMT_ERROR_SOCKET_INIT_NETWORK_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_CREATE_FAIL, "WSAStartup failed");
+    }
     if (LOBYTE(wsa_data.wVersion) != 2 || HIBYTE(wsa_data.wVersion) != 2)
-        return RMT_ERROR_SOCKET_INIT_NETWORK_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_CREATE_FAIL, "WSAStartup returned incorrect version number");
+    }
 
     return RMT_ERROR_NONE;
 
@@ -2858,7 +2862,9 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
     // Try to create the socket
     s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == SOCKET_ERROR)
-        return RMT_ERROR_SOCKET_CREATE_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_CREATE_FAIL, "Can't create a socket for connection to the remote viewer");
+    }
 
     if (reuse_open_port)
     {
@@ -2884,22 +2890,30 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
     sin.sin_addr.s_addr = htonl(limit_connections_to_localhost ? INADDR_LOOPBACK : INADDR_ANY);
     sin.sin_port = htons(port);
     if (bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
-        return RMT_ERROR_SOCKET_BIND_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Can't bind a socket for the server");
+    }
 
     // Connection is valid, remaining code is socket state modification
     tcp_socket->socket = s;
 
     // Enter a listening state with a backlog of 1 connection
     if (listen(s, 1) == SOCKET_ERROR)
-        return RMT_ERROR_SOCKET_LISTEN_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Created server socket failed to enter a listen state");
+    }
 
 // Set as non-blocking
 #ifdef RMT_PLATFORM_WINDOWS
     if (ioctlsocket(tcp_socket->socket, FIONBIO, &nonblock) == SOCKET_ERROR)
-        return RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Created server socket failed to switch to a non-blocking state");
+    }
 #else
     if (fcntl(tcp_socket->socket, F_SETFL, O_NONBLOCK) == SOCKET_ERROR)
-        return RMT_ERROR_SOCKET_SET_NON_BLOCKING_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Created server socket failed to switch to a non-blocking state");
+    }
 #endif
 
     return RMT_ERROR_NONE;
@@ -2992,7 +3006,9 @@ static rmtError TCPSocket_AcceptConnection(TCPSocket* tcp_socket, TCPSocket** cl
     // Accept the connection
     s = accept(tcp_socket->socket, 0, 0);
     if (s == SOCKET_ERROR)
-        return RMT_ERROR_SOCKET_ACCEPT_FAIL;
+    {
+        return rmtMakeError(RMT_ERROR_RESOURCE_CREATE_FAIL, "Server failed to accept connection from client");
+    }
 
 #ifdef SO_NOSIGPIPE
     // On POSIX systems, send() may send a SIGPIPE signal when writing to an
@@ -3050,7 +3066,9 @@ static rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 l
 
         cur_ms = msTimer_Get();
         if (cur_ms - start_ms > timeout_ms)
-            return RMT_ERROR_SOCKET_SEND_TIMEOUT;
+        {
+            return rmtMakeError(RMT_ERROR_TIMEOUT, "Timed out trying to send data");
+        }
     }
 
     cur_data = (char*)data;
@@ -3095,7 +3113,7 @@ static rmtError TCPSocket_Send(TCPSocket* tcp_socket, const void* data, rmtU32 l
             //
             if (cur_ms - start_ms > timeout_ms)
             {
-                return RMT_ERROR_SOCKET_SEND_TIMEOUT;
+                return rmtMakeError(RMT_ERROR_TIMEOUT, "Timed out trying to send data");
             }
         }
         else
