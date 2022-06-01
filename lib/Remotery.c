@@ -8412,6 +8412,11 @@ static rmtError CopyTimestamps(D3D12BindImpl* bind, rmtU32 ring_pos_a, rmtU32 ri
 
 static rmtError D3D12MarkFrame(D3D12BindImpl* bind)
 {
+    if (bind == NULL)
+    {
+        return RMT_ERROR_NONE;
+    }
+
     rmtU32 index_mask = bind->maxNbQueries - 1;
     rmtU32 current_read_cpu = LoadAcquire(&bind->ringBufferRead);
     rmtU32 current_write_cpu = LoadAcquire(&bind->ringBufferWrite);
@@ -8496,10 +8501,7 @@ static rmtError D3D12MarkFrame(D3D12BindImpl* bind)
     }
 
     // Chain to the next bind here so that root calling code doesn't need to know the definition of D3D12BindImpl
-    if (bind->next != NULL)
-    {
-        rmtTry(D3D12MarkFrame(bind->next));
-    }
+    rmtTry(D3D12MarkFrame(bind->next));
     
     return RMT_ERROR_NONE;
 }
@@ -8645,8 +8647,10 @@ RMT_API void _rmt_BeginD3D12Sample(rmtD3D12Bind* bind, void* command_list, rmtPS
 {
     ThreadProfiler* thread_profiler;
 
-    if (g_Remotery == NULL)
+    if (g_Remotery == NULL || bind == NULL)
         return;
+    
+    assert(command_list != NULL);
 
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
@@ -8709,8 +8713,15 @@ RMT_API void _rmt_EndD3D12Sample()
         D3D12ThreadData* d3d_thread_data = thread_profiler->d3d12ThreadData;
         D3D12Sample* d3d_sample;
 
+        // Sample tree isn't there if D3D12 hasn't been initialised
+        SampleTree* d3d_tree = thread_profiler->sampleTrees[RMT_SampleType_D3D12];
+        if (d3d_tree == NULL)
+        {
+            return;
+        }
+
         // Close the timestamp
-        d3d_sample = (D3D12Sample*)thread_profiler->sampleTrees[RMT_SampleType_D3D12]->currentParent;
+        d3d_sample = (D3D12Sample*)d3d_tree->currentParent;
         if (d3d_sample->base.recurse_depth > 0)
         {
             d3d_sample->base.recurse_depth--;
