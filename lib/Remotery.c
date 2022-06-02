@@ -4598,6 +4598,9 @@ typedef struct SampleTree
     // Lightweight flag, changed with release/acquire semantics to inform the stall detector the state of the tree is unreliable
     rmtAtomicU32 treeBeingModified;
 
+    // Send this popped sample to the log/viewer on close?
+    Sample* sendSampleOnClose;
+
 } SampleTree;
 
 // Notify tree watchers that its structure is in the process of being changed
@@ -4616,6 +4619,7 @@ static rmtError SampleTree_Constructor(SampleTree* tree, rmtU32 sample_size, Obj
     tree->currentParent = NULL;
     StoreRelease(&tree->msLastTreeSendTime, 0);
     StoreRelease(&tree->treeBeingModified, 0);
+    tree->sendSampleOnClose = NULL;
 
     // Create the sample allocator
     rmtTryNew(ObjectAllocator, tree->allocator, sample_size, constructor, destructor);
@@ -4696,11 +4700,26 @@ static rmtError SampleTree_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 flags
             *sample = parent;
             return RMT_ERROR_RECURSIVE_SAMPLE;
         }
+
+        // Allocate a new sample for subsequent flag checks to reference
+        rmtTry(ObjectAllocator_Alloc(tree->allocator, (void**)sample));
+        Sample_Prepare(*sample, name_hash, parent);
+
+        // Check for sending this sample on close
+        if ((flags & RMTSF_SendOnClose) != 0)
+        {
+            assert(tree->currentParent != NULL);
+            assert(tree->sendSampleOnClose == NULL);
+            tree->sendSampleOnClose = *sample;
+        }
     }
 
-    // Allocate a new sample
-    rmtTry(ObjectAllocator_Alloc(tree->allocator, (void**)sample));
-    Sample_Prepare(*sample, name_hash, parent);
+    else
+    {
+        // Allocate a new sample
+        rmtTry(ObjectAllocator_Alloc(tree->allocator, (void**)sample));
+        Sample_Prepare(*sample, name_hash, parent);
+    }
 
     // Generate a unique ID for this sample in the tree
     unique_id = parent->unique_id;
@@ -5049,6 +5068,38 @@ static rmtError ThreadProfiler_Push(SampleTree* tree, rmtU32 name_hash, rmtU32 f
     return error;
 }
 
+static void CloseOpenSamples(Sample* sample, rmtU64 sample_time_us, rmtU32 parents_are_last)
+{
+    Sample* child_sample;
+
+    // Depth-first search into children as we want to close child samples before their parents
+    for (child_sample = sample->first_child; child_sample != NULL; child_sample = child_sample->next_sibling)
+    {
+        rmtU32 is_last = parents_are_last & (child_sample == sample->last_child ? 1 : 0);
+        CloseOpenSamples(child_sample, sample_time_us, is_last);
+    }
+
+    // A chain of open samples will be linked from the root to the deepest, currently open sample
+    if (parents_are_last > 0)
+    {
+        Sample_Close(sample, sample_time_us);
+    }
+}
+
+static rmtError MakePartialTreeCopy(SampleTree* sample_tree, rmtU64 sample_time_us, SampleTree* out_sample_tree_copy)
+{
+    rmtU32 sample_time_s = (rmtU32)(sample_time_us / 1000);
+    StoreRelease(&sample_tree->msLastTreeSendTime, sample_time_s);
+
+    // Make a local copy of the tree as we want to keep the current tree for active profiling
+    rmtTry(SampleTree_Copy(out_sample_tree_copy, sample_tree));
+
+    // Close all samples from the deepest open sample, right back to the root
+    CloseOpenSamples(out_sample_tree_copy->root, sample_time_us, 1);
+
+    return RMT_ERROR_NONE;
+}
+
 static rmtBool ThreadProfiler_Pop(ThreadProfiler* thread_profiler, rmtMessageQueue* queue, Sample* sample, rmtU32 msg_user_data)
 {
     SampleTree* tree = thread_profiler->sampleTrees[sample->type];
@@ -5072,6 +5123,26 @@ static rmtBool ThreadProfiler_Pop(ThreadProfiler* thread_profiler, rmtMessageQue
         StoreRelease(&tree->msLastTreeSendTime, (rmtU32)(sample->us_end / 1000));
 
         return RMT_TRUE;
+    }
+
+    if (tree->sendSampleOnClose == sample)
+    {
+        // Copy the sample tree as it is and send as a partial tree
+        SampleTree partial_tree;
+        if (MakePartialTreeCopy(tree, sample->us_start + sample->us_length, &partial_tree) == RMT_ERROR_NONE)
+        {
+            Sample* sample = partial_tree.root->first_child;
+            assert(sample != NULL);
+            QueueSampleTree(queue, sample, partial_tree.allocator, thread_profiler->threadName, msg_user_data, thread_profiler, RMT_TRUE);
+        }
+
+        // Tree has been copied away to the message queue so free up the samples
+        if (partial_tree.root != NULL)
+        {
+            FreeSamples(partial_tree.root, partial_tree.allocator);
+        }
+
+        tree->sendSampleOnClose = NULL;
     }
 
     return RMT_FALSE;
@@ -5553,24 +5624,6 @@ static_assert(offsetof(ThreadProfiler, nbSamplesWithoutCallback) == 24, "");
 static_assert(offsetof(ThreadProfiler, processorIndex) == 28, "");
 #endif
 
-static void CloseOpenSamples(Sample* sample, rmtU64 sample_time_us, rmtU32 parents_are_last)
-{
-    Sample* child_sample;
-
-    // Depth-first search into children as we want to close child samples before their parents
-    for (child_sample = sample->first_child; child_sample != NULL; child_sample = child_sample->next_sibling)
-    {
-        rmtU32 is_last = parents_are_last & (child_sample == sample->last_child ? 1 : 0);
-        CloseOpenSamples(child_sample, sample_time_us, is_last);
-    }
-
-    // A chain of open samples will be linked from the root to the deepest, currently open sample
-    if (parents_are_last > 0)
-    {
-        Sample_Close(sample, sample_time_us);
-    }
-}
-
 static rmtError CheckForStallingSamples(SampleTree* stalling_sample_tree, ThreadProfiler* thread_profiler, rmtU64 sample_time_us)
 {
     SampleTree* sample_tree;
@@ -5590,24 +5643,13 @@ static rmtError CheckForStallingSamples(SampleTree* stalling_sample_tree, Thread
     if (sample_tree != NULL)
     {
         // The root is a dummy root inserted on tree creation so check that for children
-        rmtBool send = RMT_FALSE;
         Sample* root_sample = sample_tree->root;
         if (root_sample != NULL && root_sample->nb_children > 0)
         {
             if (sample_time_s - LoadAcquire(&sample_tree->msLastTreeSendTime) > 1000)
             {
-                send = RMT_TRUE;
-                StoreRelease(&sample_tree->msLastTreeSendTime, sample_time_s);
+                rmtTry(MakePartialTreeCopy(sample_tree, sample_time_us, stalling_sample_tree));
             }
-        }
-
-        if (send == RMT_TRUE)
-        {
-            // Make a local copy of the tree as we want to keep the current tree for active profiling
-            rmtTry(SampleTree_Copy(stalling_sample_tree, sample_tree));
-
-            // Close all samples from the deepest open sample, right back to the root
-            CloseOpenSamples(stalling_sample_tree->root, sample_time_us, 1);
         }
     }
 
