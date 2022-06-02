@@ -45,6 +45,13 @@ function glCreateProgram(gl, vshader, fshader)
     return program;
 }
 
+function glCreateProgramFromSource(gl, vshader_name, vshader_source, fshader_name, fshader_source)
+{
+    const vshader = glCompileShader(gl, gl.VERTEX_SHADER, vshader_name, vshader_source);
+    const fshader = glCompileShader(gl, gl.FRAGMENT_SHADER, fshader_name, fshader_source);
+    return glCreateProgram(gl, vshader, fshader);
+}
+
 function glSetUniform(gl, program, name, value, index)
 {
     // Get location
