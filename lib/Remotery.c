@@ -6633,6 +6633,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     rmt->map_message_queue_fn = NULL;
     rmt->map_message_queue_data = NULL;
     rmt->threadProfilers = NULL;
+    mtxInit(&rmt->propertyMutex);
     rmt->propertyAllocator = NULL;
     rmt->propertyFrame = 0;
 
@@ -6737,8 +6738,6 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     // Create the thread profilers container
     rmtTryNew(ThreadProfilers, rmt->threadProfilers, &rmt->timer, rmt->mq_to_rmt_thread);
 
-    mtxInit(&rmt->propertyMutex);
-
     // Create the property state allocator
     rmtTryNew(ObjectAllocator, rmt->propertyAllocator, sizeof(PropertySnapshot), (ObjConstructor)PropertySnapshot_Constructor, (ObjDestructor)PropertySnapshot_Destructor);
 
@@ -6771,7 +6770,6 @@ static void Remotery_Destructor(Remotery* rmt)
 
     rmtDelete(ObjectAllocator, rmt->propertyAllocator);
 
-    mtxDelete(&rmt->propertyMutex);
 
     rmtDelete(ThreadProfilers, rmt->threadProfilers);
 
@@ -6805,6 +6803,8 @@ static void Remotery_Destructor(Remotery* rmt)
         tlsFree(g_lastErrorMessageTlsHandle);
         g_lastErrorMessageTlsHandle = TLS_INVALID_HANDLE;
     }
+    
+    mtxDelete(&rmt->propertyMutex);
 }
 
 static void* CRTMalloc(void* mm_context, rmtU32 size)
