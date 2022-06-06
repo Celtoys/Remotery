@@ -5262,7 +5262,6 @@ static void ThreadProfilers_Destructor(ThreadProfilers* thread_profilers)
 {
     rmtU32 thread_index;
 
-    rmtDelete(rmtThread, thread_profilers->threadGatherThread);
     rmtDelete(rmtThread, thread_profilers->threadSampleThread);
 
     // Delete all profilers
@@ -5663,9 +5662,6 @@ static rmtError InitThreadSampling(ThreadProfilers* thread_profilers)
     // Make an initial gather so that we have something to work with
     GatherThreads(thread_profilers);
 
-    // Kick-off the background thread that watches for new threads
-    rmtTryNew(rmtThread, thread_profilers->threadGatherThread, GatherThreadsLoop, thread_profilers);
-
 #ifdef RMT_ENABLE_THREAD_SAMPLER
     // Ensure we can wake up every millisecond
     if (timeBeginPeriod(1) != TIMERR_NOERROR)
@@ -5673,6 +5669,9 @@ static rmtError InitThreadSampling(ThreadProfilers* thread_profilers)
         return RMT_ERROR_UNKNOWN;
     }
 #endif
+
+    // Kick-off the background thread that watches for new threads
+    rmtTryNew(rmtThread, thread_profilers->threadGatherThread, GatherThreadsLoop, thread_profilers);
 
     // We're going to be shuffling thread visits to avoid the scheduler trying to predict a work-load based on sampling
     // Use the global RNG with a random seed to start the shuffle
@@ -5691,14 +5690,14 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
 
     ThreadProfilers* thread_profilers = (ThreadProfilers*)rmt_thread->param;
 
-    rmtTry(InitThreadSampling(thread_profilers));
-
     // If we can't figure out how many processors there are then we are running on an unsupported platform
     nb_processors = rmtGetNbProcessors();
     if (nb_processors == 0)
     {
         return RMT_ERROR_UNKNOWN;
     }
+
+    rmtTry(InitThreadSampling(thread_profilers));
 
     // An array entry for each processor
     rmtTryMallocArray(Processor, processors, nb_processors);
@@ -5893,6 +5892,8 @@ static rmtError SampleThreadsLoop(rmtThread* rmt_thread)
         // Send current processor state off to remotery
         QueueProcessorThreads(thread_profilers->mqToRmtThread, processor_message_index++, nb_processors, processors);
     }
+
+    rmtDelete(rmtThread, thread_profilers->threadGatherThread);
 
 #ifdef RMT_ENABLE_THREAD_SAMPLER
     timeEndPeriod(1);
