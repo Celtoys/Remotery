@@ -3537,7 +3537,7 @@ static rmtU32 MurmurHash3_x86_32(const void* key, int len, rmtU32 seed)
     return h1;
 }
 
-rmtU32 rmt_HashString32(const char* s, int len, rmtU32 seed)
+RMT_API rmtU32 rmt_HashString32(const char* s, int len, rmtU32 seed)
 {
     return MurmurHash3_x86_32(s, len, seed);
 }
@@ -3546,7 +3546,7 @@ rmtU32 rmt_HashString32(const char* s, int len, rmtU32 seed)
     #if defined(__cplusplus)
     extern "C"
     #endif
-    rmtU32 rmt_HashString32(const char* s, int len, rmtU32 seed);
+    RMT_API rmtU32 rmt_HashString32(const char* s, int len, rmtU32 seed);
 
 #endif // RMT_USE_INTERNAL_HASH_FUNCTION
 
