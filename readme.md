@@ -16,6 +16,7 @@ Features:
 * Drop saved traces onto the Remotery window to load historical runs for inspection.
 * Console output for logging text.
 * Console input for sending commands to your game.
+* A Property API for recording named/typed values over time, alongside samples.
 * Profiles itself and shows how it's performing in the viewer.
 
 Supported Profiling Platforms:
