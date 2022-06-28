@@ -111,6 +111,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <limits.h>
     #include <stdlib.h>
     #include <stdint.h>
+    #include <math.h>
 
     #ifdef RMT_PLATFORM_WINDOWS
         #include <winsock2.h>
