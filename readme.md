@@ -7,9 +7,13 @@ A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in
 
 ![screenshot](screenshot.png?raw=true)
 
-**Supported Profiling Platforms**: Windows 7/8/10/11/UWP (Hololens), Linux, OSX, iOS, Android, Xbox One/Series, Free BSD.
+**Supported Profiling Platforms**:
 
-**Supported GPU Profiling APIS**: D3D 11/12, OpenGL, CUDA, Metal.
+* Windows 7/8/10/11/UWP (Hololens), Linux, OSX, iOS, Android, Xbox One/Series, Free BSD.
+
+**Supported GPU Profiling APIS**:
+
+* D3D 11/12, OpenGL, CUDA, Metal.
 
 Features:
 
