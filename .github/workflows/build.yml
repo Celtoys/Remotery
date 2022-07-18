@@ -68,6 +68,7 @@ jobs:
         platform: ['android']
         arch: ['armv7', 'arm64']
         buildmode: ['release']
+        ndkversion: ['24.0.8215888']
 
     steps:
       - name: Set up JDK 1.11
@@ -86,8 +87,8 @@ jobs:
       - name: Build
         run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
         env:
-          ANDROID_NDK_HOME: ${ANDROID_HOME}/ndk/ndk;22.0.7026061
-          ANDROID_NDK_API_VERSION: 22
+          ANDROID_NDK_HOME: ${ANDROID_HOME}/ndk/ndk;${{ matrix.ndkversion }}
+          ANDROID_NDK_VERSION: ${{ matrix.ndkversion }}
 
       # - name: Run
       #   run: .github/scripts/run_tests.sh
