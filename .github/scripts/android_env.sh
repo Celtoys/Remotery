@@ -12,28 +12,6 @@ echo "ANDROID_HOME=${ANDROID_HOME}"
 echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
 echo "ANDROID_NDK_API_VERSION=${ANDROID_NDK_API_VERSION}"
 
-# if [ ! -d "${ANDROID_NDK_HOME}" ]; then
-#     echo "No such directory ANDROID_NDK_HOME='${ANDROID_NDK_HOME}'"
-#     exit 1
-# fi
-
-echo "ANDROID_HOME:"
-ls -la ${ANDROID_HOME}
-
-echo "--------------------------"
-
-echo "ANDROID_HOME/ndk:"
-ls -la ${ANDROID_HOME}/ndk
-
-echo "--------------------------"
-
-echo "ANDROID_NDK_HOME:"
-
-ls -la ${ANDROID_NDK_HOME}
-
-echo "--------------------------"
-
-
 toolchainhost="linux"
 if [ "$(uname)" == "Darwin" ]; then
     toolchainhost="darwin"
