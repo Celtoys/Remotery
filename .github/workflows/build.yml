@@ -86,7 +86,7 @@ jobs:
       - name: Build
         run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
         env:
-          ANDROID_NDK_HOME: ${{ANDROID_HOME}}/ndk-bundle
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk-bundle
           ANDROID_NDK_API_VERSION: ${{ matrix.ndkversion }}
 
       # - name: Run
