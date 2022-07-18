@@ -83,8 +83,7 @@ jobs:
         run: sdkmanager --verbose "${{ matrix.ndkversion }}"
 
       - name: Build
-        #run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
-        run: echo "MAWE: ANDROID_HOME=${ANDROID_HOME} ANDROID_NDK_HOME=${ANDROID_NDK_HOME} ANDROID_NDK_API_VERSION=${ANDROID_NDK_API_VERSION}"
+        run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
         env:
           ANDROID_NDK_HOME: $ANDROID_HOME/ndk/ndk;22.0.7026061
           ANDROID_NDK_API_VERSION: 22
