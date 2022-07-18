@@ -2,11 +2,6 @@
 
 set -e
 
-# Grab the ndk major version
-if [ "" != "${ANDROID_NDK_VERSION}" ]; then
-    ANDROID_NDK_API_VERSION=$(echo "${ANDROID_NDK_VERSION}"| cut -f1 -d'.')
-fi
-
 if [ "" == "${ANDROID_NDK_API_VERSION}" ]; then
     ANDROID_NDK_API_VERSION='16' # Android 4.1
 fi
