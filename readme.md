@@ -9,7 +9,7 @@ A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in
 
 Features:
 
-* Lightweight instrumentation of multiple threads running on the CPU.
+* Lightweight instrumentation of multiple threads running on the CPU and GPU.
 * Web viewer that runs in Chrome, Firefox and Safari; on Desktops, Mobiles or Tablets.
 * GPU UI rendering, bypassing the DOM completely, for real-time 60hz viewer updates at 10,000x the performance.
 * Automatic thread sampler that tells you what processor cores your threads are running on without requiring Administrator privileges.
