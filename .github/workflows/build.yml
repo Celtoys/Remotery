@@ -9,6 +9,7 @@ jobs:
 
     strategy:
       matrix:
+        platform: ['linux']
         arch: ['x86', 'x64']
 
     steps:
@@ -17,17 +18,23 @@ jobs:
         run: sudo apt-get install gcc-multilib g++-multilib
 
       - name: Build
-        run: .github/scripts/compile.sh ${{ matrix.arch }}
+        run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
       - name: Run
         run: .github/scripts/run_tests.sh
 
   build-macos:
     runs-on: macos-latest
 
+    strategy:
+      matrix:
+        platform: ['linux']
+        arch: ['x64']
+        buildmode: ['release']
+
     steps:
       - uses: actions/checkout@v2
       - name: Build
-        run: .github/scripts/compile.sh x64
+        run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
       - name: Run
         run: .github/scripts/run_tests.sh
 
@@ -37,6 +44,7 @@ jobs:
 
     strategy:
       matrix:
+        platform: ['windows']
         arch: ['x86', 'x64']
         buildmode: ['debug', 'release']
         toolset: ['14.3','14.2','14.1']
@@ -48,6 +56,40 @@ jobs:
           arch: ${{ matrix.arch }}
           toolset: ${{ matrix.toolset }}
       - name: Build
-        run: .github/scripts/compile.bat ${{ matrix.arch }} ${{ matrix.buildmode }}
+        run: .github/scripts/compile.bat ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
       - name: Run
         run: .github/scripts/run_tests.bat
+
+  build-android:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        platform: ['android']
+        arch: ['armv7', 'arm64']
+        buildmode: ['release']
+        ndkversion: [21]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up JDK 1.11
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu' # See 'Supported distributions' for available options
+          java-version: '11'
+
+      # Sets ANDROID_HOME as well as installs the latest NDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+      - name: Build
+        run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk-bundle
+          ANDROID_NDK_API_VERSION: ${{ matrix.ndkversion }}
+
+      # - name: Run
+      #   run: .github/scripts/run_tests.sh
+
+

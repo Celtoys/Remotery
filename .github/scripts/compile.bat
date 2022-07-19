@@ -1,7 +1,8 @@
 echo off
 
 set PLATFORM=%1
-set BUILDMODE=%2
+set ARCH=%2
+set BUILDMODE=%3
 
 if NOT DEFINED VCINSTALLDIR (
     echo "Version %VERSION% was not found"
