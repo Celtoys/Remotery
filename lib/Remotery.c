@@ -819,7 +819,7 @@ static rmtU32 Well512_RandomOpenLimit(rmtU32 limit)
 
 static rmtU32 Log2i(rmtU32 x)
 {
-	static const rmtU32 MultiplyDeBruijnBitPosition[32] =
+	static const rmtU8 MultiplyDeBruijnBitPosition[32] =
 	{
 		0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
 		8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
@@ -838,7 +838,7 @@ static rmtU32 Log2i(rmtU32 x)
 static rmtU32 GaloisLFSRMask(rmtU32 table_size_log2)
 {
     // Taps for 4 to 8 bit ranges
-    static const rmtU32 XORMasks[] =
+    static const rmtU8 XORMasks[] =
     {
         ((1 << 0) | (1 << 1)),                          // 2
         ((1 << 1) | (1 << 2)),                          // 3
