@@ -4226,10 +4226,13 @@ static Message* rmtMessageQueue_AllocMessage(rmtMessageQueue* queue, rmtU32 payl
 
 static void rmtMessageQueue_CommitMessage(Message* message, MessageID id)
 {
+    MessageID r;
     assert(message != NULL);
 
     // Setting the message ID signals to the consumer that the message is ready
-    assert(LoadAcquire((rmtU32*)&message->id) == MsgID_NotReady);
+    r = (MessageID)LoadAcquire((rmtU32*)&message->id);
+    (void)r;
+    assert(r == MsgID_NotReady);
     StoreRelease((rmtU32*)&message->id, id);
 }
 
