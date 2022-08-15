@@ -147,6 +147,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
         #include <pthread.h>
         #include <unistd.h>
         #include <string.h>
+        #include <arpa/inet.h>
         #include <sys/select.h>
         #include <sys/socket.h>
         #include <sys/mman.h>
