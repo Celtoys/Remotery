@@ -500,7 +500,7 @@ static void* tlsGet(rmtTLS handle)
 static rmtTLS g_lastErrorMessageTlsHandle = TLS_INVALID_HANDLE;
 static const rmtU32 g_errorMessageSize = 1024;
 
-static rmtError rmtMakeError(rmtError error, rmtPStr error_message)
+static rmtError rmtMakeError(rmtError in_error, rmtPStr error_message)
 {
     char* thread_message_ptr;
     rmtU32 error_len;
@@ -531,7 +531,7 @@ static rmtError rmtMakeError(rmtError error, rmtPStr error_message)
     memcpy(thread_message_ptr, error_message, error_len);
     thread_message_ptr[error_len] = 0;
 
-    return error;
+    return in_error;
 }
 
 RMT_API rmtPStr rmt_GetLastErrorMessage()
@@ -3820,8 +3820,6 @@ static rmtError WebSocketHandshake(TCPSocket* tcp_socket, rmtPStr limit_host)
 
 static rmtError WebSocket_Constructor(WebSocket* web_socket, TCPSocket* tcp_socket)
 {
-    rmtError error = RMT_ERROR_NONE;
-
     assert(web_socket != NULL);
     web_socket->tcp_socket = tcp_socket;
     web_socket->mode = WEBSOCKET_NONE;
@@ -3836,7 +3834,7 @@ static rmtError WebSocket_Constructor(WebSocket* web_socket, TCPSocket* tcp_sock
     if (web_socket->tcp_socket == NULL)
         rmtTryNew(TCPSocket, web_socket->tcp_socket);
 
-    return error;
+    return RMT_ERROR_NONE;
 }
 
 static void WebSocket_Destructor(WebSocket* web_socket)
@@ -4039,16 +4037,18 @@ static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32* msg
     SocketStatus status;
     char* cur_data;
     char* end_data;
-    rmtU32 start_ms, now_ms;
+    rmtU32 start_ms;
+    rmtU32 now_ms;
     rmtU32 bytes_to_read;
-    rmtError error;
 
     assert(web_socket != NULL);
 
     // Can't read with any socket errors
     status = WebSocket_PollStatus(web_socket);
     if (status.error_state != RMT_ERROR_NONE)
+    {
         return status.error_state;
+    }
 
     cur_data = (char*)data;
     end_data = cur_data + length;
@@ -4063,22 +4063,32 @@ static rmtError WebSocket_Receive(WebSocket* web_socket, void* data, rmtU32* msg
 
             // Set output message length only on initial receive
             if (msg_len != NULL)
+            {
                 *msg_len = web_socket->frame_bytes_remaining;
+            }
         }
 
-        // Read as much required data as possible
-        bytes_to_read = web_socket->frame_bytes_remaining < length ? web_socket->frame_bytes_remaining : length;
-        error = TCPSocket_Receive(web_socket->tcp_socket, cur_data, bytes_to_read, 20);
-        if (error == RMT_ERROR_SOCKET_RECV_FAILED)
-            return error;
-
-        // If there's a stall receiving the data, check for timeout
-        if (error == RMT_ERROR_SOCKET_RECV_NO_DATA || error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
         {
-            now_ms = msTimer_Get();
-            if (now_ms - start_ms > timeout_ms)
-                return RMT_ERROR_SOCKET_RECV_TIMEOUT;
-            continue;
+            rmtError error;
+
+            // Read as much required data as possible
+            bytes_to_read = web_socket->frame_bytes_remaining < length ? web_socket->frame_bytes_remaining : length;
+            error = TCPSocket_Receive(web_socket->tcp_socket, cur_data, bytes_to_read, 20);
+            if (error == RMT_ERROR_SOCKET_RECV_FAILED)
+            {
+                return error;
+            }
+
+            // If there's a stall receiving the data, check for timeout
+            if (error == RMT_ERROR_SOCKET_RECV_NO_DATA || error == RMT_ERROR_SOCKET_RECV_TIMEOUT)
+            {
+                now_ms = msTimer_Get();
+                if (now_ms - start_ms > timeout_ms)
+                {
+                    return RMT_ERROR_SOCKET_RECV_TIMEOUT;
+                }
+                continue;
+            }
         }
 
         // Apply data mask
@@ -5241,9 +5251,9 @@ static rmtBool ThreadProfiler_Pop(ThreadProfiler* thread_profiler, rmtMessageQue
         SampleTree partial_tree;
         if (MakePartialTreeCopy(tree, sample->us_start + sample->us_length, &partial_tree) == RMT_ERROR_NONE)
         {
-            Sample* sample = partial_tree.root->first_child;
-            assert(sample != NULL);
-            QueueSampleTree(queue, sample, partial_tree.allocator, thread_profiler->threadName, msg_user_data, thread_profiler, RMT_TRUE);
+            Sample* root_sample = partial_tree.root->first_child;
+            assert(root_sample != NULL);
+            QueueSampleTree(queue, root_sample, partial_tree.allocator, thread_profiler->threadName, msg_user_data, thread_profiler, RMT_TRUE);
         }
 
         // Tree has been copied away to the message queue so free up the samples
@@ -6209,7 +6219,6 @@ static void PostProcessSamples(Sample* sample, rmtU32* nb_samples)
 
 static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
 {
-    rmtError error = RMT_ERROR_NONE;
     Buffer* bin_buf;
     rmtU32 write_start_offset;
 
@@ -6223,16 +6232,16 @@ static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
     rmtTry(bin_MessageFooter(bin_buf, write_start_offset));
 
     // Pass to either the server or the log file
-    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
-    {
-        error = Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 20);
-    }
     if (rmt->logfile != NULL)
     {
         rmtWriteFile(rmt->logfile, bin_buf->data + WEBSOCKET_MAX_FRAME_HEADER_SIZE, bin_buf->bytes_used - WEBSOCKET_MAX_FRAME_HEADER_SIZE);
     }
+    if (Server_IsClientConnected(rmt->server) == RMT_TRUE)
+    {
+        rmtTry(Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 20));
+    }
 
-    return error;
+    return RMT_ERROR_NONE;
 }
 
 static rmtError bin_SampleName(Buffer* buffer, const char* name, rmtU32 name_hash, rmtU32 name_length)
@@ -6417,7 +6426,6 @@ static rmtError Remotery_SendSampleTreeMessage(Remotery* rmt, Message* message)
 static rmtError Remotery_SendProcessorThreads(Remotery* rmt, Message* message)
 {
     rmtU32 processor_index;
-    rmtError error = RMT_ERROR_NONE;
 
     Msg_ProcessorThreads* processor_threads = (Msg_ProcessorThreads*)message->payload;
 
