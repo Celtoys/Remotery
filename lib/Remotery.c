@@ -526,7 +526,7 @@ static rmtError rmtMakeError(rmtError in_error, rmtPStr error_message)
     }
 
     // Safe copy of the error text without going via strcpy_s down below
-    error_len = strlen(error_message);
+    error_len = (rmtU32)strlen(error_message);
     error_len = error_len >= g_errorMessageSize ? g_errorMessageSize - 1 : error_len;
     memcpy(thread_message_ptr, error_message, error_len);
     thread_message_ptr[error_len] = 0;
@@ -10027,6 +10027,8 @@ RMT_API void _rmt_PropertyAddValue(rmtProperty* property, rmtPropertyValue add_v
 
     RegisterProperty(property, RMT_TRUE);
 
+    RMT_UNREFERENCED_PARAMETER(add_value);
+
     // use `add_value` to determine how much this property was changed
 
     // on this thread, create a new sample that encodes the delta and parents itself to `property`
@@ -10056,7 +10058,7 @@ static rmtError TakePropertySnapshot(rmtProperty* property, PropertySnapshot* pa
     snapshot->nameHash = property->nameHash;
     snapshot->uniqueID = property->uniqueID;
     snapshot->nbChildren = 0;
-    snapshot->depth = depth;
+    snapshot->depth = (rmtU8)depth;
     snapshot->nextSnapshot = NULL;
 
     // Keep count of the number of children in the parent
