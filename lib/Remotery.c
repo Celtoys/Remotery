@@ -4231,7 +4231,7 @@ static void rmtMessageQueue_CommitMessage(Message* message, MessageID id)
 
     // Setting the message ID signals to the consumer that the message is ready
     r = (MessageID)LoadAcquire((rmtU32*)&message->id);
-    (void)r;
+    RMT_UNREFERENCED_PARAMETER(r);
     assert(r == MsgID_NotReady);
     StoreRelease((rmtU32*)&message->id, id);
 }
