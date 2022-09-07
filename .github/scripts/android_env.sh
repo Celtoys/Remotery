@@ -35,19 +35,6 @@ export LINKFLAGS="-landroid -lm -pthread"
 echo "CLANGCC=${CLANGCC}"
 echo "CLANGXX=${CLANGXX}"
 
-ls ${ANDROID_HOME}
-
-find ${ANDROID_HOME} -iname "*clang++"
-
-export
-
-#tree ${ANDROID_HOME}
-
-# ls ${ANDROID_NDK_ROOT}/toolchains/
-# ls ${ANDROID_NDK_ROOT}/toolchains/llvm
-# ls ${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt
-# ls ${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64
-
 if [ ! -e "${CLANGCC}" ]; then
     echo "No such file '${CLANGCC}'"
     exit 1
