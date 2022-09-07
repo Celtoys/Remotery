@@ -79,14 +79,13 @@ jobs:
           distribution: 'zulu' # See 'Supported distributions' for available options
           java-version: '11'
 
-      # Sets ANDROID_HOME as well as installs the latest NDK
+      # Sets ANDROID_HOME + ANDROID_NDK_ROOT
       - name: Setup Android SDK
         uses: android-actions/setup-android@v2
 
       - name: Build
         run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk-bundle
           ANDROID_NDK_API_VERSION: ${{ matrix.ndkversion }}
 
       # - name: Run

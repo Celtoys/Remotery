@@ -9,7 +9,7 @@ fi
 echo "Setting environment for Android"
 
 echo "ANDROID_HOME=${ANDROID_HOME}"
-echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
+echo "ANDROID_NDK_ROOT=${ANDROID_NDK_ROOT}"
 echo "ANDROID_NDK_API_VERSION=${ANDROID_NDK_API_VERSION}"
 
 toolchainhost="linux"
@@ -24,10 +24,12 @@ if [ "${ARCH}" == "arm64" ]; then
     toolchainarch="aarch64-linux-android${ANDROID_NDK_API_VERSION}"
 fi
 
-export GCC=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
-export GXX=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
-export CLANGCC=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
-export CLANGXX=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
+# See https://developer.android.com/ndk/guides/other_build_systems
+
+export GCC=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
+export GXX=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
+export CLANGCC=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
+export CLANGXX=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
 export LINKFLAGS="-landroid -lm -pthread"
 
 echo "CLANGCC=${CLANGCC}"
