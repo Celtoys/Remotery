@@ -39,6 +39,8 @@ ls ${ANDROID_HOME}
 
 find ${ANDROID_HOME} -iname "*clang++"
 
+export
+
 #tree ${ANDROID_HOME}
 
 # ls ${ANDROID_NDK_HOME}/toolchains/
