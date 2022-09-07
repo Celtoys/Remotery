@@ -9,7 +9,7 @@ fi
 echo "Setting environment for Android"
 
 echo "ANDROID_HOME=${ANDROID_HOME}"
-echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
+echo "ANDROID_NDK_ROOT=${ANDROID_NDK_ROOT}"
 echo "ANDROID_NDK_API_VERSION=${ANDROID_NDK_API_VERSION}"
 
 toolchainhost="linux"
@@ -26,10 +26,10 @@ fi
 
 # See https://developer.android.com/ndk/guides/other_build_systems
 
-export GCC=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
-export GXX=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
-export CLANGCC=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
-export CLANGXX=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
+export GCC=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
+export GXX=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
+export CLANGCC=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang
+export CLANGXX=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64/bin/${toolchainarch}-clang++
 export LINKFLAGS="-landroid -lm -pthread"
 
 echo "CLANGCC=${CLANGCC}"
@@ -43,10 +43,10 @@ export
 
 #tree ${ANDROID_HOME}
 
-# ls ${ANDROID_NDK_HOME}/toolchains/
-# ls ${ANDROID_NDK_HOME}/toolchains/llvm
-# ls ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt
-# ls ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64
+# ls ${ANDROID_NDK_ROOT}/toolchains/
+# ls ${ANDROID_NDK_ROOT}/toolchains/llvm
+# ls ${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt
+# ls ${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/${toolchainhost}-x86_64
 
 if [ ! -e "${CLANGCC}" ]; then
     echo "No such file '${CLANGCC}'"
