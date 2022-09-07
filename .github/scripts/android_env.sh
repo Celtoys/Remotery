@@ -37,7 +37,9 @@ echo "CLANGXX=${CLANGXX}"
 
 ls ${ANDROID_HOME}
 
-tree ${ANDROID_HOME}
+find ${ANDROID_HOME} -iname "*clang++"
+
+#tree ${ANDROID_HOME}
 
 # ls ${ANDROID_NDK_HOME}/toolchains/
 # ls ${ANDROID_NDK_HOME}/toolchains/llvm

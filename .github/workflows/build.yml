@@ -4,61 +4,61 @@ on: [push, pull_request_target]
 
 jobs:
 
-  build-linux:
-    runs-on: ubuntu-latest
+  # build-linux:
+  #   runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        platform: ['linux']
-        arch: ['x86', 'x64']
+  #   strategy:
+  #     matrix:
+  #       platform: ['linux']
+  #       arch: ['x86', 'x64']
 
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install 32 bit support
-        run: sudo apt-get install gcc-multilib g++-multilib
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - name: Install 32 bit support
+  #       run: sudo apt-get install gcc-multilib g++-multilib
 
-      - name: Build
-        run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
-      - name: Run
-        run: .github/scripts/run_tests.sh
+  #     - name: Build
+  #       run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
+  #     - name: Run
+  #       run: .github/scripts/run_tests.sh
 
-  build-macos:
-    runs-on: macos-latest
+  # build-macos:
+  #   runs-on: macos-latest
 
-    strategy:
-      matrix:
-        platform: ['linux']
-        arch: ['x64']
-        buildmode: ['release']
+  #   strategy:
+  #     matrix:
+  #       platform: ['linux']
+  #       arch: ['x64']
+  #       buildmode: ['release']
 
-    steps:
-      - uses: actions/checkout@v2
-      - name: Build
-        run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
-      - name: Run
-        run: .github/scripts/run_tests.sh
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - name: Build
+  #       run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
+  #     - name: Run
+  #       run: .github/scripts/run_tests.sh
 
 
-  build-windows:
-    runs-on: 'windows-latest'
+  # build-windows:
+  #   runs-on: 'windows-latest'
 
-    strategy:
-      matrix:
-        platform: ['windows']
-        arch: ['x86', 'x64']
-        buildmode: ['debug', 'release']
-        toolset: ['14.3','14.2','14.1']
+  #   strategy:
+  #     matrix:
+  #       platform: ['windows']
+  #       arch: ['x86', 'x64']
+  #       buildmode: ['debug', 'release']
+  #       toolset: ['14.3','14.2','14.1']
 
-    steps:
-      - uses: actions/checkout@v2
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{ matrix.arch }}
-          toolset: ${{ matrix.toolset }}
-      - name: Build
-        run: .github/scripts/compile.bat ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
-      - name: Run
-        run: .github/scripts/run_tests.bat
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: ilammy/msvc-dev-cmd@v1
+  #       with:
+  #         arch: ${{ matrix.arch }}
+  #         toolset: ${{ matrix.toolset }}
+  #     - name: Build
+  #       run: .github/scripts/compile.bat ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
+  #     - name: Run
+  #       run: .github/scripts/run_tests.bat
 
   build-android:
     runs-on: ubuntu-latest
@@ -82,9 +82,6 @@ jobs:
       # Sets ANDROID_HOME as well as installs the latest NDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v2
-
-      - name: install debug tools
-        run: sudo apt-get install tree
 
       - name: Build
         run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
