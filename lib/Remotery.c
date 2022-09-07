@@ -9523,12 +9523,13 @@ static rmtError Metal_Create(Metal** metal)
 {
     assert(metal != NULL);
 
-    rmtTryMallocArray(Metal, *metal);
+    rmtTryMalloc(Metal, *metal);
 
     (*metal)->mq_to_metal_main = NULL;
 
     rmtTryNew(rmtMessageQueue, (*metal)->mq_to_metal_main, g_Settings.messageQueueSizeInBytes);
-    return error;
+
+    return RMT_ERROR_NONE;
 }
 
 static void Metal_Destructor(Metal* metal)
@@ -9655,12 +9656,14 @@ static void UpdateOpenGLFrame(void);
     }
 }*/
 
-RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
+RMT_API rmtError _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
 {
     ThreadProfiler* thread_profiler;
 
     if (g_Remotery == NULL)
-        return;
+    {
+        return RMT_ERROR_UNKNOWN;
+    }
 
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
     {
@@ -9672,11 +9675,8 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
         SampleTree** metal_tree = &thread_profiler->sampleTrees[RMT_SampleType_Metal];
         if (*metal_tree == NULL)
         {
-            rmtError error;
             rmtTryNew(SampleTree, *metal_tree, sizeof(MetalSample), (ObjConstructor)MetalSample_Constructor,
-                  (ObjDestructor)MetalSample_Destructor);
-            if (error != RMT_ERROR_NONE)
-                return;
+                      (ObjDestructor)MetalSample_Destructor);
         }
 
         // Push the sample and activate the timestamp
@@ -9687,6 +9687,8 @@ RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache)
             MetalTimestamp_Begin(metal_sample->timestamp);
         }
     }
+
+    return RMT_ERROR_NONE;
 }
 
 static rmtBool GetMetalSampleTimes(Sample* sample)
