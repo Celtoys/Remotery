@@ -149,7 +149,7 @@ documented just below this comment.
 #endif
 #endif
 
-#if !(defined(RMT_ARCH_64BIT) || defined(RMT_ARCH_32BIT)
+#if !(defined(RMT_ARCH_64BIT) || defined(RMT_ARCH_32BIT))
     #error "No RMT_ARCH_64BIT or RMT_ARCH_32BIT is set!"
 #endif
 
