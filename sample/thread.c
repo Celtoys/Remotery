@@ -1,8 +1,9 @@
 #include <assert.h>
-#include <stdlib.h>
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "../lib/Remotery.h"
 
 typedef void (*ThreadFunction)(void*);
@@ -33,6 +34,7 @@ static void thread_start_proxy(void* arg)
     rmt_SetCurrentThreadName(data->name);
 
     data->function(data->context);
+    free((void*)data->name);
     free(data);
 }
 
@@ -62,7 +64,7 @@ thread_t thread_create(ThreadFunction thread_start, const char* name, void* cont
 
     thread_data_t* thread_data = (thread_data_t*)malloc(sizeof(thread_data_t));
     thread_data->function = thread_start;
-    thread_data->name = name;
+    thread_data->name = strdup(name);
     thread_data->context = context;
 
     ret = pthread_create(&thread, &attr, (void* (*)(void*)) thread_start_proxy, thread_data);
