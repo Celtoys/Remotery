@@ -167,6 +167,11 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <cuda.h>
 #endif
 
+
+#if !defined(__STDC_NO_ATOMICS__)
+    #include <stdatomic.h>
+#endif
+
 // clang-format on
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -621,33 +626,48 @@ static void mtxDelete(rmtMutex* mutex)
 // be used to update the old value and an initial load only made once before the loop starts.
 
 // TODO(don): Vary these types across versions of C and C++
-typedef volatile rmtS32 rmtAtomicS32;
-typedef volatile rmtU32 rmtAtomicU32;
-typedef volatile rmtU64 rmtAtomicU64;
+#if defined(__STDC_NO_ATOMICS__)
+    typedef volatile rmtS32 rmtAtomicS32;
+    typedef volatile rmtU32 rmtAtomicU32;
+    typedef volatile rmtU64 rmtAtomicU64;
+    typedef volatile void*  rmtAtomicPtr;
+#else
+    #define RMT_USE_C_ATOMICS
+    typedef _Atomic(rmtS32) rmtAtomicS32;
+    typedef _Atomic(rmtU32) rmtAtomicU32;
+    typedef _Atomic(rmtU64) rmtAtomicU64;
+    typedef _Atomic(void*)  rmtAtomicPtr;
+#endif
 
-static rmtBool AtomicCompareAndSwapU32(rmtU32 volatile* val, long old_val, long new_val)
+static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_val, rmtU32 new_val)
 {
-#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+#if defined(RMT_USE_C_ATOMICS)
+    return atomic_compare_exchange_strong(val, &old_val, new_val);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedCompareExchange((long volatile*)val, new_val, old_val) == old_val ? RMT_TRUE : RMT_FALSE;
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
     return __sync_bool_compare_and_swap(val, old_val, new_val) ? RMT_TRUE : RMT_FALSE;
 #endif
 }
 
-static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64* val, rmtU64 old_value, rmtU64 new_val)
+static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64 volatile* val, rmtU64 old_val, rmtU64 new_val)
 {
-    #if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
-    return _InterlockedCompareExchange64((volatile LONG64*)val, (LONG64)new_val, (LONG64)old_value) == (LONG64)old_value
+#if defined(RMT_USE_C_ATOMICS)
+    return atomic_compare_exchange_strong(val, &old_val, new_val);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    return _InterlockedCompareExchange64((volatile LONG64*)val, (LONG64)new_val, (LONG64)old_val) == (LONG64)old_val
         ? RMT_TRUE
         : RMT_FALSE;
-    #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
-    return __sync_bool_compare_and_swap(val, old_value, new_val) ? RMT_TRUE : RMT_FALSE;
-    #endif
+#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
+    return __sync_bool_compare_and_swap(val, old_val, new_val) ? RMT_TRUE : RMT_FALSE;
+#endif
 }
 
-static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, long* new_ptr)
+static rmtBool AtomicCompareAndSwapPointer(rmtAtomicPtr volatile* ptr, void* old_ptr, void* new_ptr)
 {
-#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+#if defined(RMT_USE_C_ATOMICS)
+    return atomic_compare_exchange_strong(ptr, &old_ptr, new_ptr);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
 #ifdef _WIN64
     return _InterlockedCompareExchange64((__int64 volatile*)ptr, (__int64)new_ptr, (__int64)old_ptr) == (__int64)old_ptr
                ? RMT_TRUE
@@ -668,7 +688,9 @@ static rmtBool AtomicCompareAndSwapPointer(long* volatile* ptr, long* old_ptr, l
 //
 static rmtS32 AtomicAddS32(rmtAtomicS32* value, rmtS32 add)
 {
-#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+#if defined(RMT_USE_C_ATOMICS)
+    return atomic_fetch_add(value, add);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedExchangeAdd((long volatile*)value, (long)add);
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
     return __sync_fetch_and_add(value, add);
@@ -677,7 +699,9 @@ static rmtS32 AtomicAddS32(rmtAtomicS32* value, rmtS32 add)
 
 static rmtU32 AtomicAddU32(rmtAtomicU32* value, rmtU32 add)
 {
-#if defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+#if defined(RMT_USE_C_ATOMICS)
+    return atomic_fetch_add(value, add);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return (rmtU32)_InterlockedExchangeAdd((long volatile*)value, (long)add);
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
     return (rmtU32)__sync_fetch_and_add(value, add);
@@ -2040,7 +2064,7 @@ const char* GetStartAddressModuleName(DWORD_PTR start_address)
 static void rmtGetThreadNameFallback(char* out_thread_name, rmtU32 thread_name_size)
 {
     // In cases where we can't get a thread name from the OS
-    static rmtS32 countThreads = 0;
+    static rmtAtomicS32 countThreads = 0;
     out_thread_name[0] = 0;
     strncat_s(out_thread_name, thread_name_size, "Thread", 6);
     itoahex_s(out_thread_name + 6, thread_name_size - 6, AtomicAddS32(&countThreads, 1));
@@ -2137,7 +2161,7 @@ struct Thread_t
     rmtError error;
 
     // External threads can set this to request an exit
-    volatile rmtBool request_exit;
+    rmtAtomicU32 request_exit;
 };
 
 #if defined(RMT_PLATFORM_WINDOWS)
@@ -2178,7 +2202,7 @@ static rmtError rmtThread_Constructor(rmtThread* thread, ThreadProc callback, vo
     thread->callback = callback;
     thread->param = param;
     thread->error = RMT_ERROR_NONE;
-    thread->request_exit = RMT_FALSE;
+    thread->request_exit = 0;
 
     // OS-specific thread creation
 
@@ -2214,7 +2238,7 @@ static void rmtThread_RequestExit(rmtThread* thread)
 {
     // Not really worried about memory barriers or delayed visibility to the target thread
     assert(thread != NULL);
-    thread->request_exit = RMT_TRUE;
+    AtomicAddU32(&thread->request_exit, 1);
 }
 
 static void rmtThread_Join(rmtThread* thread)
@@ -2263,6 +2287,12 @@ typedef struct ObjectLink_s
     struct ObjectLink_s* volatile next;
 } ObjectLink;
 
+#if defined(RMT_USE_C_ATOMICS)
+    typedef _Atomic(ObjectLink*)    rmtAtomicObjectLinkPtr;
+#else
+    typedef ObjectLink*             rmtAtomicObjectLinkPtr;
+#endif
+
 static void ObjectLink_Constructor(ObjectLink* link)
 {
     assert(link != NULL);
@@ -2288,7 +2318,7 @@ typedef struct
     // Total allocation count
     rmtAtomicS32 nb_allocated;
 
-    ObjectLink* first_free;
+    rmtAtomicObjectLinkPtr first_free;
 } ObjectAllocator;
 
 static rmtError ObjectAllocator_Constructor(ObjectAllocator* allocator, rmtU32 object_size, ObjConstructor constructor,
@@ -2330,9 +2360,9 @@ static void ObjectAllocator_Push(ObjectAllocator* allocator, ObjectLink* start, 
     // CAS pop add range to the front of the list
     for (;;)
     {
-        ObjectLink* old_link = (ObjectLink*)allocator->first_free;
-        end->next = old_link;
-        if (AtomicCompareAndSwapPointer((long* volatile*)&allocator->first_free, (long*)old_link, (long*)start) ==
+        rmtAtomicObjectLinkPtr old_link = allocator->first_free;
+        end->next = (ObjectLink*)old_link;
+        if (AtomicCompareAndSwapPointer((rmtAtomicPtr*)&allocator->first_free, old_link, start) ==
             RMT_TRUE)
             break;
     }
@@ -2347,13 +2377,13 @@ static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
     // CAS pop from the front of the list
     for (;;)
     {
-        ObjectLink* old_link = (ObjectLink*)allocator->first_free;
+        rmtAtomicObjectLinkPtr old_link = allocator->first_free;
         if (old_link == NULL)
         {
             return NULL;
         }
         ObjectLink* next_link = old_link->next;
-        if (AtomicCompareAndSwapPointer((long* volatile*)&allocator->first_free, (long*)old_link, (long*)next_link) ==
+        if (AtomicCompareAndSwapPointer((rmtAtomicPtr*)&allocator->first_free, old_link, next_link) ==
             RMT_TRUE)
         {
             link = old_link;
@@ -4241,10 +4271,10 @@ static void rmtMessageQueue_CommitMessage(Message* message, MessageID id)
     assert(message != NULL);
 
     // Setting the message ID signals to the consumer that the message is ready
-    r = (MessageID)LoadAcquire((rmtU32*)&message->id);
+    r = (MessageID)LoadAcquire((rmtAtomicU32*)&message->id);
     RMT_UNREFERENCED_PARAMETER(r);
     assert(r == MsgID_NotReady);
-    StoreRelease((rmtU32*)&message->id, id);
+    StoreRelease((rmtAtomicU32*)&message->id, id);
 }
 
 Message* rmtMessageQueue_PeekNextMessage(rmtMessageQueue* queue)
@@ -4266,7 +4296,7 @@ Message* rmtMessageQueue_PeekNextMessage(rmtMessageQueue* queue)
     // the next one in the queue is ready.
     r = r & (queue->size - 1);
     ptr = (Message*)(queue->data->ptr + r);
-    id = (MessageID)LoadAcquire((rmtU32*)&ptr->id);
+    id = (MessageID)LoadAcquire((rmtAtomicU32*)&ptr->id);
     if (id != MsgID_NotReady)
         return ptr;
 
@@ -5544,7 +5574,7 @@ static rmtError GatherThreadsLoop(rmtThread* thread)
 
     rmt_SetCurrentThreadName("RemoteryGatherThreads");
 
-    while (thread->request_exit == RMT_FALSE)
+    while (thread->request_exit == 0)
     {
         // We want a long period of time between scanning for new threads as the process is a little expensive (~30ms here).
         // However not too long so as to miss potentially detailed process startup data.
