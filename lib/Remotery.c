@@ -167,8 +167,15 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <cuda.h>
 #endif
 
+#if __STDC_VERSION__ >= 201112L
+    #if !defined(__STDC_NO_ATOMICS__)
+        #if !defined(RMT_USE_C_ATOMICS) // Check if the user already specified it
+            #define RMT_USE_C_ATOMICS
+        #endif
+    #endif
+#endif
 
-#if !defined(__STDC_NO_ATOMICS__)
+#if defined(RMT_USE_C_ATOMICS)
     #include <stdatomic.h>
 #endif
 
@@ -626,17 +633,16 @@ static void mtxDelete(rmtMutex* mutex)
 // be used to update the old value and an initial load only made once before the loop starts.
 
 // TODO(don): Vary these types across versions of C and C++
-#if defined(__STDC_NO_ATOMICS__)
-    typedef volatile rmtS32 rmtAtomicS32;
-    typedef volatile rmtU32 rmtAtomicU32;
-    typedef volatile rmtU64 rmtAtomicU64;
-    typedef volatile void*  rmtAtomicPtr;
-#else
-    #define RMT_USE_C_ATOMICS
+#if defined(RMT_USE_C_ATOMICS)
     typedef _Atomic(rmtS32) rmtAtomicS32;
     typedef _Atomic(rmtU32) rmtAtomicU32;
     typedef _Atomic(rmtU64) rmtAtomicU64;
     typedef _Atomic(void*)  rmtAtomicPtr;
+#else
+    typedef volatile rmtS32 rmtAtomicS32;
+    typedef volatile rmtU32 rmtAtomicU32;
+    typedef volatile rmtU64 rmtAtomicU64;
+    typedef volatile void*  rmtAtomicPtr;
 #endif
 
 static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_val, rmtU32 new_val)
@@ -2330,7 +2336,7 @@ static rmtError ObjectAllocator_Constructor(ObjectAllocator* allocator, rmtU32 o
     allocator->nb_free = 0;
     allocator->nb_inuse = 0;
     allocator->nb_allocated = 0;
-    allocator->first_free = NULL;
+    allocator->first_free = (ObjectLink*)0;
     return RMT_ERROR_NONE;
 }
 
