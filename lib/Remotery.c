@@ -663,7 +663,7 @@ static void mtxDelete(rmtMutex* mutex)
     #define rmtAtomicPtr(type)  volatile type*
 #endif
 
-typedef rmtAtomicPtr(void) rmtAtomicVoidPtr;
+typedef rmtAtomicPtr(void)      rmtAtomicVoidPtr;
 
 static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_val, rmtU32 new_val)
 {
@@ -749,6 +749,32 @@ static void AtomicSubS32(rmtAtomicS32* value, rmtS32 sub)
 {
     // Not all platforms have an implementation so just negate and add
     AtomicAddS32(value, -sub);
+}
+
+static rmtU32 AtomicStoreU32(rmtAtomicU32* value, rmtU32 set)
+{
+#if defined(RMT_USE_C11_ATOMICS)
+    return atomic_exchange(value, set);
+#elif defined(RMT_USE_CPP_ATOMICS)
+    return value->exchange(set);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    return (rmtU32)_InterlockedExchange((long volatile*)value, (long) set);
+#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
+    return (rmtU32)__sync_lock_test_and_set(value, set);
+#endif
+}
+
+static rmtU32 AtomicLoadU32(rmtAtomicU32* value)
+{
+#if defined(RMT_USE_C11_ATOMICS)
+    return atomic_load(value);
+#elif defined(RMT_USE_CPP_ATOMICS)
+    return value->load();
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    return (rmtU32)_InterlockedExchangeAdd((long volatile*)value, (long)0);
+#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
+    return (rmtU32)__sync_fetch_and_add(value, 0);
+#endif
 }
 
 static void CompilerWriteFence()
@@ -5333,7 +5359,7 @@ static rmtU32 ThreadProfiler_GetNameHash(ThreadProfiler* thread_profiler, rmtMes
     if (hash_cache != NULL)
     {
         // Calculate the hash first time round only
-        name_hash = *hash_cache;
+        name_hash = AtomicLoadU32((rmtAtomicU32*)hash_cache);
         if (name_hash == 0)
         {
             assert(name != NULL);
@@ -5343,7 +5369,7 @@ static rmtU32 ThreadProfiler_GetNameHash(ThreadProfiler* thread_profiler, rmtMes
             // Queue the string for the string table and only cache the hash if it succeeds
             if (QueueAddToStringTable(queue, name_hash, name, name_len, thread_profiler) == RMT_TRUE)
             {
-                *hash_cache = name_hash;
+                AtomicStoreU32((rmtAtomicU32*)hash_cache, name_hash);
             }
         }
 
