@@ -2171,7 +2171,7 @@ struct Thread_t
     rmtError error;
 
     // External threads can set this to request an exit
-    rmtAtomicU32 request_exit;
+    rmtAtomicBool request_exit;
 };
 
 #if defined(RMT_PLATFORM_WINDOWS)
@@ -2212,7 +2212,7 @@ static rmtError rmtThread_Constructor(rmtThread* thread, ThreadProc callback, vo
     thread->callback = callback;
     thread->param = param;
     thread->error = RMT_ERROR_NONE;
-    thread->request_exit = 0;
+    thread->request_exit = RMT_FALSE;
 
     // OS-specific thread creation
 
@@ -2248,7 +2248,7 @@ static void rmtThread_RequestExit(rmtThread* thread)
 {
     // Not really worried about memory barriers or delayed visibility to the target thread
     assert(thread != NULL);
-    AtomicAddU32(&thread->request_exit, 1);
+    thread->request_exit = true;
 }
 
 static void rmtThread_Join(rmtThread* thread)
@@ -5580,7 +5580,7 @@ static rmtError GatherThreadsLoop(rmtThread* thread)
 
     rmt_SetCurrentThreadName("RemoteryGatherThreads");
 
-    while (thread->request_exit == 0)
+    while (thread->request_exit == RMT_FALSE)
     {
         // We want a long period of time between scanning for new threads as the process is a little expensive (~30ms here).
         // However not too long so as to miss potentially detailed process startup data.
