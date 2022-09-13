@@ -169,21 +169,21 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
 #if !defined(RMT_PLATFORM_WINDOWS)
 #if __cplusplus >= 199711L
-    #if !defined(RMT_USE_CXX_ATOMICS)
-        #define RMT_USE_CXX_ATOMICS
+    #if !defined(RMT_USE_CPP_ATOMICS)
+        #define RMT_USE_CPP_ATOMICS
     #endif
 #elif __STDC_VERSION__ >= 201112L
     #if !defined(__STDC_NO_ATOMICS__)
-        #if !defined(RMT_USE_C_ATOMICS)
-            #define RMT_USE_C_ATOMICS
+        #if !defined(RMT_USE_C11_ATOMICS)
+            #define RMT_USE_C11_ATOMICS
         #endif
     #endif
 #endif
 #endif
 
-#if defined(RMT_USE_C_ATOMICS)
+#if defined(RMT_USE_C11_ATOMICS)
     #include <stdatomic.h>
-#elif defined(RMT_USE_CXX_ATOMICS)
+#elif defined(RMT_USE_CPP_ATOMICS)
     #include <atomic>
 #endif
 
@@ -641,13 +641,13 @@ static void mtxDelete(rmtMutex* mutex)
 // be used to update the old value and an initial load only made once before the loop starts.
 
 // TODO(don): Vary these types across versions of C and C++
-#if defined(RMT_USE_C_ATOMICS)
+#if defined(RMT_USE_C11_ATOMICS)
     typedef _Atomic(rmtS32)     rmtAtomicS32;
     typedef _Atomic(rmtU32)     rmtAtomicU32;
     typedef _Atomic(rmtU64)     rmtAtomicU64;
     typedef _Atomic(rmtBool)    rmtAtomicBool;
     #define rmtAtomicPtr(type)  _Atomic(type *)
-#elif defined(RMT_USE_CXX_ATOMICS)
+#elif defined(RMT_USE_CPP_ATOMICS)
     typedef std::atomic_int32_t     rmtAtomicS32;
     typedef std::atomic_uint32_t    rmtAtomicU32;
     typedef std::atomic_uint64_t    rmtAtomicU64;
@@ -665,9 +665,9 @@ typedef rmtAtomicPtr(void) rmtAtomicVoidPtr;
 
 static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_val, rmtU32 new_val)
 {
-#if defined(RMT_USE_C_ATOMICS)
+#if defined(RMT_USE_C11_ATOMICS)
     return atomic_compare_exchange_strong(val, &old_val, new_val);
-#elif defined(RMT_USE_CXX_ATOMICS)
+#elif defined(RMT_USE_CPP_ATOMICS)
     rmtU32 tmp = old_val;
     return val->compare_exchange_strong(tmp, new_val);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
@@ -679,9 +679,9 @@ static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_va
 
 static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64 volatile* val, rmtU64 old_val, rmtU64 new_val)
 {
-#if defined(RMT_USE_C_ATOMICS)
+#if defined(RMT_USE_C11_ATOMICS)
     return atomic_compare_exchange_strong(val, &old_val, new_val);
-#elif defined(RMT_USE_CXX_ATOMICS)
+#elif defined(RMT_USE_CPP_ATOMICS)
     rmtU64 tmp = old_val;
     return val->compare_exchange_strong(tmp, new_val);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
@@ -695,9 +695,9 @@ static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64 volatile* val, rmtU64 old_va
 
 static rmtBool AtomicCompareAndSwapPointer(rmtAtomicVoidPtr volatile* ptr, void* old_ptr, void* new_ptr)
 {
-#if defined(RMT_USE_C_ATOMICS)
+#if defined(RMT_USE_C11_ATOMICS)
     return atomic_compare_exchange_strong(ptr, &old_ptr, new_ptr);
-#elif defined(RMT_USE_CXX_ATOMICS)
+#elif defined(RMT_USE_CPP_ATOMICS)
     void* tmp = old_ptr;
     return ptr->compare_exchange_strong(tmp, new_ptr);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
@@ -721,9 +721,9 @@ static rmtBool AtomicCompareAndSwapPointer(rmtAtomicVoidPtr volatile* ptr, void*
 //
 static rmtS32 AtomicAddS32(rmtAtomicS32* value, rmtS32 add)
 {
-#if defined(RMT_USE_C_ATOMICS)
+#if defined(RMT_USE_C11_ATOMICS)
     return atomic_fetch_add(value, add);
-#elif defined(RMT_USE_CXX_ATOMICS)
+#elif defined(RMT_USE_CPP_ATOMICS)
     return value->fetch_add(add);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedExchangeAdd((long volatile*)value, (long)add);
@@ -734,9 +734,9 @@ static rmtS32 AtomicAddS32(rmtAtomicS32* value, rmtS32 add)
 
 static rmtU32 AtomicAddU32(rmtAtomicU32* value, rmtU32 add)
 {
-#if defined(RMT_USE_C_ATOMICS)
+#if defined(RMT_USE_C11_ATOMICS)
     return atomic_fetch_add(value, add);
-#elif defined(RMT_USE_CXX_ATOMICS)
+#elif defined(RMT_USE_CPP_ATOMICS)
     return value->fetch_add(add);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return (rmtU32)_InterlockedExchangeAdd((long volatile*)value, (long)add);
