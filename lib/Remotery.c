@@ -167,8 +167,21 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <cuda.h>
 #endif
 
+#if __STDC_VERSION__ >= 201112L || __cplusplus >= 199711L
+    #if !defined(__STDC_NO_ATOMICS__)
+        #if !defined(RMT_USE_C_ATOMICS) // Check if the user already specified it
+            #define RMT_USE_C_ATOMICS
+        #endif
+    #endif
+#endif
+
 #if defined(RMT_USE_C_ATOMICS)
-    #include <stdatomic.h>
+    #if !defined(__cplusplus)
+        #include <stdatomic.h>
+    #else
+        #include <atomic>
+        #define _Atomic(type) std::atomic< type >
+    #endif
 #endif
 
 // clang-format on
@@ -714,6 +727,17 @@ static void AtomicSubS32(rmtAtomicS32* value, rmtS32 sub)
 {
     // Not all platforms have an implementation so just negate and add
     AtomicAddS32(value, -sub);
+}
+
+static rmtU32 AtomicSetU32(rmtAtomicU32* value, rmtU32 set)
+{
+#if defined(RMT_USE_C_ATOMICS)
+    return atomic_exchange(value, set);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    return InterlockedExchange((long volatile*)value, (long)set);
+#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
+    return __sync_lock_test_and_set(value, set);
+#endif
 }
 
 static void CompilerWriteFence()
@@ -2063,14 +2087,7 @@ const char* GetStartAddressModuleName(DWORD_PTR start_address)
 }
 #endif
 
-static void rmtGetThreadNameFallback(char* out_thread_name, rmtU32 thread_name_size)
-{
-    // In cases where we can't get a thread name from the OS
-    static rmtAtomicS32 countThreads = 0;
-    out_thread_name[0] = 0;
-    strncat_s(out_thread_name, thread_name_size, "Thread", 6);
-    itoahex_s(out_thread_name + 6, thread_name_size - 6, AtomicAddS32(&countThreads, 1));
-}
+static void rmtGetThreadNameFallback(char* out_thread_name, rmtU32 thread_name_size);
 
 static void rmtGetThreadName(rmtThreadId thread_id, rmtThreadHandle thread_handle, char* out_thread_name, rmtU32 thread_name_size)
 {
@@ -2341,7 +2358,7 @@ static void ObjectAllocator_Destructor(ObjectAllocator* allocator)
     // Destroy all objects released to the allocator
     while (allocator->first_free != NULL)
     {
-        ObjectLink* next = allocator->first_free->next;
+        ObjectLink* next = ((ObjectLink*)allocator->first_free)->next;
         assert(allocator->destructor != NULL);
         allocator->destructor((void*)allocator->first_free);
         rmtFree((void*)allocator->first_free);
@@ -2358,8 +2375,8 @@ static void ObjectAllocator_Push(ObjectAllocator* allocator, ObjectLink* start, 
     // CAS pop add range to the front of the list
     for (;;)
     {
-        rmtAtomicObjectLinkPtr old_link = allocator->first_free;
-        end->next = (ObjectLink*)old_link;
+        ObjectLink* old_link = (ObjectLink*)allocator->first_free;
+        end->next = old_link;
         if (AtomicCompareAndSwapPointer((rmtAtomicVoidPtr*)&allocator->first_free, (void*)old_link, (void*)start) ==
             RMT_TRUE)
             break;
@@ -2375,7 +2392,7 @@ static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
     // CAS pop from the front of the list
     for (;;)
     {
-        rmtAtomicObjectLinkPtr old_link = allocator->first_free;
+        ObjectLink* old_link = (ObjectLink*)allocator->first_free;
         if (old_link == NULL)
         {
             return NULL;
@@ -6174,6 +6191,8 @@ struct Remotery
 
     // Frame used to determine age of property changes
     rmtU32 propertyFrame;
+
+    rmtAtomicU32 countThreads;
 };
 
 //
@@ -6186,6 +6205,14 @@ static Remotery* g_Remotery = NULL;
 // only the creating EXE/DLL to destroy the remotery instance.
 //
 static rmtBool g_RemoteryCreated = RMT_FALSE;
+
+static void rmtGetThreadNameFallback(char* out_thread_name, rmtU32 thread_name_size)
+{
+    // In cases where we can't get a thread name from the OS
+    out_thread_name[0] = 0;
+    strncat_s(out_thread_name, thread_name_size, "Thread", 6);
+    itoahex_s(out_thread_name + 6, thread_name_size - 6, AtomicAddU32(&g_Remotery->countThreads, 1));
+}
 
 static double saturate(double v)
 {
@@ -6962,6 +6989,8 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     assert(g_Remotery == NULL);
     g_Remotery = rmt;
     g_RemoteryCreated = RMT_TRUE;
+
+    AtomicSetU32(&g_Remotery->countThreads, 0);
 
     // Ensure global instance writes complete before other threads get a chance to use it
     CompilerWriteFence();
