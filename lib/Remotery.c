@@ -634,16 +634,20 @@ static void mtxDelete(rmtMutex* mutex)
 
 // TODO(don): Vary these types across versions of C and C++
 #if defined(RMT_USE_C_ATOMICS)
-    typedef _Atomic(rmtS32) rmtAtomicS32;
-    typedef _Atomic(rmtU32) rmtAtomicU32;
-    typedef _Atomic(rmtU64) rmtAtomicU64;
-    typedef _Atomic(void*)  rmtAtomicPtr;
+    typedef _Atomic(rmtS32)     rmtAtomicS32;
+    typedef _Atomic(rmtU32)     rmtAtomicU32;
+    typedef _Atomic(rmtU64)     rmtAtomicU64;
+    typedef _Atomic(rmtBool)    rmtAtomicBool;
+    #define rmtAtomicPtr(type)  _Atomic(type *)
 #else
-    typedef volatile rmtS32 rmtAtomicS32;
-    typedef volatile rmtU32 rmtAtomicU32;
-    typedef volatile rmtU64 rmtAtomicU64;
-    typedef volatile void*  rmtAtomicPtr;
+    typedef volatile rmtS32     rmtAtomicS32;
+    typedef volatile rmtU32     rmtAtomicU32;
+    typedef volatile rmtU64     rmtAtomicU64;
+    typedef volatile rmtBool    rmtAtomicBool;
+    #define rmtAtomicPtr(type)  volatile type*
 #endif
+
+typedef rmtAtomicPtr(void) rmtAtomicVoidPtr;
 
 static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_val, rmtU32 new_val)
 {
@@ -669,7 +673,7 @@ static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64 volatile* val, rmtU64 old_va
 #endif
 }
 
-static rmtBool AtomicCompareAndSwapPointer(rmtAtomicPtr volatile* ptr, void* old_ptr, void* new_ptr)
+static rmtBool AtomicCompareAndSwapPointer(rmtAtomicVoidPtr volatile* ptr, void* old_ptr, void* new_ptr)
 {
 #if defined(RMT_USE_C_ATOMICS)
     return atomic_compare_exchange_strong(ptr, &old_ptr, new_ptr);
@@ -2293,11 +2297,7 @@ typedef struct ObjectLink_s
     struct ObjectLink_s* volatile next;
 } ObjectLink;
 
-#if defined(RMT_USE_C_ATOMICS)
-    typedef _Atomic(ObjectLink*)    rmtAtomicObjectLinkPtr;
-#else
-    typedef ObjectLink*             rmtAtomicObjectLinkPtr;
-#endif
+typedef rmtAtomicPtr(ObjectLink)    rmtAtomicObjectLinkPtr;
 
 static void ObjectLink_Constructor(ObjectLink* link)
 {
@@ -2351,8 +2351,8 @@ static void ObjectAllocator_Destructor(ObjectAllocator* allocator)
     {
         ObjectLink* next = allocator->first_free->next;
         assert(allocator->destructor != NULL);
-        allocator->destructor(allocator->first_free);
-        rmtFree(allocator->first_free);
+        allocator->destructor((void*)allocator->first_free);
+        rmtFree((void*)allocator->first_free);
         allocator->first_free = next;
     }
 }
@@ -2368,7 +2368,7 @@ static void ObjectAllocator_Push(ObjectAllocator* allocator, ObjectLink* start, 
     {
         rmtAtomicObjectLinkPtr old_link = allocator->first_free;
         end->next = (ObjectLink*)old_link;
-        if (AtomicCompareAndSwapPointer((rmtAtomicPtr*)&allocator->first_free, old_link, start) ==
+        if (AtomicCompareAndSwapPointer((rmtAtomicVoidPtr*)&allocator->first_free, (void*)old_link, (void*)start) ==
             RMT_TRUE)
             break;
     }
@@ -2389,10 +2389,10 @@ static ObjectLink* ObjectAllocator_Pop(ObjectAllocator* allocator)
             return NULL;
         }
         ObjectLink* next_link = old_link->next;
-        if (AtomicCompareAndSwapPointer((rmtAtomicPtr*)&allocator->first_free, old_link, next_link) ==
+        if (AtomicCompareAndSwapPointer((rmtAtomicVoidPtr*)&allocator->first_free, (void*)old_link, (void*)next_link) ==
             RMT_TRUE)
         {
-            link = old_link;
+            link = (ObjectLink*)old_link;
             break;
         }
     }
