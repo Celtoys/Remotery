@@ -167,23 +167,22 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <cuda.h>
 #endif
 
-#if !defined(RMT_PLATFORM_WINDOWS)
-    #if __STDC_VERSION__ >= 201112L || __cplusplus >= 199711L
-        #if !defined(__STDC_NO_ATOMICS__)
-            #if !defined(RMT_USE_C_ATOMICS) // Check if the user already specified it
-                #define RMT_USE_C_ATOMICS
-            #endif
+#if __cplusplus >= 199711L
+    #if !defined(RMT_USE_CXX_ATOMICS)
+        #define RMT_USE_CXX_ATOMICS
+    #endif
+#elif __STDC_VERSION__ >= 201112L
+    #if !defined(__STDC_NO_ATOMICS__)
+        #if !defined(RMT_USE_C_ATOMICS)
+            #define RMT_USE_C_ATOMICS
         #endif
     #endif
 #endif
 
 #if defined(RMT_USE_C_ATOMICS)
-    #if !defined(__cplusplus)
-        #include <stdatomic.h>
-    #else
-        #include <atomic>
-        #define _Atomic(type) std::atomic< type >
-    #endif
+    #include <stdatomic.h>
+#elif defined(RMT_USE_CXX_ATOMICS)
+    #include <atomic>
 #endif
 
 // clang-format on
@@ -646,6 +645,12 @@ static void mtxDelete(rmtMutex* mutex)
     typedef _Atomic(rmtU64)     rmtAtomicU64;
     typedef _Atomic(rmtBool)    rmtAtomicBool;
     #define rmtAtomicPtr(type)  _Atomic(type *)
+#elif defined(RMT_USE_CXX_ATOMICS)
+    typedef std::atomic_int32_t     rmtAtomicS32;
+    typedef std::atomic_uint32_t    rmtAtomicU32;
+    typedef std::atomic_uint64_t    rmtAtomicU64;
+    typedef std::atomic_bool        rmtAtomicBool;
+    #define rmtAtomicPtr(type)      std::atomic< type * >
 #else
     typedef volatile rmtS32     rmtAtomicS32;
     typedef volatile rmtU32     rmtAtomicU32;
@@ -660,6 +665,8 @@ static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_va
 {
 #if defined(RMT_USE_C_ATOMICS)
     return atomic_compare_exchange_strong(val, &old_val, new_val);
+#elif defined(RMT_USE_CXX_ATOMICS)
+    return val->compare_exchange_strong(old_val, new_val);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedCompareExchange((long volatile*)val, new_val, old_val) == old_val ? RMT_TRUE : RMT_FALSE;
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
@@ -671,6 +678,8 @@ static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64 volatile* val, rmtU64 old_va
 {
 #if defined(RMT_USE_C_ATOMICS)
     return atomic_compare_exchange_strong(val, &old_val, new_val);
+#elif defined(RMT_USE_CXX_ATOMICS)
+    return val->compare_exchange_strong(old_val, new_val);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedCompareExchange64((volatile LONG64*)val, (LONG64)new_val, (LONG64)old_val) == (LONG64)old_val
         ? RMT_TRUE
@@ -684,6 +693,8 @@ static rmtBool AtomicCompareAndSwapPointer(rmtAtomicVoidPtr volatile* ptr, void*
 {
 #if defined(RMT_USE_C_ATOMICS)
     return atomic_compare_exchange_strong(ptr, &old_ptr, new_ptr);
+#elif defined(RMT_USE_CXX_ATOMICS)
+    return ptr->compare_exchange_strong(old_ptr, new_ptr);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
 #ifdef _WIN64
     return _InterlockedCompareExchange64((__int64 volatile*)ptr, (__int64)new_ptr, (__int64)old_ptr) == (__int64)old_ptr
@@ -707,6 +718,8 @@ static rmtS32 AtomicAddS32(rmtAtomicS32* value, rmtS32 add)
 {
 #if defined(RMT_USE_C_ATOMICS)
     return atomic_fetch_add(value, add);
+#elif defined(RMT_USE_CXX_ATOMICS)
+    return value->fetch_add(add);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedExchangeAdd((long volatile*)value, (long)add);
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
@@ -718,6 +731,8 @@ static rmtU32 AtomicAddU32(rmtAtomicU32* value, rmtU32 add)
 {
 #if defined(RMT_USE_C_ATOMICS)
     return atomic_fetch_add(value, add);
+#elif defined(RMT_USE_CXX_ATOMICS)
+    return value->fetch_add(add);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return (rmtU32)_InterlockedExchangeAdd((long volatile*)value, (long)add);
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
