@@ -729,17 +729,6 @@ static void AtomicSubS32(rmtAtomicS32* value, rmtS32 sub)
     AtomicAddS32(value, -sub);
 }
 
-static rmtU32 AtomicSetU32(rmtAtomicU32* value, rmtU32 set)
-{
-#if defined(RMT_USE_C_ATOMICS)
-    return atomic_exchange(value, set);
-#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
-    return InterlockedExchange((long volatile*)value, (long)set);
-#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
-    return __sync_lock_test_and_set(value, set);
-#endif
-}
-
 static void CompilerWriteFence()
 {
 #if defined(__clang__)
@@ -6192,7 +6181,7 @@ struct Remotery
     // Frame used to determine age of property changes
     rmtU32 propertyFrame;
 
-    rmtAtomicU32 countThreads;
+    rmtAtomicS32 countThreads;
 };
 
 //
@@ -6211,7 +6200,7 @@ static void rmtGetThreadNameFallback(char* out_thread_name, rmtU32 thread_name_s
     // In cases where we can't get a thread name from the OS
     out_thread_name[0] = 0;
     strncat_s(out_thread_name, thread_name_size, "Thread", 6);
-    itoahex_s(out_thread_name + 6, thread_name_size - 6, AtomicAddU32(&g_Remotery->countThreads, 1));
+    itoahex_s(out_thread_name + 6, thread_name_size - 6, AtomicAddS32(&g_Remotery->countThreads, 1));
 }
 
 static double saturate(double v)
@@ -6989,8 +6978,7 @@ static rmtError Remotery_Constructor(Remotery* rmt)
     assert(g_Remotery == NULL);
     g_Remotery = rmt;
     g_RemoteryCreated = RMT_TRUE;
-
-    AtomicSetU32(&g_Remotery->countThreads, 0);
+    g_Remotery->countThreads = 0;
 
     // Ensure global instance writes complete before other threads get a chance to use it
     CompilerWriteFence();
