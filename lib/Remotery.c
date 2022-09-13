@@ -7432,7 +7432,7 @@ typedef struct
 static void MapMessageQueueAndWait(Remotery* rmt, void (*map_message_queue_fn)(Remotery* rmt, Message*), void* data)
 {
     // Basic spin lock on the map function itself
-    while (AtomicCompareAndSwapPointer((long* volatile*)&rmt->map_message_queue_fn, NULL,
+    while (AtomicCompareAndSwapPointer((rmtAtomicVoidPtr*)&rmt->map_message_queue_fn, NULL,
                                        (long*)map_message_queue_fn) == RMT_FALSE)
         msSleep(1);
 
