@@ -12,8 +12,27 @@ typedef void (*ThreadFunction)(void*);
 
 // TODO: add a windows thread version
 
-// #include <Windows.h>
-// typedef HANDLE thread_t;
+#include <Windows.h>
+typedef HANDLE thread_t;
+
+static thread_t thread_create(ThreadFunction thread_start, const char* name, void* context)
+{
+    (void)name;
+    DWORD thread_id;
+    DWORD stack_size = 100000;
+    HANDLE thread = CreateThread(NULL, stack_size,
+                                 (LPTHREAD_START_ROUTINE) thread_start,
+                                 context, 0, &thread_id);
+    return thread;
+}
+
+
+static void thread_join(thread_t thread)
+{
+    DWORD ret = WaitForSingleObject(thread, INFINITE);
+    assert(ret == WAIT_OBJECT_0);
+}
+
 
 #else
 
@@ -119,6 +138,7 @@ static void Run(void* context)
             recursiveFunction(0);
         rmt_EndCPUSample();
     }
+
     printf("Exited thread\n");
 }
 
@@ -129,8 +149,8 @@ int main(int argc, char** argv)
     rmtError error;
 
     int i;
-    const int num_threads = 4;
-    thread_t threads[num_threads];
+    int num_threads = 4;
+    thread_t threads[4];
 
     signal(SIGINT, sigintHandler);
 
