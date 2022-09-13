@@ -2248,7 +2248,7 @@ static void rmtThread_RequestExit(rmtThread* thread)
 {
     // Not really worried about memory barriers or delayed visibility to the target thread
     assert(thread != NULL);
-    thread->request_exit = true;
+    thread->request_exit = RMT_TRUE;
 }
 
 static void rmtThread_Join(rmtThread* thread)
