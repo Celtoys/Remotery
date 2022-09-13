@@ -167,7 +167,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <cuda.h>
 #endif
 
-#if __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 201112L || __cplusplus >= 199711L
     #if !defined(__STDC_NO_ATOMICS__)
         #if !defined(RMT_USE_C_ATOMICS) // Check if the user already specified it
             #define RMT_USE_C_ATOMICS
