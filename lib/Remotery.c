@@ -167,18 +167,20 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <cuda.h>
 #endif
 
-#if !defined(RMT_PLATFORM_WINDOWS)
-#if __cplusplus >= 199711L
-    #if !defined(RMT_USE_CPP_ATOMICS)
-        #define RMT_USE_CPP_ATOMICS
-    #endif
-#elif __STDC_VERSION__ >= 201112L
-    #if !defined(__STDC_NO_ATOMICS__)
-        #if !defined(RMT_USE_C11_ATOMICS)
-            #define RMT_USE_C11_ATOMICS
+#if RMT_USE_LEGACY_ATOMICS==0
+    #if !defined(RMT_PLATFORM_WINDOWS)
+    #if __cplusplus >= 199711L
+        #if !defined(RMT_USE_CPP_ATOMICS)
+            #define RMT_USE_CPP_ATOMICS
+        #endif
+    #elif __STDC_VERSION__ >= 201112L
+        #if !defined(__STDC_NO_ATOMICS__)
+            #if !defined(RMT_USE_C11_ATOMICS)
+                #define RMT_USE_C11_ATOMICS
+            #endif
         #endif
     #endif
-#endif
+    #endif
 #endif
 
 #if defined(RMT_USE_C11_ATOMICS)
