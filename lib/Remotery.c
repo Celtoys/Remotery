@@ -648,10 +648,10 @@ static void mtxDelete(rmtMutex* mutex)
     typedef _Atomic(rmtBool)    rmtAtomicBool;
     #define rmtAtomicPtr(type)  _Atomic(type *)
 #elif defined(RMT_USE_CPP_ATOMICS)
-    typedef std::atomic_int32_t     rmtAtomicS32;
-    typedef std::atomic_uint32_t    rmtAtomicU32;
-    typedef std::atomic_uint64_t    rmtAtomicU64;
-    typedef std::atomic_bool        rmtAtomicBool;
+    typedef std::atomic< rmtS32 >   rmtAtomicS32;
+    typedef std::atomic< rmtU32 >   rmtAtomicU32;
+    typedef std::atomic< rmtU64 >   rmtAtomicU64;
+    typedef std::atomic< rmtBool >  rmtAtomicBool;
     #define rmtAtomicPtr(type)      std::atomic< type * >
 #else
     typedef volatile rmtS32     rmtAtomicS32;
@@ -668,8 +668,7 @@ static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_va
 #if defined(RMT_USE_C11_ATOMICS)
     return atomic_compare_exchange_strong(val, &old_val, new_val);
 #elif defined(RMT_USE_CPP_ATOMICS)
-    rmtU32 tmp = old_val;
-    return val->compare_exchange_strong(tmp, new_val);
+    return val->compare_exchange_strong(old_val, new_val);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedCompareExchange((long volatile*)val, new_val, old_val) == old_val ? RMT_TRUE : RMT_FALSE;
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
@@ -677,13 +676,13 @@ static rmtBool AtomicCompareAndSwapU32(rmtAtomicU32 volatile* val, rmtU32 old_va
 #endif
 }
 
+
 static rmtBool AtomicCompareAndSwapU64(rmtAtomicU64 volatile* val, rmtU64 old_val, rmtU64 new_val)
 {
 #if defined(RMT_USE_C11_ATOMICS)
     return atomic_compare_exchange_strong(val, &old_val, new_val);
 #elif defined(RMT_USE_CPP_ATOMICS)
-    rmtU64 tmp = old_val;
-    return val->compare_exchange_strong(tmp, new_val);
+    return val->compare_exchange_strong(old_val, new_val);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
     return _InterlockedCompareExchange64((volatile LONG64*)val, (LONG64)new_val, (LONG64)old_val) == (LONG64)old_val
         ? RMT_TRUE
@@ -698,8 +697,7 @@ static rmtBool AtomicCompareAndSwapPointer(rmtAtomicVoidPtr volatile* ptr, void*
 #if defined(RMT_USE_C11_ATOMICS)
     return atomic_compare_exchange_strong(ptr, &old_ptr, new_ptr);
 #elif defined(RMT_USE_CPP_ATOMICS)
-    void* tmp = old_ptr;
-    return ptr->compare_exchange_strong(tmp, new_ptr);
+    return ptr->compare_exchange_strong(old_ptr, new_ptr);
 #elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
 #ifdef _WIN64
     return _InterlockedCompareExchange64((__int64 volatile*)ptr, (__int64)new_ptr, (__int64)old_ptr) == (__int64)old_ptr
