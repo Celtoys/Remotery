@@ -168,7 +168,6 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 #endif
 
 #if RMT_USE_LEGACY_ATOMICS==0
-    #if !defined(RMT_PLATFORM_WINDOWS)
     #if __cplusplus >= 199711L
         #if !defined(RMT_USE_CPP_ATOMICS)
             #define RMT_USE_CPP_ATOMICS
@@ -179,7 +178,6 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
                 #define RMT_USE_C11_ATOMICS
             #endif
         #endif
-    #endif
     #endif
 #endif
 
