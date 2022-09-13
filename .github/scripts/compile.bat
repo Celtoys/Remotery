@@ -55,6 +55,7 @@ cl.exe %CL_OPTS% -Ilib -DRMT_USE_INTERNAL_HASH_FUNCTION=1 sample/sample.c lib/Re
 echo "Samples"
 cl.exe %CL_OPTS% -Ilib sample/sample.c lib/Remotery.c /link /out:build\sample.exe || goto :error
 cl.exe %CL_OPTS% -Ilib sample/dump.c lib/Remotery.c /link /out:build\dump.exe || goto :error
+cl.exe %CL_OPTS% -Ilib sample/thread.c lib/Remotery.c /link /out:build\thread.exe || goto :error
 
 goto :EOF
 

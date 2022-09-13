@@ -9,9 +9,11 @@
 typedef void (*ThreadFunction)(void*);
 
 #if defined(_MSC_VER)
-#include <Windows.h>
 
-typedef HANDLE thread_t;
+// TODO: add a windows thread version
+
+// #include <Windows.h>
+// typedef HANDLE thread_t;
 
 #else
 
@@ -109,7 +111,8 @@ static void recursiveFunction(int depth) {
 static void Run(void* context)
 {
     printf("Entering thread!\n");
-    while (sig == 0)
+    int counter = *(int*)context;
+    while (sig == 0 && counter-- > 0)
     {
         rmt_BeginCPUSample(Run, 0);
             aggregateFunction();
@@ -138,14 +141,28 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    int max_count = 0x0FFFFFFF;
+    int count = max_count;
+    if (argc >= 2)
+    {
+        count = atoi(argv[1]);
+
+        if (count < 0)
+            count = max_count;
+    }
+    if (count != max_count)
+        printf("Looping max %d times per thread.\n", count);
+
     printf("Spawning %d threads\n", num_threads);
     for (i = 0; i < num_threads; ++i)
     {
         char name[32];
         snprintf(name, sizeof(name), "thread_%d", i);
 
-        threads[i] = thread_create(Run, name, 0);
+        threads[i] = thread_create(Run, name, &count);
     }
+
+    printf("Press CTRL+C to exit program\n");
 
     for (i = 0; i < num_threads; ++i)
     {

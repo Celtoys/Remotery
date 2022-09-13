@@ -96,3 +96,9 @@ run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -DRMT_USE_INTERNAL_HASH_FUNCTION=1 -Il
 run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -Ilib sample/sample.c lib/Remotery.c -o build/sample
 run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -Ilib sample/dump.c lib/Remotery.c -o build/dump
 
+if [ "${ARCH}" == "x64" ] || [ "${ARCH}" == "arm64" ]; then
+    run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -fsanitize=thread -g -O0 -Ilib sample/thread.c lib/Remotery.c -o build/thread_tsan
+    run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -fsanitize=undefined -g -O0 -Ilib sample/thread.c lib/Remotery.c -o build/thread_ubsan
+    run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -fsanitize=address -g -O0 -Ilib sample/thread.c lib/Remotery.c -o build/thread_asan
+fi
+
