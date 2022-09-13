@@ -5606,7 +5606,8 @@ static void QueueProcessorThreads(rmtMessageQueue* queue, rmtU64 message_index, 
     rmtMessageQueue_CommitMessage(message, MsgID_ProcessorThreads);
 }
 
-#ifdef RMT_ARCH_32BIT
+#ifdef RMT_PLATFORM_WINDOWS
+#if defined(RMT_ARCH_32BIT)
 __declspec(naked) static void SampleCallback()
 {
     //
@@ -5712,7 +5713,6 @@ static rmtU8 SampleCallbackBytes[] =
     // Pops the original EIP off the stack and jmps to origin suspend point in the thread
     0xC3                                            // ret
 };
-#ifdef RMT_PLATFORM_WINDOWS
 static void* CreateSampleCallback(rmtU32* out_size)
 {
     // Allocate page for the generated code

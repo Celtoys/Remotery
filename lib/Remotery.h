@@ -141,6 +141,15 @@ documented just below this comment.
 #endif
 #endif
 
+#if __GNUC__ || __clang__
+#if __x86_64__ || __ppc64__ || __amd64__
+#define RMT_ARCH_64BIT
+#else
+#define RMT_ARCH_32BIT
+#endif
+#endif
+
+
 #ifdef RMT_DLL
     #if defined (RMT_PLATFORM_WINDOWS)
         #if defined (RMT_IMPL)

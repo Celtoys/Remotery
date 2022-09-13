@@ -25,7 +25,7 @@ function quit_on_error {
 }
 
 if [ "${ARCH}" == "x64" ] || [ "${ARCH}" == "arm64" ]; then
-    ARCH_FLAGS="-m64 -DRMT_ARCH_64BIT"
+    ARCH_FLAGS="-m64"
 else
     ARCH_FLAGS="-m32"
 fi
