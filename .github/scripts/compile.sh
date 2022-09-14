@@ -70,7 +70,7 @@ run ${GCC} -c ${ARCH_FLAGS} -D RMT_USE_OPENGL=1 -x c++ lib/Remotery.c
 run ${CLANGCC} -c ${ARCH_FLAGS} lib/Remotery.c
 run ${CLANGCC} -c ${ARCH_FLAGS} -xc++ lib/Remotery.c
 run ${CLANGCC} -c ${ARCH_FLAGS} -DRMT_USE_OPENGL=1 lib/Remotery.c
-run ${CLANGCC} -c ${ARCH_FLAGS} -xc++ -DRMT_USE_OPENGL=1 lib/Remotery.c
+run ${CLANGCC} -c ${ARCH_FLAGS} -DRMT_USE_LEGACY_ATOMICS=1 lib/Remotery.c
 
 # C++
 run cp lib/Remotery.c build/Remotery.cpp
@@ -82,6 +82,7 @@ run ${CLANGXX} -c ${ARCH_FLAGS} -Ilib build/Remotery.cpp
 run ${CLANGXX} -c ${ARCH_FLAGS} -Ilib -xc++ build/Remotery.cpp
 run ${CLANGXX} -c ${ARCH_FLAGS} -Ilib -DRMT_USE_OPENGL=1 build/Remotery.cpp
 run ${CLANGXX} -c ${ARCH_FLAGS} -Ilib -xc++ -DRMT_USE_OPENGL=1 build/Remotery.cpp
+run ${CLANGXX} -c ${ARCH_FLAGS} -Ilib -DRMT_USE_LEGACY_ATOMICS=1 build/Remotery.cpp
 
 # enable disable
 run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -DRMT_ENABLED=0 -Ilib sample/sample.c lib/Remotery.c -o build/dummy
@@ -94,4 +95,10 @@ run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -DRMT_USE_INTERNAL_HASH_FUNCTION=1 -Il
 # samples
 run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -Ilib sample/sample.c lib/Remotery.c -o build/sample
 run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -Ilib sample/dump.c lib/Remotery.c -o build/dump
+
+if [ "${ARCH}" == "x64" ] || [ "${ARCH}" == "arm64" ]; then
+    run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -fsanitize=thread -g -O0 -Ilib sample/thread.c lib/Remotery.c -o build/thread_tsan
+    run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -fsanitize=undefined -g -O0 -Ilib sample/thread.c lib/Remotery.c -o build/thread_ubsan
+    run ${CLANGCC} ${ARCH_FLAGS} ${LINKFLAGS} -fsanitize=address -g -O0 -Ilib sample/thread.c lib/Remotery.c -o build/thread_asan
+fi
 
