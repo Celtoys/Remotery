@@ -39,6 +39,15 @@ documented just below this comment.
 #ifndef RMT_INCLUDED_H
 #define RMT_INCLUDED_H
 
+// Project version
+#define RMT_VERSION_MAJOR 1
+#define RMT_VERSION_MINOR 2
+#define RMT_VERSION_PATCH 1
+
+// Binary version
+#define RMT_BINARY_CURRENT 1
+#define RMT_BINARY_REVISION 0
+#define RMT_BINARY_AGE 0
 
 // Set to 0 to not include any bits of Remotery in your build
 #ifndef RMT_ENABLED
