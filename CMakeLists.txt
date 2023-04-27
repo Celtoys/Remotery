@@ -110,7 +110,10 @@ macro(remotery_create_target target_name linkage output_name)
 
     if(MSVC)
         target_compile_options(
-            ${target_name} PUBLIC /W4 /WX
+            ${target_name} PUBLIC /W4
+            # NOTE(jjerphan): treating warnings as error makes the installation fail.
+            # TODO: remove "/W4"-emitted warnings and use "/WX"
+            # /WX
         )
     else()
         target_compile_options(
