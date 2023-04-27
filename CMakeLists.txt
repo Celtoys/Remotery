@@ -140,7 +140,7 @@ if(REMOTERY_BUILD_STATIC_LIBS)
     # On Windows, a static library should use a different output name
     # to avoid name conflicts with the shared library.
     if(WIN32)
-        remotery_create_target(Remotery-static STATIC Remotery-static)
+        remotery_create_target(Remotery-static STATIC Remotery_static)
     else()
         remotery_create_target(Remotery-static STATIC Remotery)
     endif()
