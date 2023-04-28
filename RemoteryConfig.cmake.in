@@ -13,32 +13,32 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR};${CMAKE_MODULE_PATH}")
 
 @REMOTERY_CONFIG_CODE@
 
-if(NOT TARGET remotery AND NOT TARGET remotery-static)
+if(NOT TARGET Remotery AND NOT TARGET Remotery-static)
     include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
 
-    if (TARGET remotery AND TARGET remotery-static)
+    if (TARGET Remotery AND TARGET Remotery-static)
         get_target_property(
-            @PROJECT_NAME@_INCLUDE_DIR remotery INTERFACE_INCLUDE_DIRECTORIES
+            @PROJECT_NAME@_INCLUDE_DIR Remotery INTERFACE_INCLUDE_DIRECTORIES
         )
         get_target_property(
-            @PROJECT_NAME@_LIBRARY remotery LOCATION
+            @PROJECT_NAME@_LIBRARY Remotery LOCATION
         )
         get_target_property(
-            @PROJECT_NAME@_STATIC_LIBRARY remotery-static LOCATION
+            @PROJECT_NAME@_STATIC_LIBRARY Remotery-static LOCATION
         )
     elseif (TARGET remotery)
         get_target_property(
-            @PROJECT_NAME@_INCLUDE_DIR remotery INTERFACE_INCLUDE_DIRECTORIES
+            @PROJECT_NAME@_INCLUDE_DIR Remotery INTERFACE_INCLUDE_DIRECTORIES
         )
         get_target_property(
-            @PROJECT_NAME@_LIBRARY remotery LOCATION
+            @PROJECT_NAME@_LIBRARY Remotery LOCATION
         )
     elseif (TARGET remotery-static)
         get_target_property(
-            @PROJECT_NAME@_INCLUDE_DIR remotery-static INTERFACE_INCLUDE_DIRECTORIES
+            @PROJECT_NAME@_INCLUDE_DIR Remotery-static INTERFACE_INCLUDE_DIRECTORIES
         )
         get_target_property(
-            @PROJECT_NAME@_STATIC_LIBRARY remotery-static LOCATION
+            @PROJECT_NAME@_STATIC_LIBRARY Remotery-static LOCATION
         )
         set(
             @PROJECT_NAME@_LIBRARY ${@PROJECT_NAME@_STATIC_LIBRARY}
