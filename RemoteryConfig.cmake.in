@@ -2,10 +2,10 @@
 #
 # This module defines the following variables in your project::
 #
-#   REMOTERY_FOUND          - True if remotery is available
-#   REMOTERY_INCLUDE_DIRS   - Include directories for remotery
-#   REMOTERY_LIBRARY        - The library for dynamically linking
-#   REMOTERY_STATIC_LIBRARY - The library for statically linking
+#   Remotery_FOUND          - True if remotery is available
+#   Remotery_INCLUDE_DIR    - Include directories for remotery
+#   Remotery_LIBRARY        - The library for dynamically linking
+#   Remotery_STATIC_LIBRARY - The library for statically linking
 
 @PACKAGE_INIT@
 

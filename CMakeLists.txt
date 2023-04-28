@@ -180,15 +180,20 @@ export(
 )
 
 # Configure 'RemoteryConfig.cmake' for a build tree
+set(REMOTERY_CONFIG_CODE "####### Expanded from \@Remotery_CONFIG_CODE\@ #######\n")
+set(REMOTERY_CONFIG_CODE "${REMOTERY_CONFIG_CODE}set(CMAKE_MODULE_PATH \"${CMAKE_CURRENT_SOURCE_DIR}/cmake;\${CMAKE_MODULE_PATH}\")\n")
+set(REMOTERY_CONFIG_CODE "${REMOTERY_CONFIG_CODE}####### End of expanded section on Remotery_CONFIG_CODE #######\n")
+
 configure_package_config_file(
     ${PROJECT_NAME}Config.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-    INSTALL_DESTINATION ${PROJECT_BINARY_DIR}    )
+    INSTALL_DESTINATION ${PROJECT_BINARY_DIR}
+)
 
 # Configure 'RemoteryConfig.cmake' for an install tree
 configure_package_config_file(
     ${PROJECT_NAME}Config.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/${PROJECT_NAME}Config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${PROJECT_NAME}Config.cmake"
     INSTALL_DESTINATION ${REMOTERY_CMAKECONFIG_INSTALL_DIR}
 )
 
