@@ -63,10 +63,7 @@ message(STATUS "${PROJECT_NAME} binary version: ${REMOTERY_BINARY_VERSION}")
 # =============
 
 option(REMOTERY_BUILD_SHARED_LIBS "Build Remotery shared library" ON)
-option(
-    REMOTERY_BUILD_STATIC_LIBS
-    "Build Remotery static library (default if REMOTERY_BUILD_SHARED_LIBS is OFF" ON
-)
+option(REMOTERY_BUILD_STATIC_LIBS "Build Remotery static library" ON)
 
 message(STATUS "Build shared libraries: ${REMOTERY_BUILD_SHARED_LIBS}")
 message(STATUS "Build static libraries: ${REMOTERY_BUILD_STATIC_LIBS}")
