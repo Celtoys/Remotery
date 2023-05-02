@@ -1518,6 +1518,7 @@ static void VirtualMirrorBuffer_Destructor(VirtualMirrorBuffer* buffer)
 #define RSIZE_MAX_STR (4UL << 10) /* 4KB */
 #define RCNEGATE(x) x
 
+#define TIMERR_NOERROR (0)
 #define EOK (0)
 #define ESNULLP (400) /* null ptr                    */
 #define ESZEROL (401) /* length is zero              */
