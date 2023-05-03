@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Remotery)
+project(remotery)
 
 # By default, we build in Release mode.
 if(NOT CMAKE_BUILD_TYPE)
@@ -62,8 +62,8 @@ message(STATUS "${PROJECT_NAME} binary version: ${REMOTERY_BINARY_VERSION}")
 # Build options
 # =============
 
-option(REMOTERY_BUILD_SHARED_LIBS "Build Remotery shared library" ON)
-option(REMOTERY_BUILD_STATIC_LIBS "Build Remotery static library" ON)
+option(REMOTERY_BUILD_SHARED_LIBS "Build remotery shared library" ON)
+option(REMOTERY_BUILD_STATIC_LIBS "Build remotery static library" ON)
 
 message(STATUS "Build shared libraries: ${REMOTERY_BUILD_SHARED_LIBS}")
 message(STATUS "Build static libraries: ${REMOTERY_BUILD_STATIC_LIBS}")
@@ -126,23 +126,23 @@ macro(remotery_create_target target_name linkage output_name)
 
 endmacro()
 
-set(Remotery_targets "")
+set(remotery_targets "")
 
 if(REMOTERY_BUILD_SHARED_LIBS)
-    remotery_create_target(Remotery SHARED Remotery)
-    list(APPEND Remotery_targets Remotery)
+    remotery_create_target(remotery SHARED remotery)
+    list(APPEND remotery_targets remotery)
 endif()
 
 if(REMOTERY_BUILD_STATIC_LIBS)
     # On Windows, a static library should use a different output name
     # to avoid name conflicts with the shared library.
     if(WIN32)
-        remotery_create_target(Remotery-static STATIC Remotery_static)
+        remotery_create_target(remotery-static STATIC remotery_static)
     else()
-        remotery_create_target(Remotery-static STATIC Remotery)
+        remotery_create_target(remotery-static STATIC remotery)
     endif()
 
-    list(APPEND Remotery_targets Remotery-static)
+    list(APPEND remotery_targets remotery-static)
 endif()
 
 # Tests
@@ -158,11 +158,11 @@ include(CMakePackageConfigHelpers)
 
 set(
     REMOTERY_CMAKECONFIG_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
-    CACHE STRING "install path for RemoteryConfig.cmake"
+    CACHE STRING "install path for remoteryConfig.cmake"
 )
 
 install(
-    TARGETS ${Remotery_targets}
+    TARGETS ${remotery_targets}
     EXPORT ${PROJECT_NAME}-targets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -176,10 +176,10 @@ export(
     FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake"
 )
 
-# Configure 'RemoteryConfig.cmake' for a build tree
-set(REMOTERY_CONFIG_CODE "####### Expanded from \@Remotery_CONFIG_CODE\@ #######\n")
+# Configure 'remoteryConfig.cmake' for a build tree
+set(REMOTERY_CONFIG_CODE "####### Expanded from \@remotery_CONFIG_CODE\@ #######\n")
 set(REMOTERY_CONFIG_CODE "${REMOTERY_CONFIG_CODE}set(CMAKE_MODULE_PATH \"${CMAKE_CURRENT_SOURCE_DIR}/cmake;\${CMAKE_MODULE_PATH}\")\n")
-set(REMOTERY_CONFIG_CODE "${REMOTERY_CONFIG_CODE}####### End of expanded section on Remotery_CONFIG_CODE #######\n")
+set(REMOTERY_CONFIG_CODE "${REMOTERY_CONFIG_CODE}####### End of expanded section on remotery_CONFIG_CODE #######\n")
 
 configure_package_config_file(
     ${PROJECT_NAME}Config.cmake.in
@@ -187,7 +187,7 @@ configure_package_config_file(
     INSTALL_DESTINATION ${PROJECT_BINARY_DIR}
 )
 
-# Configure 'RemoteryConfig.cmake' for an install tree
+# Configure 'remoteryConfig.cmake' for an install tree
 configure_package_config_file(
     ${PROJECT_NAME}Config.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${PROJECT_NAME}Config.cmake"

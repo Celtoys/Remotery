@@ -1,0 +1,47 @@
+# remotery cmake module
+#
+# This module defines the following variables in your project::
+#
+#   remotery_FOUND          - True if remotery is available
+#   remotery_INCLUDE_DIR    - Include directories for remotery
+#   remotery_LIBRARY        - The library for dynamically linking
+#   remotery_STATIC_LIBRARY - The library for statically linking
+
+@PACKAGE_INIT@
+
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR};${CMAKE_MODULE_PATH}")
+
+@REMOTERY_CONFIG_CODE@
+
+if(NOT TARGET remotery AND NOT TARGET remotery-static)
+    include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
+
+    if (TARGET remotery AND TARGET remotery-static)
+        get_target_property(
+            @PROJECT_NAME@_INCLUDE_DIR remotery INTERFACE_INCLUDE_DIRECTORIES
+        )
+        get_target_property(
+            @PROJECT_NAME@_LIBRARY remotery LOCATION
+        )
+        get_target_property(
+            @PROJECT_NAME@_STATIC_LIBRARY remotery-static LOCATION
+        )
+    elseif (TARGET remotery)
+        get_target_property(
+            @PROJECT_NAME@_INCLUDE_DIR remotery INTERFACE_INCLUDE_DIRECTORIES
+        )
+        get_target_property(
+            @PROJECT_NAME@_LIBRARY remotery LOCATION
+        )
+    elseif (TARGET remotery-static)
+        get_target_property(
+            @PROJECT_NAME@_INCLUDE_DIR remotery-static INTERFACE_INCLUDE_DIRECTORIES
+        )
+        get_target_property(
+            @PROJECT_NAME@_STATIC_LIBRARY remotery-static LOCATION
+        )
+        set(
+            @PROJECT_NAME@_LIBRARY ${@PROJECT_NAME@_STATIC_LIBRARY}
+        )
+    endif()
+endif()
