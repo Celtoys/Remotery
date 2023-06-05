@@ -115,6 +115,7 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
 
     #ifdef RMT_PLATFORM_WINDOWS
         #include <winsock2.h>
+        #include <timeapi.h>
         #ifndef __MINGW32__
             #include <intrin.h>
         #endif
