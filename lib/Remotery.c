@@ -6341,6 +6341,16 @@ static rmtError Remotery_SendLogTextMessage(Remotery* rmt, Message* message)
     return RMT_ERROR_NONE;
 }
 
+static rmtError bin_SamplesStart(Buffer* buffer, rmtU64 counter_start)
+{
+    rmtU32 write_start_offset;
+    rmtTry(bin_MessageHeader(buffer, "SSST", &write_start_offset));
+    rmtTry(Buffer_WriteU64(buffer, counter_start));
+    rmtTry(bin_MessageFooter(buffer, write_start_offset));
+
+    return RMT_ERROR_NONE;
+}
+
 static rmtError bin_SampleName(Buffer* buffer, const char* name, rmtU32 name_hash, rmtU32 name_length)
 {
     rmtU32 write_start_offset;
@@ -6898,6 +6908,14 @@ static rmtError Remotery_ReceiveMessage(void* context, char* message_data, rmtU3
             }
 
             break;
+        }
+
+        case FOURCC('G', 'S', 'S', 'T'): {
+            Buffer* bin_buf = rmt->server->bin_buf;
+            WebSocket_PrepareBuffer(bin_buf);
+            bin_SamplesStart(bin_buf, rmt->timer.counter_start);
+
+            return Server_Send(rmt->server, bin_buf->data, bin_buf->bytes_used, 10);
         }
     }
 
