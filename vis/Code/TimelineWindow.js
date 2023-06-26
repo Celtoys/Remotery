@@ -96,17 +96,29 @@ TimelineWindow = (function()
 	}
 
 
-	TimelineWindow.prototype.OnSamples = function(thread_name, frame_history)
+	TimelineWindow.prototype.SetCounterOffset = function(server_id, counter_offset)
+	{
+		for (let row of this.ThreadRows)
+		{
+			if (row.server_id == server_id)
+			{
+				row.SetCounterOffset(counter_offset);
+			}
+		}
+	}
+
+
+	TimelineWindow.prototype.OnSamples = function(server_id, thread_name, frame_history)
 	{
 		// Shift the timeline to the last entry on this thread
 		var last_frame = frame_history[frame_history.length - 1];
-		this.TimeRange.SetEnd(last_frame.EndTime_us);
+		this.TimeRange.SetEnd(Math.max(this.TimeRange.End_us, last_frame.EndTime_us));
 
 		// Search for the index of this thread
 		var thread_index = -1;
 		for (var i in this.ThreadRows)
 		{
-			if (this.ThreadRows[i].Name == thread_name)
+			if (this.ThreadRows[i].server_id == server_id && this.ThreadRows[i].Name == thread_name)
 			{
 				thread_index = i;
 				break;
@@ -116,7 +128,7 @@ TimelineWindow = (function()
 		// If this thread has not been seen before, add a new row to the list
 		if (thread_index == -1)
 		{
-			var row = new TimelineRow(this.glCanvas.gl, thread_name, this, frame_history, this.CheckHandler);
+			var row = new TimelineRow(this.glCanvas.gl, server_id, thread_name, this, frame_history, this.CheckHandler);
 			this.ThreadRows.push(row);
 
 			// Sort thread rows in the collection by name

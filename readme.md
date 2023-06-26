@@ -92,6 +92,8 @@ Running the Viewer
 
 Double-click or launch `vis/index.html` from the browser.
 
+Use Bash-like brace expansions in the `Connection Address Pattern` field to view multiple processes.
+
 
 Sampling CUDA GPU activity
 --------------------------

@@ -52,18 +52,18 @@ Remotery = (function()
         else
             this.ConnectionAddress = LocalStore.Get("App", "Global", "ConnectionAddress", "ws://127.0.0.1:17815/rmt");
 
-        this.Server = new WebSocketConnection();
-        this.Server.AddConnectHandler(Bind(OnConnect, this));
-        this.Server.AddDisconnectHandler(Bind(OnDisconnect, this));
+        this.got_first_connection = false;
+
+        this.Servers = [];
 
         this.glCanvas = new GLCanvas(100, 100);
         this.glCanvas.SetOnDraw((gl, seconds) => this.OnGLCanvasDraw(gl, seconds));
 
         // Create the console up front as everything reports to it
-        this.Console = new Console(this.WindowManager, this.Server);
+        this.Console = new Console(this.WindowManager);
 
         // Create required windows
-        this.TitleWindow = new TitleWindow(this.WindowManager, this.Settings, this.Server, this.ConnectionAddress);
+        this.TitleWindow = new TitleWindow(this.WindowManager, this.Settings, this.ConnectionAddress);
         this.TitleWindow.SetConnectionAddressChanged(Bind(OnAddressChanged, this));
         this.SampleTimelineWindow = new TimelineWindow(this.WindowManager, "Sample Timeline", this.Settings, Bind(OnTimelineCheck, this), this.glCanvas);
         this.SampleTimelineWindow.SetOnHover(Bind(OnSampleHover, this));
@@ -81,11 +81,6 @@ Remotery = (function()
         this.ProcessorFrameHistory = { };
         this.PropertyFrameHistory = [ ];
         this.SelectedFrames = { };
-
-        this.Server.AddMessageHandler("SMPL", Bind(OnSamples, this));
-        this.Server.AddMessageHandler("SSMP", Bind(OnSampleName, this));
-        this.Server.AddMessageHandler("PRTH", Bind(OnProcessorThreads, this));
-        this.Server.AddMessageHandler("PSNP", Bind(OnPropertySnapshots, this));
 
         // Kick-off the auto-connect loop
         AutoConnect(this);
@@ -110,8 +105,13 @@ Remotery = (function()
         }
         this.nbGridWindows = 0;
         this.gridWindows = { };
+        this.propertyGridWindows = [];
 
-        this.propertyGridWindow = this.AddGridWindow("__rmt__global__properties__", "Global Properties", new GridConfigProperties());
+        for (let server_id = 0; server_id < this.Servers.length; ++server_id) {
+            const window_name = "__rmt__global__properties" + (this.Servers.length > 1 ? "_" + server_id : "") + "__";
+            const window_display_name = "Global Properties" + (this.Servers.length > 1 ? " " + server_id : "");
+            this.propertyGridWindows.push(this.AddGridWindow(window_name, window_display_name, new GridConfigProperties()));
+        }
 
         // Clear runtime data
         this.FrameHistory = { };
@@ -168,10 +168,38 @@ Remotery = (function()
 
     function AutoConnect(self)
     {
-        // Only attempt to connect if there isn't already a connection or an attempt to connect
-        if (!self.Server.Connected() && !self.Server.Connecting())
-        {
-            self.Server.Connect(self.ConnectionAddress);
+        const connection_addresses = expandTop(self.ConnectionAddress);
+        const servers_length = self.Servers.length;
+
+        for (let server_id = servers_length; server_id < connection_addresses.length; ++server_id) {
+            connection_address = connection_addresses[server_id];
+            let server = new WebSocketConnection();
+            server.AddConnectHandler(Bind(OnConnect, self, server_id));
+            server.AddDisconnectHandler(Bind(OnDisconnect, self, server_id));
+            // Setup log requests from the server
+            server.SetConsole(self.Console);
+            server.AddMessageHandler("LOGM", Bind(self.Console.OnLog.bind(self.Console), server));
+            server.AddMessageHandler("PING", Bind(self.TitleWindow.OnPing.bind(self.TitleWindow), server_id, connection_addresses.length));
+            server.AddMessageHandler("SSST", Bind(OnSamplesStart, self, server_id));
+            server.AddMessageHandler("SMPL", Bind(OnSamples, self, server_id));
+            server.AddMessageHandler("SSMP", Bind(OnSampleName, self, server_id));
+            server.AddMessageHandler("PRTH", Bind(OnProcessorThreads, self, server_id));
+            server.AddMessageHandler("PSNP", Bind(OnPropertySnapshots, self, server_id));
+            self.Servers.push(server);
+        }
+
+        for (let server_id = 0; server_id < connection_addresses.length; ++server_id) {
+            // Only attempt to connect if there isn't already a connection or an attempt to connect
+            if (!self.Servers[server_id].Connected() && !self.Servers[server_id].Connecting())
+            {
+                self.Servers[server_id].Connect(connection_addresses[server_id]);
+            }
+        }
+
+        self.Servers.length = connection_addresses.length;
+
+        if (self.Servers.length > 0) {
+            self.Console.SetServer(self.Servers[0]);
         }
 
         // Always schedule another check
@@ -179,21 +207,31 @@ Remotery = (function()
     }
 
 
-    function OnConnect(self)
+    function OnConnect(self, server_id)
     {
-        // Connection address has been validated
-        LocalStore.Set("App", "Global", "ConnectionAddress", self.ConnectionAddress);
+        self.Servers[server_id].Send("GSST");
 
-        self.Clear();
+        if (!self.got_first_connection) {
+            // Connection address has been validated
+            LocalStore.Set("App", "Global", "ConnectionAddress", self.ConnectionAddress);
 
-        // Ensure the viewer is ready for realtime updates
-        self.TitleWindow.Unpause();
+            self.Clear();
+
+            // Ensure the viewer is ready for realtime updates
+            self.TitleWindow.Unpause();
+
+            self.got_first_connection = true;
+        }
     }
 
-    function OnDisconnect(self)
+    function OnDisconnect(self, server_id)
     {
-        // Pause so the user can inspect the trace
-        self.TitleWindow.Pause();
+        if (self.Servers.every((server) => !server.Connected())) {
+            // Pause so the user can inspect the trace
+            self.TitleWindow.Pause();
+
+            self.got_first_connection = false;
+        }
     }
 
 
@@ -201,7 +239,11 @@ Remotery = (function()
     {
         // Update and disconnect, relying on auto-connect to reconnect
         self.ConnectionAddress = node.value;
-        self.Server.Disconnect();
+        this.got_first_connection = true;
+
+        for (const server of self.Servers) {
+            server.Disconnect();
+        }
 
         // Give input focus away
         return false;
@@ -250,7 +292,7 @@ Remotery = (function()
     }
 
 
-    function ProcessSampleTree(self, sample_data, message)
+    function ProcessSampleTree(self, server_id, sample_data, message)
     {
         const empty_text_entry = {
             offset: 0,
@@ -265,14 +307,14 @@ Remotery = (function()
         {
             // Get name hash and lookup in name map
             const name_hash = samples_view.getUint32(offset, true);
-            const [ name_exists, name ] = self.glCanvas.nameMap.Get(name_hash);
+            const [ name_exists, name ] = self.glCanvas.nameMap.Get(server_id, name_hash);
 
             // If the name doesn't exist in the map yet, request it from the server
             if (!name_exists)
             {
-                if (self.Server.Connected())
+                if (self.Servers[server_id].Connected())
                 {
-                    self.Server.Send("GSMP" + name_hash);
+                    self.Servers[server_id].Send("GSMP" + name_hash);
                 }
             }
 
@@ -296,11 +338,28 @@ Remotery = (function()
         message.sampleFloats = new Float32Array(sample_data, message.samplesStart, message.nb_samples * g_nbFloatsPerSample);
     }
 
-    function OnSamples(self, socket, data_view_reader, length)
+
+    function OnSamplesStart(self, server_id, socket, data_view_reader)
+    {
+        self.Servers[server_id].counter_start = data_view_reader.GetUInt64();
+    }
+
+
+    function UpdateTimelineOffsets(self, timeline_window)
+    {
+        const counter_start_min = Math.min.apply(null, self.Servers.map(function(server) { return server.counter_start; }));
+        for (let i = 0; i < self.Servers.length; ++i) {
+            const counter_offset = self.Servers[i].counter_start - counter_start_min;
+            timeline_window.SetCounterOffset(i, counter_offset);
+        }
+    }
+
+
+    function OnSamples(self, server_id, socket, data_view_reader, length)
     {
         // Discard any new samples while paused and connected
         // Otherwise this stops a paused Remotery from loading new samples from disk
-        if (self.Settings.IsPaused && self.Server.Connected())
+        if (self.Settings.IsPaused && self.Servers[server_id].Connected())
             return;
 
         // Binary decode incoming sample data
@@ -309,8 +368,8 @@ Remotery = (function()
         {
             return;
         }
-        var name = message.thread_name;
-        ProcessSampleTree(self, data_view_reader.DataView.buffer, message);
+        var name = (self.Servers.length > 1 ? server_id + "_" : "") + message.thread_name;
+        ProcessSampleTree(self, server_id, data_view_reader.DataView.buffer, message);
 
         // Add to frame history for this thread
         var thread_frame = new ThreadFrame(message);
@@ -342,29 +401,30 @@ Remotery = (function()
         }
 
         // Set on the window and timeline if connected as this implies a trace is being loaded, which we want to speed up
-        if (self.Server.Connected())
+        if (self.Servers[server_id].Connected())
         {
             self.gridWindows[name].UpdateEntries(message.nb_samples, message.sampleFloats);
 
-            self.SampleTimelineWindow.OnSamples(name, frame_history);
+            self.SampleTimelineWindow.OnSamples(server_id, name, frame_history);
+            UpdateTimelineOffsets(self, self.SampleTimelineWindow);
         }
     }
 
 
-    function OnSampleName(self, socket, data_view_reader)
+    function OnSampleName(self, server_id, socket, data_view_reader)
     {
         // Add any names sent by the server to the local map
         let name_hash = data_view_reader.GetUInt32();
         let name_string = data_view_reader.GetString();
-        self.glCanvas.nameMap.Set(name_hash, name_string);
+        self.glCanvas.nameMap.Set(server_id, name_hash, name_string);
     }
 
 
-    function OnProcessorThreads(self, socket, data_view_reader)
+    function OnProcessorThreads(self, server_id, socket, data_view_reader)
     {
         // Discard any new samples while paused and connected
         // Otherwise this stops a paused Remotery from loading new samples from disk
-        if (self.Settings.IsPaused && self.Server.Connected())
+        if (self.Settings.IsPaused && self.Servers[server_id].Connected())
             return;
 
         let nb_processors = data_view_reader.GetUInt32();
@@ -383,7 +443,7 @@ Remotery = (function()
             let sample_time = data_view_reader.GetUInt64();
 
             // Add frame history for this processor
-            let processor_name = "Processor " + i.toString();
+            let processor_name = (self.Servers.length > 1 ? server_id + " " : "") + "Processor " + i.toString();
             if (!(processor_name in self.ProcessorFrameHistory))
             {
                 self.ProcessorFrameHistory[processor_name] = [ ];
@@ -422,16 +482,16 @@ Remotery = (function()
             {
                 frame_history.splice(0, extra_frames);
             }
-            
+
             // Lookup the thread name
-            let [ name_exists, thread_name ] = self.glCanvas.nameMap.Get(thread_name_hash);
+            let [ name_exists, thread_name ] = self.glCanvas.nameMap.Get(server_id, thread_name_hash);
 
             // If the name doesn't exist in the map yet, request it from the server
             if (!name_exists)
             {
-                if (self.Server.Connected())
+                if (self.Servers[server_id].Connected())
                 {
-                    self.Server.Send("GSMP" + thread_name_hash);
+                    self.Servers[server_id].Send("GSMP" + thread_name_hash);
                 }
             }
 
@@ -463,14 +523,16 @@ Remotery = (function()
 
             // Create a thread frame and annotate with data required to merge processor samples
             let thread_frame = new ThreadFrame(thread_message);
+            thread_frame.serverId = server_id;
             thread_frame.threadId = thread_id;
             thread_frame.messageIndex = message_index;
             thread_frame.usLastStart = sample_time;
             frame_history.push(thread_frame);
 
-            if (self.Server.Connected())
+            if (self.Servers[server_id].Connected())
             {
-                self.ProcessorTimelineWindow.OnSamples(processor_name, frame_history);
+                self.ProcessorTimelineWindow.OnSamples(server_id, processor_name, frame_history);
+                UpdateTimelineOffsets(self, self.ProcessorTimelineWindow);
             }
         }
     }
@@ -527,7 +589,7 @@ Remotery = (function()
     }
 
 
-    function ProcessSnapshots(self, snapshot_data, message)
+    function ProcessSnapshots(self, server_id, snapshot_data, message)
     {
         if (self.Settings.IsPaused)
         {
@@ -546,14 +608,14 @@ Remotery = (function()
         {
             // Get name hash and lookup in name map
             const name_hash = snapshots_view.getUint32(offset, true);
-            const [ name_exists, name ] = self.glCanvas.nameMap.Get(name_hash);
+            const [ name_exists, name ] = self.glCanvas.nameMap.Get(server_id, name_hash);
 
             // If the name doesn't exist in the map yet, request it from the server
             if (!name_exists)
             {
-                if (self.Server.Connected())
+                if (self.Servers[server_id].Connected())
                 {
-                    self.Server.Send("GSMP" + name_hash);
+                    self.Servers[server_id].Send("GSMP" + name_hash);
                 }
             }
 
@@ -603,16 +665,16 @@ Remotery = (function()
     }
 
 
-    function OnPropertySnapshots(self, socket, data_view_reader, length)
+    function OnPropertySnapshots(self, server_id, socket, data_view_reader, length)
     {
         // Discard any new snapshots while paused and connected
         // Otherwise this stops a paused Remotery from loading new samples from disk
-        if (self.Settings.IsPaused && self.Server.Connected())
+        if (self.Settings.IsPaused && self.Servers[server_id].Connected())
             return;
 
         // Binary decode incoming snapshot data
         const message = DecodeSnapshotHeader(self, data_view_reader, length);
-        message.snapshotFloats = ProcessSnapshots(self, data_view_reader.DataView.buffer, message);
+        message.snapshotFloats = ProcessSnapshots(self, server_id, data_view_reader.DataView.buffer, message);
 
         // Add to frame history
         const thread_frame = new PropertySnapshotFrame(message);
@@ -626,9 +688,9 @@ Remotery = (function()
             frame_history.splice(0, extra_frames);
 
         // Set on the window if connected as this implies a trace is being loaded, which we want to speed up
-        if (self.Server.Connected())
+        if (self.Servers[server_id].Connected())
         {
-            self.propertyGridWindow.UpdateEntries(message.nbSnapshots, message.snapshotFloats);
+            self.propertyGridWindows[server_id].UpdateEntries(message.nbSnapshots, message.snapshotFloats);
         }
     }
 
