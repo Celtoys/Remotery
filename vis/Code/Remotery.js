@@ -22,18 +22,18 @@ Settings = (function()
 Remotery = (function()
 {
     // crack the url and get the parameter we want
-    var getUrlParameter = function getUrlParameter( search_param) 
+    var getUrlParameter = function getUrlParameter( search_param)
     {
         var page_url = decodeURIComponent( window.location.search.substring(1) ),
                         url_vars = page_url.split('&'),
                         param_name,
                         i;
 
-        for (i = 0; i < url_vars.length; i++) 
+        for (i = 0; i < url_vars.length; i++)
         {
             param_name = url_vars[i].split('=');
 
-            if (param_name[0] === search_param) 
+            if (param_name[0] === search_param)
             {
                 return param_name[1] === undefined ? true : param_name[1];
             }
@@ -112,7 +112,7 @@ Remotery = (function()
         this.gridWindows = { };
 
         this.propertyGridWindow = this.AddGridWindow("__rmt__global__properties__", "Global Properties", new GridConfigProperties());
-        
+
         // Clear runtime data
         this.FrameHistory = { };
         this.ProcessorFrameHistory = { };
@@ -366,7 +366,7 @@ Remotery = (function()
         // Otherwise this stops a paused Remotery from loading new samples from disk
         if (self.Settings.IsPaused && self.Server.Connected())
             return;
-            
+
         let nb_processors = data_view_reader.GetUInt32();
         let message_index = data_view_reader.GetUInt64();
 
@@ -389,7 +389,7 @@ Remotery = (function()
                 self.ProcessorFrameHistory[processor_name] = [ ];
             }
             let frame_history = self.ProcessorFrameHistory[processor_name];
-            
+
             if (thread_id == 0xFFFFFFFF)
             {
                 continue;
@@ -414,7 +414,7 @@ Remotery = (function()
                     continue;
                 }
             }
-            
+
             // Discard old frames to keep memory-use constant
             var max_nb_frames = 10000;
             var extra_frames = frame_history.length - max_nb_frames;

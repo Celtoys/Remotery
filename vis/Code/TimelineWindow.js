@@ -146,7 +146,7 @@ TimelineWindow = (function()
         // Set viewport parameters
         glSetUniform(gl, program, "inViewport.width", gl.canvas.width);
         glSetUniform(gl, program, "inViewport.height", gl.canvas.height);
-		
+
 		this.glCanvas.SetContainerUniforms(program, this.TimelineContainer.Node);
 
 		// Set row parameters

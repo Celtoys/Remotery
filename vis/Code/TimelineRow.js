@@ -137,11 +137,11 @@ TimelineRow = (function()
             const program = gl_canvas.timelineHighlightProgram;
 
             gl_canvas.SetContainerUniforms(program, container);
-    
+
             // Set row parameters
             const row_rect = this.LabelContainerNode.getBoundingClientRect();
             glSetUniform(gl, program, "inRow.yOffset", row_rect.top);
-    
+
             // Set sample parameters
             const float_offset = offset / 4;
             glSetUniform(gl, program, "inStartMs", frame.sampleFloats[float_offset + g_sampleOffsetFloats_Start]);
