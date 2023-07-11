@@ -140,7 +140,7 @@ documented just below this comment.
 
 // Architecture identification
 #ifdef RMT_PLATFORM_WINDOWS
-#ifdef _M_AMD64
+#if defined(_M_AMD64) || defined(__x86_64__) // MSVC defines _M_AMD64 and MinGW-64 defines __x86_64__
 #define RMT_ARCH_64BIT
 #else
 #define RMT_ARCH_32BIT
