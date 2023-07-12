@@ -31,8 +31,11 @@ Compiling
 ---------
 
 * Windows (MSVC) - add lib/Remotery.c and lib/Remotery.h to your program. Set include
-  directories to add Remotery/lib path. The required library ws2_32.lib should be picked
-  up through the use of the #pragma comment(lib, "ws2_32.lib") directive in Remotery.c.
+  directories to add Remotery/lib path. The required libraries (ws2_32.lib and winmm.lib) should be picked
+  up through the use of the `#pragma comment` directives in Remotery.c.
+
+* Windows (MINGW-64) - add lib/Remotery.c and lib/Remotery.h to your program. Set include
+  directories to add Remotery/lib path. You will need to link libws2_32.a and libwinmm.a yourself through your build system, as GCC (and therefore MINGW-64) do not support `#pragma comment` directives
 
 * Mac OS X (XCode) - simply add lib/Remotery.c, lib/Remotery.h and lib/Remotery.mm to your program.
 
