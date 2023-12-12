@@ -7049,6 +7049,8 @@ static void Remotery_Destructor(Remotery* rmt)
     // Join the remotery thread before clearing the global object as the thread is profiling itself
     rmtDelete(rmtThread, rmt->thread);
 
+    rmtDelete(ThreadProfilers, rmt->threadProfilers);
+
     if (g_RemoteryCreated)
     {
         g_Remotery = NULL;
@@ -7057,8 +7059,6 @@ static void Remotery_Destructor(Remotery* rmt)
 
     rmtDelete(ObjectAllocator, rmt->propertyAllocator);
 
-
-    rmtDelete(ThreadProfilers, rmt->threadProfilers);
 
 #if RMT_USE_D3D12
     while (rmt->d3d12Binds != NULL)
