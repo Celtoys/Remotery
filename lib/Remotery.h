@@ -80,6 +80,12 @@ documented just below this comment.
 #define RMT_USE_METAL 0
 #endif
 
+// Allow Vulkan profiling
+#ifndef RMT_USE_VULKAN
+// TODO: Set back to 0 when checking in!
+#define RMT_USE_VULKAN 1
+#endif
+
 // Initially use POSIX thread names to name threads instead of Thread0, 1, ...
 #ifndef RMT_USE_POSIX_THREADNAMES
 #define RMT_USE_POSIX_THREADNAMES 0
@@ -148,7 +154,7 @@ documented just below this comment.
 #endif
 
 #if __GNUC__ || __clang__
-#if __x86_64__ || __ppc64__ || __amd64__
+#if __x86_64__ || __ppc64__ || __amd64__ || __arm64__
 #define RMT_ARCH_64BIT
 #else
 #define RMT_ARCH_32BIT
@@ -206,6 +212,11 @@ documented just below this comment.
 #else
     #define IFDEF_RMT_USE_METAL(t, f) f
 #endif
+#if RMT_ENABLED && RMT_USE_VULKAN
+    #define IFDEF_RMT_USE_VULKAN(t, f) t
+#else
+    #define IFDEF_RMT_USE_VULKAN(t, f) f
+#endif
 
 
 // Public interface is written in terms of these macros to easily enable/disable itself
@@ -262,6 +273,7 @@ typedef enum rmtSampleType
     RMT_SampleType_D3D12,
     RMT_SampleType_OpenGL,
     RMT_SampleType_Metal,
+    RMT_SampleType_Vulkan,
     RMT_SampleType_Count,
 } rmtSampleType;
 
@@ -464,8 +476,8 @@ typedef struct rmtSettings
     RMT_OPTIONAL(RMT_ENABLED, _rmt_EndCPUSample())
 
 // Used for both CPU and GPU profiling
-// Essential to call this every frame, ever since D3D12 support was added
-// D3D12 Requirements: Don't sample any command lists that begin before this call and end after it
+// Essential to call this every frame, ever since D3D12/Vulkan support was added
+// D3D12/Vulkan Requirements: Don't sample any command lists that begin before this call and end after it
 #define rmt_MarkFrame()                                                             \
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_MarkFrame(), RMT_ERROR_NONE)
 
@@ -597,6 +609,39 @@ typedef struct rmtD3D12Bind
 
 #define rmt_EndMetalSample()                                                \
     RMT_OPTIONAL(RMT_USE_METAL, _rmt_EndMetalSample())
+
+
+typedef struct rmtVulkanBind
+{
+    // The physical vulkan device
+    void* physical_device;
+
+    // The main device shared by all threads
+    void* device;
+
+    // The queue command buffers are executed on for profiling
+    void* queue;
+
+} rmtVulkanBind;
+
+// Create a Vulkan binding for the given device/queue pair
+#define rmt_BindVulkan(instance, physical_device, device, queue, out_bind)  \
+    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, out_bind), NULL)
+
+#define rmt_UnbindVulkan(bind)                                              \
+    RMT_OPTIONAL(RMT_USE_VULKAN, _rmt_UnbindVulkan(bind))
+
+#define rmt_BeginVulkanSample(bind, command_buffer, name)                   \
+    RMT_OPTIONAL(RMT_USE_VULKAN, {                                          \
+        static rmtU32 rmt_sample_hash_##name = 0;                           \
+        _rmt_BeginVulkanSample(bind, command_buffer, #name, &rmt_sample_hash_##name);     \
+    })
+
+#define rmt_BeginVulkanSampleDynamic(bind, command_buffer, namestr)         \
+    RMT_OPTIONAL(RMT_USE_VULKAN, _rmt_BeginVulkanSample(bind, command_buffer, namestr, NULL))
+
+#define rmt_EndVulkanSample()                                               \
+    RMT_OPTIONAL(RMT_USE_VULKAN, _rmt_EndVulkanSample())
 
 
 /*--------------------------------------------------------------------------------------------------------------------------------
@@ -983,6 +1028,17 @@ struct rmt_EndMetalSampleOnScopeExit
 };
 #endif
 
+#if RMT_USE_VULKAN
+extern "C" RMT_API void _rmt_EndVulkanSample();
+struct rmt_EndVulkanSampleOnScopeExit
+{
+    ~rmt_EndVulkanSampleOnScopeExit()
+    {
+        _rmt_EndVulkanSample();
+    }
+};
+#endif
+
 #endif
 
 
@@ -1005,6 +1061,9 @@ struct rmt_EndMetalSampleOnScopeExit
 #define rmt_ScopedMetalSample(name)                                                                     \
         RMT_OPTIONAL(RMT_USE_METAL, rmt_BeginMetalSample(name));                                        \
         RMT_OPTIONAL(RMT_USE_METAL, rmt_EndMetalSampleOnScopeExit rmt_ScopedMetalSample##name);
+#define rmt_ScopedVulkanSample(bind, command_buffer, name)                                              \
+        RMT_OPTIONAL(RMT_USE_VULKAN, rmt_BeginVulkanSample(bind, command_buffer, name));                \
+        RMT_OPTIONAL(RMT_USE_VULKAN, rmt_EndVulkanSampleOnScopeExit rmt_ScopedVulkanSample##name());
 
 #endif
 
@@ -1061,6 +1120,13 @@ RMT_API void _rmt_EndOpenGLSample(void);
 #if RMT_USE_METAL
 RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndMetalSample(void);
+#endif
+
+#if RMT_USE_VULKAN
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, rmtVulkanBind** out_bind);
+RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind);
+RMT_API void _rmt_BeginVulkanSample(rmtVulkanBind* bind, void* command_buffer, rmtPStr name, rmtU32* hash_cache);
+RMT_API void _rmt_EndVulkanSample();
 #endif
 
 // Sample iterator
