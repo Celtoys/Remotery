@@ -30,6 +30,9 @@ Compiling
   library linkage. For example to compile the same run: cc lib/Remotery.c sample/sample.c
   -I lib -pthread -lm
 
+* Vulkan - Ensure your include directories are set such that the Vulkan headers can be
+  included with the statement: #include <vulkan/vulkan.h>.
+
 You can define some extra macros to modify what features are compiled into Remotery. These are
 documented just below this comment.
 
