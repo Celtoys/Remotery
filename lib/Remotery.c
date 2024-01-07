@@ -10153,6 +10153,9 @@ static rmtError CopyTimestamps(VulkanBindImpl* bind, VkDevice vulkan_device, rmt
     rmtU32 query_count = ring_pos_b - ring_pos_a;
     rmtU64 query_size = query_count * sizeof(rmtU64);
 
+    if (query_count == 0)
+        return RMT_ERROR_NONE;
+
     bind->vkGetQueryPoolResults(vulkan_device, bind->gpuTimestampRingBuffer, ring_pos_a, query_count, query_size, cpu_timestamps + ring_pos_a,
                               sizeof(rmtU64), VK_QUERY_RESULT_64_BIT);
 
