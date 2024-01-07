@@ -349,8 +349,8 @@ typedef enum rmtError
 extern "C" {
 #endif
 
-// Gets the last error message issued on the calling thread
-RMT_API rmtPStr rmt_GetLastErrorMessage();
+    // Gets the last error message issued on the calling thread
+    RMT_API rmtPStr rmt_GetLastErrorMessage();
 
 #ifdef __cplusplus
 }
@@ -638,8 +638,8 @@ typedef struct rmtVulkanBind
 } rmtVulkanBind;
 
 // Create a Vulkan binding for the given device/queue pair
-#define rmt_BindVulkan(instance, physical_device, device, queue, out_bind)  \
-    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, out_bind), NULL)
+#define rmt_BindVulkan(instance, physical_device, device, queue, get_proc_addr, out_bind) \
+    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, get_proc_addr, out_bind), NULL)
 
 #define rmt_UnbindVulkan(bind)                                              \
     RMT_OPTIONAL(RMT_USE_VULKAN, _rmt_UnbindVulkan(bind))
@@ -1136,7 +1136,8 @@ RMT_API void _rmt_EndMetalSample(void);
 #endif
 
 #if RMT_USE_VULKAN
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, rmtVulkanBind** out_bind);
+typedef void*(*VulkanGetInstanceProcAddr)(void*, const char*);
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_proc_addr, rmtVulkanBind** out_bind);
 RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind);
 RMT_API void _rmt_BeginVulkanSample(rmtVulkanBind* bind, void* command_buffer, rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndVulkanSample();

@@ -10040,6 +10040,7 @@ typedef struct VulkanBindImpl
 
     // Read/write positions of the ring buffer allocator, synchronising access to all the ring buffers at once
     // TODO(don): Separate by cache line?
+    // TODO(valakor): These should REALLY be 64-bit
     rmtAtomicU32 ringBufferRead;
     rmtAtomicU32 ringBufferWrite;
 
@@ -10069,23 +10070,20 @@ typedef struct VulkanBindImpl
 
 } VulkanBindImpl;
 
-static rmtError LoadVulkanFunctions(VulkanBindImpl* bind, VkInstance vulkan_instance, VkDevice vulkan_device)
+static rmtError LoadVulkanFunctions(VulkanBindImpl* bind, VkInstance vulkan_instance, PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr)
 {
-    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
-    PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr;
-
-#define VK_DEVICE_FN(fn)                                                         \
-    bind->fn = (PFN_ ## fn)vkGetDeviceProcAddr(vulkan_device, #fn);              \
-    if (bind->fn == NULL)                                                        \
+#define VK_DEVICE_FN(fn)                                                             \
+    bind->fn = (PFN_ ## fn)pfn_vkGetInstanceProcAddr(vulkan_instance, #fn);              \
+    if (bind->fn == NULL)                                                            \
         return RMT_ERROR_RESOURCE_ACCESS_FAIL;
 
-#define VK_DEVICE_FN_FALLBACK(fn, fn_fallback)                                   \
-    bind->fn = (PFN_ ## fn)vkGetDeviceProcAddr(vulkan_device, #fn);              \
-    if (bind->fn == NULL)                                                        \
-    {                                                                            \
-        bind->fn = (PFN_ ## fn)vkGetDeviceProcAddr(vulkan_device, #fn_fallback); \
-        if (bind->fn == NULL)                                                    \
-            return RMT_ERROR_RESOURCE_ACCESS_FAIL;                               \
+#define VK_DEVICE_FN_FALLBACK(fn, fn_fallback)                                       \
+    bind->fn = (PFN_ ## fn)pfn_vkGetInstanceProcAddr(vulkan_instance, #fn);              \
+    if (bind->fn == NULL)                                                            \
+    {                                                                                \
+        bind->fn = (PFN_ ## fn)pfn_vkGetInstanceProcAddr(vulkan_instance, #fn_fallback); \
+        if (bind->fn == NULL)                                                        \
+            return RMT_ERROR_RESOURCE_ACCESS_FAIL;                                   \
     }
 
     VK_DEVICE_FN(vkQueueSubmit);
@@ -10136,6 +10134,7 @@ static rmtError CreateQuerySemaphore(VulkanBindImpl* bind, VkDevice vulkan_devic
     VkSemaphoreCreateInfo create_info;
     ZeroMemory(&create_info, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    create_info.pNext = &type_info;
 
     if (bind->vkCreateSemaphore(vulkan_device, &create_info, NULL, &bind->gpuQuerySemaphore) != VK_SUCCESS)
     {
@@ -10188,6 +10187,8 @@ static rmtError UpdateGpuTicksToUs(VulkanBindImpl* bind, VkPhysicalDevice vulkan
 
     float gpu_ns_per_tick = device_properties.limits.timestampPeriod;
     bind->gpu_ticks_to_us = gpu_ns_per_tick / 1000.0;
+
+    return RMT_ERROR_NONE;
 }
 
 static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice vulkan_physical_device, VkDevice vulkan_device, double* gpu_ticks_to_us, rmtS64* gpu_to_cpu_timestamp_us)
@@ -10271,8 +10272,8 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
     VkQueue vulkan_queue = (VkQueue)bind->base.queue;
 
     rmtU32 index_mask = bind->maxNbQueries - 1;
-    rmtU32 current_read_cpu = LoadAcquire(&bind->ringBufferRead);
-    rmtU32 current_write_cpu = LoadAcquire(&bind->ringBufferWrite);
+    rmtU64 current_read_cpu = LoadAcquire(&bind->ringBufferRead);
+    rmtU64 current_write_cpu = LoadAcquire(&bind->ringBufferWrite);
 
     // Tell the GPU where the CPU write position is
     VkTimelineSemaphoreSubmitInfoKHR semaphore_submit_info;
@@ -10290,20 +10291,21 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
     bind->vkQueueSubmit(vulkan_queue, 1, &submit_info, NULL);
 
     // Has the GPU processed any writes?
-    rmtU64 current_write_gpu = 0;
-    if (bind->vkGetSemaphoreCounterValue(vulkan_device, bind->gpuQuerySemaphore, &current_write_gpu) != VK_SUCCESS)
+    rmtU64 current_write_gpu64 = 0;
+    if (bind->vkGetSemaphoreCounterValue(vulkan_device, bind->gpuQuerySemaphore, &current_write_gpu64) != VK_SUCCESS)
     {
         return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Failed to get Vulkan Semaphore value");
     }
 
+    rmtU32 current_write_gpu = (rmtU32)current_write_gpu64;
     if (current_write_gpu > current_read_cpu)
     {
         double gpu_ticks_to_us;
         rmtS64 gpu_to_cpu_timestamp_us;
 
         // Physical ring buffer positions
-        rmtU32 ring_pos_a = current_read_cpu & index_mask;
-        rmtU32 ring_pos_b = current_write_gpu & index_mask;
+        rmtU32 ring_pos_a = (rmtU32)current_read_cpu & index_mask;
+        rmtU32 ring_pos_b = (rmtU32)current_write_gpu & index_mask;
 
         rmtTry(GetTimestampCalibration(bind, vulkan_physical_device, vulkan_device, &gpu_ticks_to_us, &gpu_to_cpu_timestamp_us));
 
@@ -10355,13 +10357,14 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
     return RMT_ERROR_NONE;
 }
 
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, rmtVulkanBind** out_bind)
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_proc_addr, rmtVulkanBind** out_bind)
 {
     VulkanBindImpl* bind;
     VkInstance vulkan_instance = (VkInstance)instance;
     VkPhysicalDevice vulkan_physical_device = (VkPhysicalDevice)physical_device;
     VkDevice vulkan_device = (VkDevice)device;
     VkQueue vulkan_queue = (VkQueue)queue;
+    PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)get_proc_addr;
 
     if (g_Remotery == NULL)
     {
@@ -10373,6 +10376,7 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     assert(device != NULL);
     assert(queue != NULL);
     assert(out_bind != NULL);
+    assert(get_proc_addr != NULL);
 
     // Allocate the bind container
     rmtTryMalloc(VulkanBindImpl, bind);
@@ -10404,7 +10408,7 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     bind->mqToVulkanUpdate = NULL;
     bind->next = NULL;
 
-    rmtTry(LoadVulkanFunctions(bind, vulkan_instance, vulkan_device));
+    rmtTry(LoadVulkanFunctions(bind, vulkan_instance, pfn_vkGetInstanceProcAddr));
 
     // Create the independent ring buffer storage items
     // TODO(don): Leave space beetween start and end to stop invalidating cache lines?
