@@ -1059,7 +1059,7 @@ RMT_API void _rmt_EndOpenGLSample(void);
 #endif
 
 #if RMT_USE_METAL
-RMT_API void _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
+RMT_API rmtError _rmt_BeginMetalSample(rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndMetalSample(void);
 #endif
 
