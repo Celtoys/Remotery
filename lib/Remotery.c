@@ -7098,12 +7098,6 @@ static void Remotery_Destructor(Remotery* rmt)
 
     rmtDelete(ThreadProfilers, rmt->threadProfilers);
 
-    if (g_RemoteryCreated)
-    {
-        g_Remotery = NULL;
-        g_RemoteryCreated = RMT_FALSE;
-    }
-
     rmtDelete(ObjectAllocator, rmt->propertyAllocator);
 
 #if RMT_USE_VULKAN
@@ -7129,6 +7123,12 @@ static void Remotery_Destructor(Remotery* rmt)
 #if RMT_USE_METAL
     rmtDelete(Metal, rmt->metal);
 #endif
+
+    if (g_RemoteryCreated)
+    {
+        g_Remotery = NULL;
+        g_RemoteryCreated = RMT_FALSE;
+    }
 
     rmtCloseFile(rmt->logfile);
 
