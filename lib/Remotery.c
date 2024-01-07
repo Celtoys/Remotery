@@ -754,6 +754,19 @@ static rmtU32 AtomicAddU32(rmtAtomicU32* value, rmtU32 add)
 #endif
 }
 
+static rmtU64 AtomicAddU64(rmtAtomicU64* value, rmtU64 add)
+{
+#if defined(RMT_USE_C11_ATOMICS)
+    return atomic_fetch_add(value, add);
+#elif defined(RMT_USE_CPP_ATOMICS)
+    return value->fetch_add(add);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    return (rmtU64)_InterlockedExchangeAdd64((long long volatile*)value, (long long)add);
+#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
+    return (rmtU64)__sync_fetch_and_add(value, add);
+#endif
+}
+
 static void AtomicSubS32(rmtAtomicS32* value, rmtS32 sub)
 {
     // Not all platforms have an implementation so just negate and add
@@ -773,6 +786,19 @@ static rmtU32 AtomicStoreU32(rmtAtomicU32* value, rmtU32 set)
 #endif
 }
 
+static rmtU64 AtomicStoreU64(rmtAtomicU64* value, rmtU64 set)
+{
+#if defined(RMT_USE_C11_ATOMICS)
+    return atomic_exchange(value, set);
+#elif defined(RMT_USE_CPP_ATOMICS)
+    return value->exchange(set);
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    return (rmtU64)_InterlockedExchange64((long long volatile*)value, (long long)set);
+#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
+    return (rmtU64)__sync_lock_test_and_set(value, set);
+#endif
+}
+
 static rmtU32 AtomicLoadU32(rmtAtomicU32* value)
 {
 #if defined(RMT_USE_C11_ATOMICS)
@@ -783,6 +809,19 @@ static rmtU32 AtomicLoadU32(rmtAtomicU32* value)
     return (rmtU32)_InterlockedExchangeAdd((long volatile*)value, (long)0);
 #elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
     return (rmtU32)__sync_fetch_and_add(value, 0);
+#endif
+}
+
+static rmtU64 AtomicLoadU64(rmtAtomicU64* value)
+{
+#if defined(RMT_USE_C11_ATOMICS)
+    return atomic_load(value);
+#elif defined(RMT_USE_CPP_ATOMICS)
+    return value->load();
+#elif defined(RMT_PLATFORM_WINDOWS) && !defined(__MINGW32__)
+    return (rmtU64)_InterlockedExchangeAdd64((long long volatile*)value, (long long)0);
+#elif defined(RMT_PLATFORM_POSIX) || defined(__MINGW32__)
+    return (rmtU64)__sync_fetch_and_add(value, 0);
 #endif
 }
 
@@ -815,6 +854,13 @@ static rmtU32 LoadAcquire(rmtAtomicU32* address)
     return value;
 }
 
+static rmtU64 LoadAcquire64(rmtAtomicU64* address)
+{
+    rmtU64 value = *address;
+    CompilerReadFence();
+    return value;
+}
+
 static long* LoadAcquirePointer(long* volatile* ptr)
 {
     long* value = *ptr;
@@ -823,6 +869,12 @@ static long* LoadAcquirePointer(long* volatile* ptr)
 }
 
 static void StoreRelease(rmtAtomicU32* address, rmtU32 value)
+{
+    CompilerWriteFence();
+    *address = value;
+}
+
+static void StoreRelease64(rmtAtomicU64* address, rmtU64 value)
 {
     CompilerWriteFence();
     *address = value;
@@ -10040,9 +10092,8 @@ typedef struct VulkanBindImpl
 
     // Read/write positions of the ring buffer allocator, synchronising access to all the ring buffers at once
     // TODO(don): Separate by cache line?
-    // TODO(valakor): These should REALLY be 64-bit
-    rmtAtomicU32 ringBufferRead;
-    rmtAtomicU32 ringBufferWrite;
+    rmtAtomicU64 ringBufferRead;
+    rmtAtomicU64 ringBufferWrite;
 
     VkSemaphore gpuQuerySemaphore;
 
@@ -10197,7 +10248,7 @@ static rmtError UpdateGpuTicksToUs(VulkanBindImpl* bind, VkPhysicalDevice vulkan
 static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice vulkan_physical_device, VkDevice vulkan_device, double* gpu_ticks_to_us, rmtS64* gpu_to_cpu_timestamp_us)
 {
     // TODO(valakor): Honor RMT_GPU_CPU_SYNC_SECONDS? It's unclear to me how expensive vkGetCalibratedTimestampsEXT is
-    //  on all supported platforms.
+    //  on all supported platforms, but at least on Windows on my machine it was on the order of 100-150us.
 
     rmtU64 gpu_timestamp_ticks;
     rmtU64 cpu_timestamp_ticks;
@@ -10221,9 +10272,9 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
 #elif defined(RMT_PLATFORM_MACOS)
     // On Apple platforms MoltenVK reports support for VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT even though under the hood
-    //  it uses mach_absolute_time(), which is actually CLOCK_BOOT. This doesn't matter though as Remotery also uses
+    //  it uses mach_absolute_time(), which is actually CLOCK_UPTIME_RAW. This doesn't matter though as Remotery also uses
     //  mach_absolute_time() for time measurements so the results are comparable. For more information see:
-    //  <INSERT LINK HERE>
+    //  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
     timestamp_count = 2;
     timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT;
@@ -10274,41 +10325,48 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
     VkDevice vulkan_device = (VkDevice)bind->base.device;
     VkQueue vulkan_queue = (VkQueue)bind->base.queue;
 
-    rmtU32 index_mask = bind->maxNbQueries - 1;
-    rmtU64 current_read_cpu = LoadAcquire(&bind->ringBufferRead);
-    rmtU64 current_write_cpu = LoadAcquire(&bind->ringBufferWrite);
-
-    // Tell the GPU where the CPU write position is
-    VkTimelineSemaphoreSubmitInfoKHR semaphore_submit_info;
-    ZeroMemory(&semaphore_submit_info, sizeof(semaphore_submit_info));
-    semaphore_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-    semaphore_submit_info.signalSemaphoreValueCount = 1;
-    semaphore_submit_info.pSignalSemaphoreValues = &current_write_cpu;
-
-    VkSubmitInfo submit_info;
-    ZeroMemory(&submit_info, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &semaphore_submit_info;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &bind->gpuQuerySemaphore;
-    bind->vkQueueSubmit(vulkan_queue, 1, &submit_info, NULL);
+    rmtU64 index_mask = (rmtU64)bind->maxNbQueries - 1;
+    rmtU64 current_read_cpu = LoadAcquire64(&bind->ringBufferRead);
+    rmtU64 current_write_cpu = LoadAcquire64(&bind->ringBufferWrite);
+    rmtU32 current_read_cpu_index = (rmtU32)(current_read_cpu & index_mask);
 
     // Has the GPU processed any writes?
-    rmtU64 current_write_gpu64 = 0;
-    if (bind->vkGetSemaphoreCounterValue(vulkan_device, bind->gpuQuerySemaphore, &current_write_gpu64) != VK_SUCCESS)
+    rmtU64 current_write_gpu = 0;
+    if (bind->vkGetSemaphoreCounterValue(vulkan_device, bind->gpuQuerySemaphore, &current_write_gpu) != VK_SUCCESS)
     {
         return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Failed to get Vulkan Semaphore value");
     }
 
-    rmtU32 current_write_gpu = (rmtU32)current_write_gpu64;
+    if (current_write_cpu > current_write_gpu)
+    {
+        // Tell the GPU where the CPU write position is
+        // NOTE(valakor): Vulkan spec states that signalling a timeline semaphore must strictly increase its value
+        VkTimelineSemaphoreSubmitInfoKHR semaphore_submit_info;
+        ZeroMemory(&semaphore_submit_info, sizeof(semaphore_submit_info));
+        semaphore_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+        semaphore_submit_info.signalSemaphoreValueCount = 1;
+        semaphore_submit_info.pSignalSemaphoreValues = &current_write_cpu;
+
+        VkSubmitInfo submit_info;
+        ZeroMemory(&submit_info, sizeof(submit_info));
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.pNext = &semaphore_submit_info;
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &bind->gpuQuerySemaphore;
+        if (bind->vkQueueSubmit(vulkan_queue, 1, &submit_info, NULL) != VK_SUCCESS)
+        {
+            return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Failed to submit Vulkan Semaphore update to queue");
+        }
+    }
+
     if (current_write_gpu > current_read_cpu)
     {
         double gpu_ticks_to_us;
         rmtS64 gpu_to_cpu_timestamp_us;
 
         // Physical ring buffer positions
-        rmtU32 ring_pos_a = (rmtU32)current_read_cpu & index_mask;
-        rmtU32 ring_pos_b = (rmtU32)current_write_gpu & index_mask;
+        rmtU32 ring_pos_a = current_read_cpu_index;
+        rmtU32 ring_pos_b = (rmtU32)(current_write_gpu & index_mask);
 
         rmtTry(GetTimestampCalibration(bind, vulkan_physical_device, vulkan_device, &gpu_ticks_to_us, &gpu_to_cpu_timestamp_us));
 
@@ -10325,7 +10383,7 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
         }
 
         // Release the ring buffer entries just processed
-        StoreRelease(&bind->ringBufferRead, current_write_gpu);
+        StoreRelease64(&bind->ringBufferRead, current_write_gpu);
     }
 
     // Attempt to empty the queue of complete message trees
@@ -10342,7 +10400,9 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
         assert(root_sample->type == RMT_SampleType_Vulkan);
 
         // If the last-allocated query in this tree has been GPU-processed it's safe to now send the tree to Remotery thread
-        if (current_write_gpu > msg_sample_tree->userData)
+        rmtU32 sample_tree_write_index = msg_sample_tree->userData;
+        rmtU64 sample_tree_write = (rmtU64)(sample_tree_write_index - current_read_cpu_index) + current_read_cpu;
+        if (current_write_gpu > sample_tree_write)
         {
             QueueSampleTree(g_Remotery->mq_to_rmt_thread, root_sample, msg_sample_tree->allocator, msg_sample_tree->threadName,
                                 0, message->threadProfiler, RMT_FALSE);
@@ -10490,19 +10550,20 @@ static rmtError AllocateVulkanSampleTree(SampleTree** vulkan_tree)
     return RMT_ERROR_NONE;
 }
 
-static rmtError AllocQueryPair(VulkanBindImpl* vulkan_bind, rmtAtomicU32* out_allocation_index)
+static rmtError AllocQueryPair(VulkanBindImpl* vulkan_bind, rmtU32* out_allocation_index)
 {
     // Check for overflow against a tail which is only ever written by one thread
-    rmtU32 read = LoadAcquire(&vulkan_bind->ringBufferRead);
-    rmtU32 write = LoadAcquire(&vulkan_bind->ringBufferWrite);
-    rmtU32 nb_queries = (write - read);
+    rmtU64 read = LoadAcquire64(&vulkan_bind->ringBufferRead);
+    rmtU64 write = LoadAcquire64(&vulkan_bind->ringBufferWrite);
+    rmtU32 nb_queries = (rmtU32)(write - read);
     rmtU32 queries_left = vulkan_bind->maxNbQueries - nb_queries;
     if (queries_left < 2)
     {
         return rmtMakeError(RMT_ERROR_RESOURCE_CREATE_FAIL, "Vulkan query ring buffer overflow");
     }
 
-    *out_allocation_index = AtomicAddU32(&vulkan_bind->ringBufferWrite, 2);
+    rmtU64 index_mask = (rmtU64)vulkan_bind->maxNbQueries - 1;
+    *out_allocation_index = (rmtU32)(AtomicAddU64(&vulkan_bind->ringBufferWrite, 2) & index_mask);
     return RMT_ERROR_NONE;
 }
 
