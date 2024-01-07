@@ -1067,7 +1067,7 @@ struct rmt_EndVulkanSampleOnScopeExit
         RMT_OPTIONAL(RMT_USE_D3D11, rmt_EndD3D11SampleOnScopeExit rmt_ScopedD3D11Sample##name);
 #define rmt_ScopedD3D12Sample(bind, command_list, name)                                                 \
         RMT_OPTIONAL(RMT_USE_D3D12, rmt_BeginD3D12Sample(bind, command_list, name));                    \
-        RMT_OPTIONAL(RMT_USE_D3D12, rmt_EndD3D12SampleOnScopeExit rmt_ScopedD3D12Sample##name());
+        RMT_OPTIONAL(RMT_USE_D3D12, rmt_EndD3D12SampleOnScopeExit rmt_ScopedD3D12Sample##name);
 #define rmt_ScopedOpenGLSample(name)                                                                    \
         RMT_OPTIONAL(RMT_USE_OPENGL, rmt_BeginOpenGLSample(name));                                      \
         RMT_OPTIONAL(RMT_USE_OPENGL, rmt_EndOpenGLSampleOnScopeExit rmt_ScopedOpenGLSample##name);
@@ -1076,7 +1076,7 @@ struct rmt_EndVulkanSampleOnScopeExit
         RMT_OPTIONAL(RMT_USE_METAL, rmt_EndMetalSampleOnScopeExit rmt_ScopedMetalSample##name);
 #define rmt_ScopedVulkanSample(bind, command_buffer, name)                                              \
         RMT_OPTIONAL(RMT_USE_VULKAN, rmt_BeginVulkanSample(bind, command_buffer, name));                \
-        RMT_OPTIONAL(RMT_USE_VULKAN, rmt_EndVulkanSampleOnScopeExit rmt_ScopedVulkanSample##name());
+        RMT_OPTIONAL(RMT_USE_VULKAN, rmt_EndVulkanSampleOnScopeExit rmt_ScopedVulkanSample##name);
 
 #endif
 
