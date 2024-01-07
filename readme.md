@@ -25,7 +25,7 @@ Supported Profiling Platforms:
 
 Supported GPU Profiling APIS:
 
-* D3D 11/12, OpenGL, CUDA, Metal.
+* D3D 11/12, OpenGL, CUDA, Metal, Vulkan.
 
 Compiling
 ---------
@@ -58,6 +58,7 @@ You can define some extra macros to modify what features are compiled into Remot
     RMT_USE_D3D12       0           Allow D3D12 GPU profiling
     RMT_USE_OPENGL      0           Allow OpenGL GPU profiling (dynamically links OpenGL libraries on available platforms)
     RMT_USE_METAL       0           Allow Metal profiling of command buffers
+    RMT_USE_VULKAN      0           Allow Vulkan GPU profiling
 
 
 Basic Use
