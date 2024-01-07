@@ -478,39 +478,21 @@ Remotery = (function()
 
     function UInt64ToFloat32(view, offset)
     {
-        // Unpack as two 32-bit integers so we have a vague attempt at reconstructing the value
-        const a = view.getUint32(offset + 0, true);
-        const b = view.getUint32(offset + 4, true);
-
-        // Can't do bit arithmetic above 32-bits in JS so combine using power-of-two math
-        const v = a + (b * Math.pow(2, 32));
+        // Read as a double to match Buffer_WriteU64
+        const v = view.getFloat64(offset, true);
 
         // TODO(don): Potentially massive data loss!
-        snapshots_view.setFloat32(offset, v);
+        view.setFloat32(offset, v, true);
     }
 
 
     function SInt64ToFloat32(view, offset)
     {
-        // Unpack as two 32-bit integers so we have a vague attempt at reconstructing the value
-        const a = view.getUint32(offset + 0, true);
-        const b = view.getUint32(offset + 4, true);
-
-        // Is this negative?
-        if (b & 0x80000000)
-        {
-            // Can only convert from twos-complement with 32-bit arithmetic so shave off the upper 32-bits
-            // TODO(don): Crazy data loss here
-            const v = -(~(a - 1));
-        }
-        else
-        {
-            // Can't do bit arithmetic above 32-bits in JS so combine using power-of-two math
-            const v = a + (b * Math.pow(2, 32));
-        }
+        // Read as a double to match Buffer_WriteU64
+        const v = view.getFloat64(offset, true);
 
         // TODO(don): Potentially massive data loss!
-        snapshots_view.setFloat32(offset, v);
+        view.setFloat32(offset, v, true);
     }
 
 
@@ -591,6 +573,7 @@ Remotery = (function()
                 case 5:
                     SInt64ToFloat32(snapshots_view, offset + 16);
                     SInt64ToFloat32(snapshots_view, offset + 24);
+                    break;
                 case 6:
                     UInt64ToFloat32(snapshots_view, offset + 16);
                     UInt64ToFloat32(snapshots_view, offset + 24);
