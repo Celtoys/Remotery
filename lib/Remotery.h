@@ -345,8 +345,18 @@ typedef enum rmtError
 } rmtError;
 // clang-format on
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Gets the last error message issued on the calling thread
 RMT_API rmtPStr rmt_GetLastErrorMessage();
+
+#ifdef __cplusplus
+}
+#endif
+
+
 
 
 /*--------------------------------------------------------------------------------------------------------------------------------
