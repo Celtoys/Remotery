@@ -10285,7 +10285,9 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     timestamp_count = 2;
     timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
-#elif defined(RMT_PLATFORM_MACOS)
+#elif 0 // defined(RMT_PLATFORM_MACOS)
+	// TODO(valakor) The comment below would be correct if not for a bug in MoltenVK that returns the wrong timestamp
+	//  value for VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT. For now we'll just sample the CPU timestamp manually.
     // On Apple platforms MoltenVK reports support for VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT even though under the hood
     //  it uses mach_absolute_time(), which is actually CLOCK_UPTIME_RAW. This doesn't matter though as Remotery also uses
     //  mach_absolute_time() for time measurements so the results are comparable. For more information see:
@@ -10309,7 +10311,7 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     }
 
     // Convert CPU ticks to microseconds, offset from the global timer start
-#if defined(RMT_PLATFORM_WINDOWS) || defined(RMT_PLATFORM_MACOS)
+#if defined(RMT_PLATFORM_WINDOWS) // || defined(RMT_PLATFORM_MACOS)
     cpu_timestamp_ticks = timestamps[1];
     cpu_timestamp_us = usTimer_FromRawTicks(&g_Remotery->timer, cpu_timestamp_ticks);
 #else
