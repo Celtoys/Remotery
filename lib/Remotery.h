@@ -85,8 +85,7 @@ documented just below this comment.
 
 // Allow Vulkan profiling
 #ifndef RMT_USE_VULKAN
-// TODO: Set back to 0 when checking in!
-#define RMT_USE_VULKAN 1
+#define RMT_USE_VULKAN 0
 #endif
 
 // Initially use POSIX thread names to name threads instead of Thread0, 1, ...
