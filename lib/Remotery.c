@@ -10280,18 +10280,26 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     timestamp_infos[0].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[0].timeDomain = VK_TIME_DOMAIN_DEVICE_EXT;
 
+	// TODO(valakor): Reconsider whether we bother asking Vulkan to give us a CPU timestamp at all. It'd be much
+	//  simpler to just query the device timestamp (supported by all platforms) and manually query our timer instead
+	//  of all this platform-specific code. All we need is something "close enough".
+
     // Potentially also query a cpu timestamp if supported
 #if defined(RMT_PLATFORM_WINDOWS)
     timestamp_count = 2;
     timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
 #elif 0 // defined(RMT_PLATFORM_MACOS)
-	// TODO(valakor) The comment below would be correct if not for a bug in MoltenVK that returns the wrong timestamp
-	//  value for VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT. For now we'll just sample the CPU timestamp manually.
-    // On Apple platforms MoltenVK reports support for VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT even though under the hood
-    //  it uses mach_absolute_time(), which is actually CLOCK_UPTIME_RAW. This doesn't matter though as Remotery also uses
-    //  mach_absolute_time() for time measurements so the results are comparable. For more information see:
-    //  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+	// TODO(valakor): We have to fall back to manually querying CPU time due to the following issue:
+    //  On Apple platforms MoltenVK reports support for VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT, which matches the time
+	//  domain of mach_continuous_time(). To support mach_absolute_time() Vulkan would have to extend the available
+	//  time domains to include something like "VK_TIME_DOMAIN_CLOCK_UPTIME_RAW_EXT". See the comments here:
+	//  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+	//
+	//  Alternatively, Remotery could switch to using mach_continuous_time(). The difference between the two is that
+    //  mach_continuous_time() (CLOCK_MONOTONIC_RAW) includes system sleep time, whereas mach_absolute_time()
+	//  (CLOCK_UPTIME_RAW) does not. I'm not 100% convinced that's what we would want, but I think it is technically
+	//  more secure.
     timestamp_count = 2;
     timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT;
