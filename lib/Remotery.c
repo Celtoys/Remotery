@@ -189,6 +189,10 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <atomic>
 #endif
 
+#ifndef RMT_PLATFORM_WINDOWS
+    #define ZeroMemory(dest, len) memset(dest, 0, len)
+#endif
+
 // clang-format on
 
 #if defined(_MSC_VER) && !defined(__clang__)
