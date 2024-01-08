@@ -10463,7 +10463,11 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     bind->base.physical_device = physical_device;
     bind->base.device = device;
     bind->base.queue = queue;
-    bind->maxNbQueries = 32 * 1024;
+#ifdef RMT_PLATFORM_MACOS
+    bind->maxNbQueries = 4 * 1024;
+#else
+	bind->maxNbQueries = 32 * 1024;
+#endif
     bind->gpuTimestampRingBuffer = NULL;
     bind->cpuTimestampRingBuffer = NULL;
     bind->sampleRingBuffer = NULL;
