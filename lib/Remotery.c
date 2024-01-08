@@ -2246,6 +2246,14 @@ static void rmtGetThreadName(rmtThreadId thread_id, rmtThreadHandle thread_handl
     len = strnlen_s(out_thread_name, thread_name_size);
     itoahex_s(out_thread_name + len, thread_name_size - len, thread_id);
 
+#elif defined(RMT_PLATFORM_MACOS)
+
+    int ret = pthread_getname_np(pthread_self(), out_thread_name, thread_name_size);
+    if (ret != 0 || out_thread_name[0] == '\0')
+    {
+        rmtGetThreadNameFallback(out_thread_name, thread_name_size);
+    }
+
 #elif defined(RMT_PLATFORM_LINUX) && RMT_USE_POSIX_THREADNAMES && !defined(__FreeBSD__) && !defined(__OpenBSD__)
 
     prctl(PR_GET_NAME, out_thread_name, 0, 0, 0);
@@ -7374,6 +7382,8 @@ static void SetDebuggerThreadName(const char* name)
     {
     }
 #endif
+#elif defined(RMT_PLATFORM_MACOS)
+    pthread_setname_np(name);
 #else
     RMT_UNREFERENCED_PARAMETER(name);
 #endif
@@ -7413,7 +7423,7 @@ RMT_API void _rmt_SetCurrentThreadName(rmtPStr thread_name)
     SetDebuggerThreadName(thread_name);
 
     // Send the thread name for lookup
-#ifdef RMT_PLATFORM_WINDOWS
+#if defined(RMT_PLATFORM_WINDOWS) || defined(RMT_PLATFORM_MACOS)
     name_length = strnlen_s(thread_profiler->threadName, 64);
     QueueAddToStringTable(g_Remotery->mq_to_rmt_thread, thread_profiler->threadNameHash, thread_name, name_length, NULL);
 #endif
