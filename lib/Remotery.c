@@ -10091,7 +10091,8 @@ typedef struct VulkanBindImpl
     VulkanSample** sampleRingBuffer;
 
     // Read/write positions of the ring buffer allocator, synchronising access to all the ring buffers at once
-    // TODO(don): Separate by cache line?
+    // NOTE(valakor): These are 64-bit instead of 32-bit so that we can reasonably assume they never wrap.
+    // TODO(valakor): Separate by cache line?
     rmtAtomicU64 ringBufferRead;
     rmtAtomicU64 ringBufferWrite;
 
@@ -10248,7 +10249,7 @@ static rmtError UpdateGpuTicksToUs(VulkanBindImpl* bind, VkPhysicalDevice vulkan
 static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice vulkan_physical_device, VkDevice vulkan_device, double* gpu_ticks_to_us, rmtS64* gpu_to_cpu_timestamp_us)
 {
     // TODO(valakor): Honor RMT_GPU_CPU_SYNC_SECONDS? It's unclear to me how expensive vkGetCalibratedTimestampsEXT is
-    //  on all supported platforms, but at least on Windows on my machine it was on the order of 100-150us.
+    //  on all supported platforms, but at least on my Windows/NVIDIA machine it was on the order of 100-150us.
 
     rmtU64 gpu_timestamp_ticks;
     rmtU64 cpu_timestamp_ticks;
@@ -10474,8 +10475,8 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     rmtTry(LoadVulkanFunctions(bind, vulkan_instance, pfn_vkGetInstanceProcAddr));
 
     // Create the independent ring buffer storage items
-    // TODO(don): Leave space beetween start and end to stop invalidating cache lines?
-    // NOTE(don): ABA impossible due to non-wrapping ring buffer indices
+    // TODO(valakor): Leave space beetween start and end to stop invalidating cache lines?
+    // NOTE(valakor): ABA impossible due to non-wrapping ring buffer indices
     rmtTry(CreateQueryPool(bind, vulkan_device, bind->maxNbQueries));
     rmtTryMallocArray(VulkanSample*, bind->sampleRingBuffer, bind->maxNbQueries / 2);
     rmtTryMallocArray(rmtU64, bind->cpuTimestampRingBuffer, bind->maxNbQueries);
