@@ -10464,6 +10464,8 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     bind->base.device = device;
     bind->base.queue = queue;
 #ifdef RMT_PLATFORM_MACOS
+	// NOTE(valakor): Vulkan on MacOS via MoltenVK only supports timestamp query pools of up to 4k 64-bit queries. See
+	//  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKQueryPool.mm
     bind->maxNbQueries = 4 * 1024;
 #else
 	bind->maxNbQueries = 32 * 1024;
