@@ -7153,13 +7153,6 @@ static void Remotery_Destructor(Remotery* rmt)
 {
     assert(rmt != NULL);
 
-    // Join the remotery thread before clearing the global object as the thread is profiling itself
-    rmtDelete(rmtThread, rmt->thread);
-
-    rmtDelete(ThreadProfilers, rmt->threadProfilers);
-
-    rmtDelete(ObjectAllocator, rmt->propertyAllocator);
-
 #if RMT_USE_VULKAN
     while (rmt->vulkanBinds != NULL)
     {
@@ -7167,6 +7160,13 @@ static void Remotery_Destructor(Remotery* rmt)
     }
     mtxDelete(&rmt->vulkanBindsMutex);
 #endif
+
+    // Join the remotery thread before clearing the global object as the thread is profiling itself
+    rmtDelete(rmtThread, rmt->thread);
+
+    rmtDelete(ThreadProfilers, rmt->threadProfilers);
+
+    rmtDelete(ObjectAllocator, rmt->propertyAllocator);
 
 #if RMT_USE_D3D12
     while (rmt->d3d12Binds != NULL)
@@ -7563,7 +7563,7 @@ static rmtError D3D12MarkFrame(struct D3D12BindImpl* bind);
 #endif
 
 #if RMT_USE_VULKAN
-static rmtError VulkanMarkFrame(struct VulkanBindImpl* bind);
+static rmtError VulkanMarkFrame(struct VulkanBindImpl* bind, rmtBool recurse);
 #endif
 
 RMT_API rmtError _rmt_MarkFrame(void)
@@ -7580,7 +7580,7 @@ RMT_API rmtError _rmt_MarkFrame(void)
 
     #if RMT_USE_VULKAN
         // This will kick off mark frames on the complete chain of binds
-        rmtTry(VulkanMarkFrame(g_Remotery->vulkanBinds));
+        rmtTry(VulkanMarkFrame(g_Remotery->vulkanBinds, RMT_TRUE));
     #endif
 
     return RMT_ERROR_NONE;
@@ -10113,6 +10113,7 @@ typedef struct VulkanBindImpl
 
     // Function pointers to Vulkan functions
     PFN_vkQueueSubmit vkQueueSubmit;
+    PFN_vkQueueWaitIdle vkQueueWaitIdle;
     PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
     PFN_vkCreateQueryPool vkCreateQueryPool;
     PFN_vkDestroyQueryPool vkDestroyQueryPool;
@@ -10149,6 +10150,7 @@ static rmtError LoadVulkanFunctions(VulkanBindImpl* bind, VkInstance vulkan_inst
     }
 
     VK_DEVICE_FN(vkQueueSubmit);
+    VK_DEVICE_FN(vkQueueWaitIdle);
     VK_DEVICE_FN(vkGetPhysicalDeviceProperties);
     VK_DEVICE_FN(vkCreateQueryPool);
     VK_DEVICE_FN(vkDestroyQueryPool);
@@ -10335,7 +10337,7 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     return RMT_ERROR_NONE;
 }
 
-static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
+static rmtError VulkanMarkFrame(VulkanBindImpl* bind, rmtBool recurse)
 {
     if (bind == NULL)
     {
@@ -10436,7 +10438,10 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
     }
 
     // Chain to the next bind here so that root calling code doesn't need to know the definition of VulkanBindImpl
-    rmtTry(VulkanMarkFrame(bind->next));
+    if (recurse)
+    {
+        rmtTry(VulkanMarkFrame(bind->next, recurse));
+    }
 
     return RMT_ERROR_NONE;
 }
@@ -10485,6 +10490,7 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     bind->gpuQuerySemaphore = NULL;
     bind->gpu_ticks_to_us = 1.0;
     bind->vkQueueSubmit = NULL;
+    bind->vkQueueWaitIdle = NULL;
     bind->vkGetPhysicalDeviceProperties = NULL;
     bind->vkCreateQueryPool = NULL;
     bind->vkDestroyQueryPool = NULL;
@@ -10528,6 +10534,7 @@ RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind)
 {
     VulkanBindImpl* vulkan_bind = (VulkanBindImpl*)bind;
     VkDevice vulkan_device = (VkDevice)vulkan_bind->base.device;
+    VkQueue vulkan_queue = (VkQueue)vulkan_bind->base.queue;
 
     assert(bind != NULL);
 
@@ -10553,6 +10560,14 @@ RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind)
             }
         }
         mtxUnlock(&g_Remotery->vulkanBindsMutex);
+    }
+
+    // Ensure all samples submitted to the GPU are consumed for clean shutdown
+    if (LoadAcquire64(&vulkan_bind->ringBufferWrite) > LoadAcquire64(&vulkan_bind->ringBufferRead))
+    {
+        VulkanMarkFrame(vulkan_bind, RMT_FALSE);
+        vulkan_bind->vkQueueWaitIdle(vulkan_queue);
+        VulkanMarkFrame(vulkan_bind, RMT_FALSE);
     }
 
     // Clean up bind resources
