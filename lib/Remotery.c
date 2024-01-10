@@ -10441,14 +10441,14 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
     return RMT_ERROR_NONE;
 }
 
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_proc_addr, rmtVulkanBind** out_bind)
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind)
 {
     VulkanBindImpl* bind;
     VkInstance vulkan_instance = (VkInstance)instance;
     VkPhysicalDevice vulkan_physical_device = (VkPhysicalDevice)physical_device;
     VkDevice vulkan_device = (VkDevice)device;
     VkQueue vulkan_queue = (VkQueue)queue;
-    PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)get_proc_addr;
+    PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)get_instance_proc_addr;
 
     if (g_Remotery == NULL)
     {
@@ -10460,7 +10460,7 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     assert(device != NULL);
     assert(queue != NULL);
     assert(out_bind != NULL);
-    assert(get_proc_addr != NULL);
+    assert(get_instance_proc_addr != NULL);
 
     // Allocate the bind container
     rmtTryMalloc(VulkanBindImpl, bind);

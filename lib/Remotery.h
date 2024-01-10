@@ -637,8 +637,8 @@ typedef struct rmtVulkanBind
 } rmtVulkanBind;
 
 // Create a Vulkan binding for the given device/queue pair
-#define rmt_BindVulkan(instance, physical_device, device, queue, get_proc_addr, out_bind) \
-    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, get_proc_addr, out_bind), NULL)
+#define rmt_BindVulkan(instance, physical_device, device, queue, get_instance_proc_addr, out_bind) \
+    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, get_instance_proc_addr, out_bind), NULL)
 
 #define rmt_UnbindVulkan(bind)                                              \
     RMT_OPTIONAL(RMT_USE_VULKAN, _rmt_UnbindVulkan(bind))
@@ -1136,7 +1136,7 @@ RMT_API void _rmt_EndMetalSample(void);
 
 #if RMT_USE_VULKAN
 typedef void*(*VulkanGetInstanceProcAddr)(void*, const char*);
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_proc_addr, rmtVulkanBind** out_bind);
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind);
 RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind);
 RMT_API void _rmt_BeginVulkanSample(rmtVulkanBind* bind, void* command_buffer, rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndVulkanSample();
