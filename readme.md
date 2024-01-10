@@ -213,6 +213,50 @@ The C API supports begin/end also:
     rmt_EndMetalSample();
 
 
+Sampling Vulkan GPU activity
+---------------------------
+
+Remotery can sample Vulkan command buffers issued to the GPU on multiple queues from multiple threads. Command buffers
+must be submitted to the same queue as the samples are issued to. Multiple queues can be profiled by creating multiple
+Vulkan bind objects.
+
+    // Parameters are VkInstance, VkPhysicalDevice, VkDevice, VkQueue, vkGetInstanceProcAddr, rmtVulkanBind**
+    // NOTE: The get_instance_proc_addr parameter doesn't match vkGetInstanceProcAddr exactly in order to avoid
+    // including Vulkan.h in Remotery.h, so the actual function pointer must be cast when passed to rmt_BindVulkan.
+    rmtVulkanBind* vulkan_bind = NULL;
+    rmt_BindVulkan(instance, physical_device, device, queue, (rmtVulkanGetInstanceProcAddr)get_instance_proc_addr, &vulkan_bind);
+
+Sampling is then a simple case of:
+
+    // Explicit begin/end for C
+    {
+        rmt_BeginVulkanSample(vulkan_bind, command_buffer, UnscopedSample);
+        // ... Vulkan code ...
+        rmt_EndVulkanSample();
+    }
+
+    // Scoped begin/end for C++
+    {
+        rmt_ScopedVulkanSample(vulkan_bind, command_buffer, ScopedSample);
+        // ... Vulkan code ...
+    }
+
+NOTE: Vulkan sampling on Apple platforms via MoltenVK must be done with caution. Metal doesn't natively support timestamps
+inside of render or compute passes, so MoltenVK simply reports all timestamps inside those scopes as the begin/end time of
+the entire render pass!
+
+Subsequent sampling calls from the same thread will use that device/queue combination. Once per frame you must call `rmt_MarkFrame()`
+to gather GPU timestamps on the CPU.
+
+    // End of frame, possibly after calling vkPresentKHR or at the very beginning of the frame
+    rmt_MarkFrame();
+
+When you destroy your Vulkan device and queue you can manually clean up resources by calling `rmt_UnbindVulkan`, though this is
+dont automatically by `rmt_DestroyGlobalInstance` as well for all rmt_BindVulkan objects:
+
+    rmt_UnbindVulkan(vulkan_bind);
+
+
 Applying Configuration Settings
 -------------------------------
 
