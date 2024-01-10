@@ -10441,7 +10441,7 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
     return RMT_ERROR_NONE;
 }
 
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind)
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, rmtVulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind)
 {
     VulkanBindImpl* bind;
     VkInstance vulkan_instance = (VkInstance)instance;

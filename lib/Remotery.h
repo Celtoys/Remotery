@@ -1135,8 +1135,8 @@ RMT_API void _rmt_EndMetalSample(void);
 #endif
 
 #if RMT_USE_VULKAN
-typedef void*(*VulkanGetInstanceProcAddr)(void*, const char*);
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, VulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind);
+typedef void*(*rmtVulkanGetInstanceProcAddr)(void*, const char*);
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, rmtVulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind);
 RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind);
 RMT_API void _rmt_BeginVulkanSample(rmtVulkanBind* bind, void* command_buffer, rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndVulkanSample();
