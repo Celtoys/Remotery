@@ -189,10 +189,6 @@ static rmtBool g_SettingsInitialized = RMT_FALSE;
     #include <atomic>
 #endif
 
-#ifndef RMT_PLATFORM_WINDOWS
-    #define ZeroMemory(dest, len) memset(dest, 0, len)
-#endif
-
 // clang-format on
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -10174,7 +10170,7 @@ static rmtError LoadVulkanFunctions(VulkanBindImpl* bind, VkInstance vulkan_inst
 static rmtError CreateQueryPool(VulkanBindImpl* bind, VkDevice vulkan_device, rmtU32 nb_queries)
 {
     VkQueryPoolCreateInfo create_info;
-    ZeroMemory(&create_info, sizeof(create_info));
+    memset(&create_info, 0, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
     create_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
     create_info.queryCount = nb_queries;
@@ -10192,13 +10188,13 @@ static rmtError CreateQueryPool(VulkanBindImpl* bind, VkDevice vulkan_device, rm
 static rmtError CreateQuerySemaphore(VulkanBindImpl* bind, VkDevice vulkan_device)
 {
     VkSemaphoreTypeCreateInfoKHR type_info;
-    ZeroMemory(&type_info, sizeof(type_info));
+    memset(&type_info, 0, sizeof(type_info));
     type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
     type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE_KHR;
     type_info.initialValue = 0;
 
     VkSemaphoreCreateInfo create_info;
-    ZeroMemory(&create_info, sizeof(create_info));
+    memset(&create_info, 0, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     create_info.pNext = &type_info;
 
@@ -10251,7 +10247,7 @@ static rmtError UpdateGpuTicksToUs(VulkanBindImpl* bind, VkPhysicalDevice vulkan
     //  https://github.com/KhronosGroup/MoltenVK/blob/main/Docs/MoltenVK_Runtime_UserGuide.md
 
     VkPhysicalDeviceProperties device_properties;
-    ZeroMemory(&device_properties, sizeof(device_properties));
+    memset(&device_properties, 0, sizeof(device_properties));
     bind->vkGetPhysicalDeviceProperties(vulkan_physical_device, &device_properties);
 
     float gpu_ns_per_tick = device_properties.limits.timestampPeriod;
@@ -10276,13 +10272,13 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     rmtU64 max_deviation;
     rmtU64 timestamps[2];
     VkCalibratedTimestampInfoEXT timestamp_infos[2];
-    ZeroMemory(&timestamp_infos, sizeof(timestamp_infos));
+    memset(timestamp_infos, 0, sizeof(timestamp_infos));
     timestamp_infos[0].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[0].timeDomain = VK_TIME_DOMAIN_DEVICE_EXT;
 
-	// TODO(valakor): Reconsider whether we bother asking Vulkan to give us a CPU timestamp at all. It'd be much
-	//  simpler to just query the device timestamp (supported by all platforms) and manually query our timer instead
-	//  of all this platform-specific code. All we need is something "close enough".
+    // TODO(valakor): Reconsider whether we bother asking Vulkan to give us a CPU timestamp at all. It'd be much
+    //  simpler to just query the device timestamp (supported by all platforms) and manually query our timer instead
+    //  of all this platform-specific code. All we need is something "close enough".
 
     // Potentially also query a cpu timestamp if supported
 #if defined(RMT_PLATFORM_WINDOWS)
@@ -10290,16 +10286,16 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
 #elif 0 // defined(RMT_PLATFORM_MACOS)
-	// TODO(valakor): We have to fall back to manually querying CPU time due to the following issue:
+    // TODO(valakor): We have to fall back to manually querying CPU time due to the following issue:
     //  On Apple platforms MoltenVK reports support for VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT, which matches the time
-	//  domain of mach_continuous_time(). To support mach_absolute_time() Vulkan would have to extend the available
-	//  time domains to include something like "VK_TIME_DOMAIN_CLOCK_UPTIME_RAW_EXT". See the comments here:
-	//  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
-	//
-	//  Alternatively, Remotery could switch to using mach_continuous_time(). The difference between the two is that
+    //  domain of mach_continuous_time(). To support mach_absolute_time() Vulkan would have to extend the available
+    //  time domains to include something like "VK_TIME_DOMAIN_CLOCK_UPTIME_RAW_EXT". See the comments here:
+    //  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+    //
+    //  Alternatively, Remotery could switch to using mach_continuous_time(). The difference between the two is that
     //  mach_continuous_time() (CLOCK_MONOTONIC_RAW) includes system sleep time, whereas mach_absolute_time()
-	//  (CLOCK_UPTIME_RAW) does not. I'm not 100% convinced that's what we would want, but I think it is technically
-	//  more secure.
+    //  (CLOCK_UPTIME_RAW) does not. I'm not 100% convinced that's what we would want, but I think it is technically
+    //  more secure.
     timestamp_count = 2;
     timestamp_infos[1].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
     timestamp_infos[1].timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT;
@@ -10367,13 +10363,13 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind)
         // Tell the GPU where the CPU write position is
         // NOTE(valakor): Vulkan spec states that signalling a timeline semaphore must strictly increase its value
         VkTimelineSemaphoreSubmitInfoKHR semaphore_submit_info;
-        ZeroMemory(&semaphore_submit_info, sizeof(semaphore_submit_info));
+        memset(&semaphore_submit_info, 0, sizeof(semaphore_submit_info));
         semaphore_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
         semaphore_submit_info.signalSemaphoreValueCount = 1;
         semaphore_submit_info.pSignalSemaphoreValues = &current_write_cpu;
 
         VkSubmitInfo submit_info;
-        ZeroMemory(&submit_info, sizeof(submit_info));
+        memset(&submit_info, 0, sizeof(submit_info));
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.pNext = &semaphore_submit_info;
         submit_info.signalSemaphoreCount = 1;
@@ -10474,11 +10470,11 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     bind->base.device = device;
     bind->base.queue = queue;
 #ifdef RMT_PLATFORM_MACOS
-	// NOTE(valakor): Vulkan on MacOS via MoltenVK only supports timestamp query pools of up to 4k 64-bit queries. See
-	//  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKQueryPool.mm
+    // NOTE(valakor): Vulkan on MacOS via MoltenVK only supports timestamp query pools of up to 4k 64-bit queries. See
+    //  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKQueryPool.mm
     bind->maxNbQueries = 4 * 1024;
 #else
-	bind->maxNbQueries = 32 * 1024;
+    bind->maxNbQueries = 32 * 1024;
 #endif
     bind->gpuTimestampRingBuffer = NULL;
     bind->cpuTimestampRingBuffer = NULL;
