@@ -10463,6 +10463,7 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     assert(get_instance_proc_addr != NULL);
 
     // Allocate the bind container
+    // TODO(valakor): If anything after this fails we'll leak this bind instance
     rmtTryMalloc(VulkanBindImpl, bind);
 
     // Set default state
@@ -10554,7 +10555,9 @@ RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind)
         mtxUnlock(&g_Remotery->vulkanBindsMutex);
     }
 
-    // TODO: Clean up resources
+    // Clean up bind resources
+
+    rmtDelete(rmtMessageQueue, vulkan_bind->mqToVulkanUpdate);
 
     if (vulkan_bind->gpuQuerySemaphore != NULL)
     {
