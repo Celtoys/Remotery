@@ -47,6 +47,12 @@ Compiling
   ([devel/remotery](https://www.freshports.org/devel/remotery/)) and modify the port's
   Makefile if needed. There is also a package available via `pkg install remotery`.
 
+* Vulkan - Ensure your include directories are set such that the Vulkan headers can be
+  included with the statement: `#include <vulkan/vulkan.h>`. Currently the Vulkan implementation
+  requires either Vulkan 1.2+ with the `hostQueryReset` and `timelineSemaphore` features enabled,
+  or < 1.1 with the `VK_EXT_host_query_reset` and `VK_KHR_timeline_semaphore` extensions. The
+  extension `VK_EXT_calibrated_timestamps` is also always required.
+
 You can define some extra macros to modify what features are compiled into Remotery:
 
     Macro               Default     Description
