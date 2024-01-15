@@ -7,6 +7,9 @@ A realtime CPU/GPU profiler hosted in a single C file with a viewer that runs in
 
 ![screenshot](screenshot.png?raw=true)
 
+![RemoteryNew](https://github.com/Celtoys/Remotery/assets/1532903/bc5117f6-0f1e-438c-a096-67c8ff7747e7)
+
+
 Features:
 
 * Lightweight instrumentation of multiple threads running on the CPU and GPU.
