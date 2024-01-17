@@ -10410,26 +10410,26 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
         return RMT_ERROR_REMOTERY_NOT_CREATED;
 
     if (instance == NULL)
-        return RMT_ERROR_INVALID_INPUT;
+        return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Missing instance");
 
     if (physical_device == NULL)
-        return RMT_ERROR_INVALID_INPUT;
+        return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Missing physical_device");
 
     if (device == NULL)
-        return RMT_ERROR_INVALID_INPUT;
+        return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Missing device");
 
     if (queue == NULL)
-        return RMT_ERROR_INVALID_INPUT;
+        return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Missing queue");
 
     if (funcs == NULL)
-        return RMT_ERROR_INVALID_INPUT;
+        return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Missing funcs");
 
     if (out_bind == NULL)
-        return RMT_ERROR_INVALID_INPUT;
+        return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Missing out_bind");
 
  #define CHECK_VK_FUNC(fn)                                               \
     if (funcs->fn == NULL)                                               \
-        return RMT_ERROR_INVALID_INPUT;
+        return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Missing " #fn)
 
     CHECK_VK_FUNC(vkGetPhysicalDeviceProperties);
     CHECK_VK_FUNC(vkQueueSubmit);

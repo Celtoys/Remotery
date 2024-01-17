@@ -665,7 +665,7 @@ typedef struct rmtVulkanBind
 
 // Create a Vulkan binding for the given device/queue pair
 #define rmt_BindVulkan(instance, physical_device, device, queue, funcs, out_bind)         \
-    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, funcs, out_bind), NULL)
+    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, funcs, out_bind), RMT_ERROR_NONE)
 
 #define rmt_UnbindVulkan(bind)                                              \
     RMT_OPTIONAL(RMT_USE_VULKAN, _rmt_UnbindVulkan(bind))

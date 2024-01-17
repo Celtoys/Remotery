@@ -227,8 +227,8 @@ must be submitted to the same queue as the samples are issued to. Multiple queue
 Vulkan bind objects.
 
     rmtVulkanFunctions vulkan_funcs;
-    vulkan_funcs.vkGetPhysicalDeviceProperties = my_vulkan_instance_table->vkGetPhysicalDeviceProperties;
-    vulkan_funcs.vkQueueSubmit = my_vulkan_device_table->vkQueueSubmit;
+    vulkan_funcs.vkGetPhysicalDeviceProperties = (void*)my_vulkan_instance_table->vkGetPhysicalDeviceProperties;
+    vulkan_funcs.vkQueueSubmit = (void*)my_vulkan_device_table->vkQueueSubmit;
     // ... All other function pointers
 
     // Parameters are VkInstance, VkPhysicalDevice, VkDevice, VkQueue, rmtVulkanFunctions*, rmtVulkanBind**
