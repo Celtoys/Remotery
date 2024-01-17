@@ -50,8 +50,8 @@ Compiling
 * Vulkan - Ensure your include directories are set such that the Vulkan headers can be
   included with the statement: `#include <vulkan/vulkan.h>`. Currently the Vulkan implementation
   requires either Vulkan 1.2+ with the `hostQueryReset` and `timelineSemaphore` features enabled,
-  or < 1.1 with the `VK_EXT_host_query_reset` and `VK_KHR_timeline_semaphore` extensions. The
-  extension `VK_EXT_calibrated_timestamps` is also always required.
+  or < 1.2 with the `VK_EXT_host_query_reset` and `VK_KHR_timeline_semaphore` extensions. The
+  extension `VK_EXT_calibrated_timestamps` (or `VK_KHR_calibrated_timestamps`) is also always required.
 
 You can define some extra macros to modify what features are compiled into Remotery:
 
@@ -226,11 +226,15 @@ Remotery can sample Vulkan command buffers issued to the GPU on multiple queues 
 must be submitted to the same queue as the samples are issued to. Multiple queues can be profiled by creating multiple
 Vulkan bind objects.
 
-    // Parameters are VkInstance, VkPhysicalDevice, VkDevice, VkQueue, vkGetInstanceProcAddr, rmtVulkanBind**
-    // NOTE: The get_instance_proc_addr parameter doesn't match vkGetInstanceProcAddr exactly in order to avoid
-    // including Vulkan.h in Remotery.h, so the actual function pointer must be cast when passed to rmt_BindVulkan.
+    rmtVulkanFunctions vulkan_funcs;
+    vulkan_funcs.vkGetPhysicalDeviceProperties = my_vulkan_instance_table->vkGetPhysicalDeviceProperties;
+    vulkan_funcs.vkQueueSubmit = my_vulkan_device_table->vkQueueSubmit;
+    // ... All other function pointers
+
+    // Parameters are VkInstance, VkPhysicalDevice, VkDevice, VkQueue, rmtVulkanFunctions*, rmtVulkanBind**
+    // NOTE: The Vulkan functions are copied internally and so do not have to be kept alive after this call.
     rmtVulkanBind* vulkan_bind = NULL;
-    rmt_BindVulkan(instance, physical_device, device, queue, (rmtVulkanGetInstanceProcAddr)get_instance_proc_addr, &vulkan_bind);
+    rmt_BindVulkan(instance, physical_device, device, queue, &vulkan_funcs, &vulkan_bind);
 
 Sampling is then a simple case of:
 
@@ -251,14 +255,14 @@ NOTE: Vulkan sampling on Apple platforms via MoltenVK must be done with caution.
 inside of render or compute passes, so MoltenVK simply reports all timestamps inside those scopes as the begin/end time of
 the entire render pass!
 
-Subsequent sampling calls from the same thread will use that device/queue combination. Once per frame you must call `rmt_MarkFrame()`
-to gather GPU timestamps on the CPU.
+Sampling calls using the same `vulkan_bind` object measure use the device and queue specified when the bind was created.
+Once per frame you must call `rmt_MarkFrame()` to gather GPU timestamps on the CPU.
 
     // End of frame, possibly after calling vkPresentKHR or at the very beginning of the frame
     rmt_MarkFrame();
 
-When you destroy your Vulkan device and queue you can manually clean up resources by calling `rmt_UnbindVulkan`, though this is
-dont automatically by `rmt_DestroyGlobalInstance` as well for all rmt_BindVulkan objects:
+Before you destroy your Vulkan device and queue you can manually clean up resources by calling `rmt_UnbindVulkan`, though this is
+done automatically by `rmt_DestroyGlobalInstance` as well for all `rmt_BindVulkan` objects:
 
     rmt_UnbindVulkan(vulkan_bind);
 

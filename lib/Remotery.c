@@ -10023,6 +10023,8 @@ RMT_API void _rmt_EndMetalSample(void)
 
 #include <vulkan/vulkan.h>
 
+#define VULKAN_CALL(bind, fn) ((PFN_ ## fn)bind->funcs.fn)
+
 typedef struct VulkanThreadData
 {
     rmtU32 lastAllocatedQueryIndex;
@@ -10089,6 +10091,7 @@ static void VulkanSample_Destructor(VulkanSample* sample)
 typedef struct VulkanBindImpl
 {
     rmtVulkanBind base;
+    rmtVulkanFunctions funcs;
 
     // Ring buffer of GPU timestamp destinations for all queries
     rmtU32 maxNbQueries;
@@ -10111,63 +10114,12 @@ typedef struct VulkanBindImpl
     // Convert gpu ticks to us, retrieved from physical device properties
     double gpu_ticks_to_us;
 
-    // Function pointers to Vulkan functions
-    PFN_vkQueueSubmit vkQueueSubmit;
-    PFN_vkQueueWaitIdle vkQueueWaitIdle;
-    PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
-    PFN_vkCreateQueryPool vkCreateQueryPool;
-    PFN_vkDestroyQueryPool vkDestroyQueryPool;
-    PFN_vkResetQueryPool vkResetQueryPool; // VK_EXT_host_query_reset or VK_VERSION_1_2
-    PFN_vkGetQueryPoolResults vkGetQueryPoolResults;
-    PFN_vkCmdWriteTimestamp vkCmdWriteTimestamp;
-    PFN_vkCreateSemaphore vkCreateSemaphore; // Creating a timeline semaphore, so VK_KHR_timeline_semaphore or VK_VERSION_1_2
-    PFN_vkDestroySemaphore vkDestroySemaphore;
-    PFN_vkSignalSemaphore vkSignalSemaphore; // VK_KHR_timeline_semaphore or VK_VERSION_1_2
-    PFN_vkGetSemaphoreCounterValue vkGetSemaphoreCounterValue; // VK_KHR_timeline_semaphore or VK_VERSION_1_2
-    PFN_vkGetCalibratedTimestampsEXT vkGetCalibratedTimestampsEXT; // VK_EXT_calibrated_timestamps or VK_KHR_calibrated_timestamps
-
     // Queue to the Vulkan main update thread
     rmtMessageQueue* mqToVulkanUpdate;
 
     struct VulkanBindImpl* next;
 
 } VulkanBindImpl;
-
-static rmtError LoadVulkanFunctions(VulkanBindImpl* bind, VkInstance vulkan_instance, PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr)
-{
-#define VK_DEVICE_FN(fn)                                                             \
-    bind->fn = (PFN_ ## fn)pfn_vkGetInstanceProcAddr(vulkan_instance, #fn);              \
-    if (bind->fn == NULL)                                                            \
-        return RMT_ERROR_RESOURCE_ACCESS_FAIL;
-
-#define VK_DEVICE_FN_FALLBACK(fn, fn_fallback)                                       \
-    bind->fn = (PFN_ ## fn)pfn_vkGetInstanceProcAddr(vulkan_instance, #fn);              \
-    if (bind->fn == NULL)                                                            \
-    {                                                                                \
-        bind->fn = (PFN_ ## fn)pfn_vkGetInstanceProcAddr(vulkan_instance, #fn_fallback); \
-        if (bind->fn == NULL)                                                        \
-            return RMT_ERROR_RESOURCE_ACCESS_FAIL;                                   \
-    }
-
-    VK_DEVICE_FN(vkQueueSubmit);
-    VK_DEVICE_FN(vkQueueWaitIdle);
-    VK_DEVICE_FN(vkGetPhysicalDeviceProperties);
-    VK_DEVICE_FN(vkCreateQueryPool);
-    VK_DEVICE_FN(vkDestroyQueryPool);
-    VK_DEVICE_FN_FALLBACK(vkResetQueryPool, vkResetQueryPoolEXT);
-    VK_DEVICE_FN(vkGetQueryPoolResults);
-    VK_DEVICE_FN(vkCmdWriteTimestamp);
-    VK_DEVICE_FN(vkCreateSemaphore);
-    VK_DEVICE_FN(vkDestroySemaphore);
-    VK_DEVICE_FN_FALLBACK(vkSignalSemaphore, vkSignalSemaphoreKHR);
-    VK_DEVICE_FN_FALLBACK(vkGetSemaphoreCounterValue, vkGetSemaphoreCounterValueKHR);
-    VK_DEVICE_FN(vkGetCalibratedTimestampsEXT); // TODO(valakor): Support vkGetCalibratedTimestampsKHR
-
-#undef VK_DEVICE_FN
-#undef VK_DEVICE_FN_FALLBACK
-
-    return RMT_ERROR_NONE;
-}
 
 static rmtError CreateQueryPool(VulkanBindImpl* bind, VkDevice vulkan_device, rmtU32 nb_queries)
 {
@@ -10177,12 +10129,12 @@ static rmtError CreateQueryPool(VulkanBindImpl* bind, VkDevice vulkan_device, rm
     create_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
     create_info.queryCount = nb_queries;
 
-    if (bind->vkCreateQueryPool(vulkan_device, &create_info, NULL, &bind->gpuTimestampRingBuffer) != VK_SUCCESS)
+    if (VULKAN_CALL(bind, vkCreateQueryPool)(vulkan_device, &create_info, NULL, &bind->gpuTimestampRingBuffer) != VK_SUCCESS)
     {
         return rmtMakeError(RMT_ERROR_RESOURCE_CREATE_FAIL, "Failed to create Vulkan Query Pool");
     }
 
-    bind->vkResetQueryPool(vulkan_device, bind->gpuTimestampRingBuffer, 0, nb_queries);
+    VULKAN_CALL(bind, vkResetQueryPool)(vulkan_device, bind->gpuTimestampRingBuffer, 0, nb_queries);
 
     return RMT_ERROR_NONE;
 }
@@ -10200,7 +10152,7 @@ static rmtError CreateQuerySemaphore(VulkanBindImpl* bind, VkDevice vulkan_devic
     create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     create_info.pNext = &type_info;
 
-    if (bind->vkCreateSemaphore(vulkan_device, &create_info, NULL, &bind->gpuQuerySemaphore) != VK_SUCCESS)
+    if (VULKAN_CALL(bind, vkCreateSemaphore)(vulkan_device, &create_info, NULL, &bind->gpuQuerySemaphore) != VK_SUCCESS)
     {
         return rmtMakeError(RMT_ERROR_RESOURCE_CREATE_FAIL, "Failed to create Vulkan Query Semaphore");
     }
@@ -10220,7 +10172,7 @@ static rmtError CopyTimestamps(VulkanBindImpl* bind, VkDevice vulkan_device, rmt
     if (query_count == 0)
         return RMT_ERROR_NONE;
 
-    bind->vkGetQueryPoolResults(vulkan_device, bind->gpuTimestampRingBuffer, ring_pos_a, query_count, query_size, cpu_timestamps + ring_pos_a,
+    VULKAN_CALL(bind, vkGetQueryPoolResults)(vulkan_device, bind->gpuTimestampRingBuffer, ring_pos_a, query_count, query_size, cpu_timestamps + ring_pos_a,
                               sizeof(rmtU64), VK_QUERY_RESULT_64_BIT);
 
     // Copy all timestamps to their expectant samples
@@ -10236,7 +10188,7 @@ static rmtError CopyTimestamps(VulkanBindImpl* bind, VkDevice vulkan_device, rmt
     }
 
     // Reset the query pool indices
-    bind->vkResetQueryPool(vulkan_device, bind->gpuTimestampRingBuffer, ring_pos_a, query_count);
+    VULKAN_CALL(bind, vkResetQueryPool)(vulkan_device, bind->gpuTimestampRingBuffer, ring_pos_a, query_count);
 
     return RMT_ERROR_NONE;
 }
@@ -10250,7 +10202,7 @@ static rmtError UpdateGpuTicksToUs(VulkanBindImpl* bind, VkPhysicalDevice vulkan
 
     VkPhysicalDeviceProperties device_properties;
     memset(&device_properties, 0, sizeof(device_properties));
-    bind->vkGetPhysicalDeviceProperties(vulkan_physical_device, &device_properties);
+    VULKAN_CALL(bind, vkGetPhysicalDeviceProperties)(vulkan_physical_device, &device_properties);
 
     float gpu_ns_per_tick = device_properties.limits.timestampPeriod;
     bind->gpu_ticks_to_us = gpu_ns_per_tick / 1000.0;
@@ -10311,7 +10263,7 @@ static rmtError GetTimestampCalibration(VulkanBindImpl* bind, VkPhysicalDevice v
     //  multiple times in a row until retrieving a max deviation that is "acceptable". We could just call it a set number of
     //  times and take the min, or determine a reasonable average during init and ensure we get something close to that here.
 
-    if (bind->vkGetCalibratedTimestampsEXT(vulkan_device, timestamp_count, timestamp_infos, timestamps, &max_deviation) != VK_SUCCESS)
+    if (VULKAN_CALL(bind, vkGetCalibratedTimestampsEXT)(vulkan_device, timestamp_count, timestamp_infos, timestamps, &max_deviation) != VK_SUCCESS)
     {
         return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Failed to get Vulkan calibrated timestamps");
     }
@@ -10355,7 +10307,7 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind, rmtBool recurse)
 
     // Has the GPU processed any writes?
     rmtU64 current_write_gpu = 0;
-    if (bind->vkGetSemaphoreCounterValue(vulkan_device, bind->gpuQuerySemaphore, &current_write_gpu) != VK_SUCCESS)
+    if (VULKAN_CALL(bind, vkGetSemaphoreCounterValue)(vulkan_device, bind->gpuQuerySemaphore, &current_write_gpu) != VK_SUCCESS)
     {
         return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Failed to get Vulkan Semaphore value");
     }
@@ -10376,7 +10328,7 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind, rmtBool recurse)
         submit_info.pNext = &semaphore_submit_info;
         submit_info.signalSemaphoreCount = 1;
         submit_info.pSignalSemaphores = &bind->gpuQuerySemaphore;
-        if (bind->vkQueueSubmit(vulkan_queue, 1, &submit_info, NULL) != VK_SUCCESS)
+        if (VULKAN_CALL(bind, vkQueueSubmit)(vulkan_queue, 1, &submit_info, NULL) != VK_SUCCESS)
         {
             return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Failed to submit Vulkan Semaphore update to queue");
         }
@@ -10446,26 +10398,54 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind, rmtBool recurse)
     return RMT_ERROR_NONE;
 }
 
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, rmtVulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind)
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, const rmtVulkanFunctions* funcs, rmtVulkanBind** out_bind)
 {
     VulkanBindImpl* bind;
     VkInstance vulkan_instance = (VkInstance)instance;
     VkPhysicalDevice vulkan_physical_device = (VkPhysicalDevice)physical_device;
     VkDevice vulkan_device = (VkDevice)device;
     VkQueue vulkan_queue = (VkQueue)queue;
-    PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)get_instance_proc_addr;
 
     if (g_Remotery == NULL)
-    {
         return RMT_ERROR_REMOTERY_NOT_CREATED;
-    }
 
-    assert(vulkan_instance != NULL);
-    assert(physical_device != NULL);
-    assert(device != NULL);
-    assert(queue != NULL);
-    assert(out_bind != NULL);
-    assert(get_instance_proc_addr != NULL);
+    if (instance == NULL)
+        return RMT_ERROR_INVALID_INPUT;
+
+    if (physical_device == NULL)
+        return RMT_ERROR_INVALID_INPUT;
+
+    if (device == NULL)
+        return RMT_ERROR_INVALID_INPUT;
+
+    if (queue == NULL)
+        return RMT_ERROR_INVALID_INPUT;
+
+    if (funcs == NULL)
+        return RMT_ERROR_INVALID_INPUT;
+
+    if (out_bind == NULL)
+        return RMT_ERROR_INVALID_INPUT;
+
+ #define CHECK_VK_FUNC(fn)                                               \
+    if (funcs->fn == NULL)                                               \
+        return RMT_ERROR_INVALID_INPUT;
+
+    CHECK_VK_FUNC(vkGetPhysicalDeviceProperties);
+    CHECK_VK_FUNC(vkQueueSubmit);
+    CHECK_VK_FUNC(vkQueueWaitIdle);
+    CHECK_VK_FUNC(vkCreateQueryPool);
+    CHECK_VK_FUNC(vkDestroyQueryPool);
+    CHECK_VK_FUNC(vkResetQueryPool);
+    CHECK_VK_FUNC(vkGetQueryPoolResults);
+    CHECK_VK_FUNC(vkCmdWriteTimestamp);
+    CHECK_VK_FUNC(vkCreateSemaphore);
+    CHECK_VK_FUNC(vkDestroySemaphore);
+    CHECK_VK_FUNC(vkSignalSemaphore);
+    CHECK_VK_FUNC(vkGetSemaphoreCounterValue);
+    CHECK_VK_FUNC(vkGetCalibratedTimestampsEXT);
+
+#undef CHECK_VK_FUNC
 
     // Allocate the bind container
     // TODO(valakor): If anything after this fails we'll leak this bind instance
@@ -10475,6 +10455,7 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     bind->base.physical_device = physical_device;
     bind->base.device = device;
     bind->base.queue = queue;
+    bind->funcs = *funcs;
 #ifdef RMT_PLATFORM_MACOS
     // NOTE(valakor): Vulkan on MacOS via MoltenVK only supports timestamp query pools of up to 4k 64-bit queries. See
     //  https://github.com/KhronosGroup/MoltenVK/blob/main/MoltenVK/MoltenVK/GPUObjects/MVKQueryPool.mm
@@ -10489,23 +10470,8 @@ RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* de
     bind->ringBufferWrite = 0;
     bind->gpuQuerySemaphore = NULL;
     bind->gpu_ticks_to_us = 1.0;
-    bind->vkQueueSubmit = NULL;
-    bind->vkQueueWaitIdle = NULL;
-    bind->vkGetPhysicalDeviceProperties = NULL;
-    bind->vkCreateQueryPool = NULL;
-    bind->vkDestroyQueryPool = NULL;
-    bind->vkResetQueryPool = NULL;
-    bind->vkGetQueryPoolResults = NULL;
-    bind->vkCmdWriteTimestamp = NULL;
-    bind->vkCreateSemaphore = NULL;
-    bind->vkDestroySemaphore = NULL;
-    bind->vkSignalSemaphore = NULL;
-    bind->vkGetSemaphoreCounterValue = NULL;
-    bind->vkGetCalibratedTimestampsEXT = NULL;
     bind->mqToVulkanUpdate = NULL;
     bind->next = NULL;
-
-    rmtTry(LoadVulkanFunctions(bind, vulkan_instance, pfn_vkGetInstanceProcAddr));
 
     // Create the independent ring buffer storage items
     // TODO(valakor): Leave space beetween start and end to stop invalidating cache lines?
@@ -10566,7 +10532,7 @@ RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind)
     if (LoadAcquire64(&vulkan_bind->ringBufferWrite) > LoadAcquire64(&vulkan_bind->ringBufferRead))
     {
         VulkanMarkFrame(vulkan_bind, RMT_FALSE);
-        vulkan_bind->vkQueueWaitIdle(vulkan_queue);
+        VULKAN_CALL(vulkan_bind, vkQueueWaitIdle)(vulkan_queue);
         VulkanMarkFrame(vulkan_bind, RMT_FALSE);
     }
 
@@ -10576,7 +10542,7 @@ RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind)
 
     if (vulkan_bind->gpuQuerySemaphore != NULL)
     {
-        vulkan_bind->vkDestroySemaphore(vulkan_device, vulkan_bind->gpuQuerySemaphore, NULL);
+        VULKAN_CALL(vulkan_bind, vkDestroySemaphore)(vulkan_device, vulkan_bind->gpuQuerySemaphore, NULL);
     }
 
     rmtFree(vulkan_bind->sampleRingBuffer);
@@ -10584,7 +10550,7 @@ RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind)
 
     if (vulkan_bind->gpuTimestampRingBuffer != NULL)
     {
-        vulkan_bind->vkDestroyQueryPool(vulkan_device, vulkan_bind->gpuTimestampRingBuffer, NULL);
+        VULKAN_CALL(vulkan_bind, vkDestroyQueryPool)(vulkan_device, vulkan_bind->gpuTimestampRingBuffer, NULL);
     }
 }
 
@@ -10654,7 +10620,7 @@ RMT_API void _rmt_BeginVulkanSample(rmtVulkanBind* bind, void* command_buffer, r
             if (error == RMT_ERROR_NONE)
             {
                 rmtU32 physical_query_index = vulkan_sample->queryIndex & (vulkan_bind->maxNbQueries - 1);
-                vulkan_bind->vkCmdWriteTimestamp(vulkan_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, vulkan_bind->gpuTimestampRingBuffer, physical_query_index);
+                VULKAN_CALL(vulkan_bind, vkCmdWriteTimestamp)(vulkan_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, vulkan_bind->gpuTimestampRingBuffer, physical_query_index);
 
                 // Track which Vulkan sample expects the timestamp results
                 vulkan_bind->sampleRingBuffer[physical_query_index / 2] = vulkan_sample;
@@ -10701,7 +10667,7 @@ RMT_API void _rmt_EndVulkanSample()
             VulkanBindImpl* vulkan_bind = vulkan_sample->bind;
             VkCommandBuffer vulkan_command_buffer = vulkan_sample->commandBuffer;
             rmtU32 query_index = vulkan_sample->queryIndex & (vulkan_bind->maxNbQueries - 1);
-            vulkan_bind->vkCmdWriteTimestamp(vulkan_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            VULKAN_CALL(vulkan_bind, vkCmdWriteTimestamp)(vulkan_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                                            vulkan_bind->gpuTimestampRingBuffer, query_index + 1);
 
             if (ThreadProfiler_Pop(thread_profiler, vulkan_bind->mqToVulkanUpdate, (Sample*)vulkan_sample,

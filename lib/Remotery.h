@@ -626,22 +626,46 @@ typedef struct rmtD3D12Bind
     RMT_OPTIONAL(RMT_USE_METAL, _rmt_EndMetalSample())
 
 
+typedef struct rmtVulkanFunctions
+{
+    // Function pointers to Vulkan functions
+    // Untyped so that the Vulkan headers are not required in this file
+
+    // Instance functions
+    void* vkGetPhysicalDeviceProperties;
+
+    // Device functions
+    void* vkQueueSubmit;
+    void* vkQueueWaitIdle;
+    void* vkCreateQueryPool;
+    void* vkDestroyQueryPool;
+    void* vkResetQueryPool; // vkResetQueryPool (Vulkan 1.2+ with hostQueryReset) or vkResetQueryPoolEXT (VK_EXT_host_query_reset)
+    void* vkGetQueryPoolResults;
+    void* vkCmdWriteTimestamp;
+    void* vkCreateSemaphore;
+    void* vkDestroySemaphore;
+    void* vkSignalSemaphore; // vkSignalSemaphore (Vulkan 1.2+ with timelineSemaphore) or vkSignalSemaphoreKHR (VK_KHR_timeline_semaphore)
+    void* vkGetSemaphoreCounterValue; // vkGetSemaphoreCounterValue (Vulkan 1.2+ with timelineSemaphore) or vkGetSemaphoreCounterValueKHR (VK_KHR_timeline_semaphore)
+    void* vkGetCalibratedTimestampsEXT; // vkGetCalibratedTimestampsKHR (VK_KHR_calibrated_timestamps) or vkGetCalibratedTimestampsEXT (VK_EXT_calibrated_timestamps)
+
+} rmtVulkanFunctions;
+
 typedef struct rmtVulkanBind
 {
-    // The physical vulkan device
+    // The physical Vulkan device, of type VkPhysicalDevice
     void* physical_device;
 
-    // The main device shared by all threads
+    // The logical Vulkan device, of type VkDevice
     void* device;
 
-    // The queue command buffers are executed on for profiling
+    // The queue command buffers are executed on for profiling, of type VkQueue
     void* queue;
 
 } rmtVulkanBind;
 
 // Create a Vulkan binding for the given device/queue pair
-#define rmt_BindVulkan(instance, physical_device, device, queue, get_instance_proc_addr, out_bind) \
-    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, get_instance_proc_addr, out_bind), NULL)
+#define rmt_BindVulkan(instance, physical_device, device, queue, funcs, out_bind)         \
+    RMT_OPTIONAL_RET(RMT_USE_VULKAN, _rmt_BindVulkan(instance, physical_device, device, queue, funcs, out_bind), NULL)
 
 #define rmt_UnbindVulkan(bind)                                              \
     RMT_OPTIONAL(RMT_USE_VULKAN, _rmt_UnbindVulkan(bind))
@@ -1138,8 +1162,7 @@ RMT_API void _rmt_EndMetalSample(void);
 #endif
 
 #if RMT_USE_VULKAN
-typedef void*(*rmtVulkanGetInstanceProcAddr)(void*, const char*);
-RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, rmtVulkanGetInstanceProcAddr get_instance_proc_addr, rmtVulkanBind** out_bind);
+RMT_API rmtError _rmt_BindVulkan(void* instance, void* physical_device, void* device, void* queue, const rmtVulkanFunctions* funcs, rmtVulkanBind** out_bind);
 RMT_API void _rmt_UnbindVulkan(rmtVulkanBind* bind);
 RMT_API void _rmt_BeginVulkanSample(rmtVulkanBind* bind, void* command_buffer, rmtPStr name, rmtU32* hash_cache);
 RMT_API void _rmt_EndVulkanSample();
