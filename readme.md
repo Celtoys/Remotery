@@ -26,7 +26,7 @@ Supported Profiling Platforms:
 
 Supported GPU Profiling APIS:
 
-* D3D 11/12, OpenGL, CUDA, Metal.
+* D3D 11/12, OpenGL, CUDA, Metal, Vulkan.
 
 Compiling
 ---------
@@ -48,6 +48,12 @@ Compiling
   ([devel/remotery](https://www.freshports.org/devel/remotery/)) and modify the port's
   Makefile if needed. There is also a package available via `pkg install remotery`.
 
+* Vulkan - Ensure your include directories are set such that the Vulkan headers can be
+  included with the statement: `#include <vulkan/vulkan.h>`. Currently the Vulkan implementation
+  requires either Vulkan 1.2+ with the `hostQueryReset` and `timelineSemaphore` features enabled,
+  or < 1.2 with the `VK_EXT_host_query_reset` and `VK_KHR_timeline_semaphore` extensions. The
+  extension `VK_EXT_calibrated_timestamps` (or `VK_KHR_calibrated_timestamps`) is also always required.
+
 You can define some extra macros to modify what features are compiled into Remotery:
 
     Macro               Default     Description
@@ -59,6 +65,7 @@ You can define some extra macros to modify what features are compiled into Remot
     RMT_USE_D3D12       0           Allow D3D12 GPU profiling
     RMT_USE_OPENGL      0           Allow OpenGL GPU profiling (dynamically links OpenGL libraries on available platforms)
     RMT_USE_METAL       0           Allow Metal profiling of command buffers
+    RMT_USE_VULKAN      0           Allow Vulkan GPU profiling
 
 
 Basic Use
@@ -211,6 +218,54 @@ The C API supports begin/end also:
     rmt_BeginMetalSample(command_buffer_name);
     ...
     rmt_EndMetalSample();
+
+
+Sampling Vulkan GPU activity
+---------------------------
+
+Remotery can sample Vulkan command buffers issued to the GPU on multiple queues from multiple threads. Command buffers
+must be submitted to the same queue as the samples are issued to. Multiple queues can be profiled by creating multiple
+Vulkan bind objects.
+
+    rmtVulkanFunctions vulkan_funcs;
+    vulkan_funcs.vkGetPhysicalDeviceProperties = (void*)my_vulkan_instance_table->vkGetPhysicalDeviceProperties;
+    vulkan_funcs.vkQueueSubmit = (void*)my_vulkan_device_table->vkQueueSubmit;
+    // ... All other function pointers
+
+    // Parameters are VkInstance, VkPhysicalDevice, VkDevice, VkQueue, rmtVulkanFunctions*, rmtVulkanBind**
+    // NOTE: The Vulkan functions are copied internally and so do not have to be kept alive after this call.
+    rmtVulkanBind* vulkan_bind = NULL;
+    rmt_BindVulkan(instance, physical_device, device, queue, &vulkan_funcs, &vulkan_bind);
+
+Sampling is then a simple case of:
+
+    // Explicit begin/end for C
+    {
+        rmt_BeginVulkanSample(vulkan_bind, command_buffer, UnscopedSample);
+        // ... Vulkan code ...
+        rmt_EndVulkanSample();
+    }
+
+    // Scoped begin/end for C++
+    {
+        rmt_ScopedVulkanSample(vulkan_bind, command_buffer, ScopedSample);
+        // ... Vulkan code ...
+    }
+
+NOTE: Vulkan sampling on Apple platforms via MoltenVK must be done with caution. Metal doesn't natively support timestamps
+inside of render or compute passes, so MoltenVK simply reports all timestamps inside those scopes as the begin/end time of
+the entire render pass!
+
+Sampling calls using the same `vulkan_bind` object measure use the device and queue specified when the bind was created.
+Once per frame you must call `rmt_MarkFrame()` to gather GPU timestamps on the CPU.
+
+    // End of frame, possibly after calling vkPresentKHR or at the very beginning of the frame
+    rmt_MarkFrame();
+
+Before you destroy your Vulkan device and queue you can manually clean up resources by calling `rmt_UnbindVulkan`, though this is
+done automatically by `rmt_DestroyGlobalInstance` as well for all `rmt_BindVulkan` objects:
+
+    rmt_UnbindVulkan(vulkan_bind);
 
 
 Applying Configuration Settings
