@@ -8786,7 +8786,7 @@ static rmtError CreateQueryFence(D3D12BindImpl* bind, ID3D12Device* d3d_device)
     return RMT_ERROR_NONE;
 }
 
-static rmtError CopyTimestamps(D3D12BindImpl* bind, rmtU32 ring_pos_a, rmtU32 ring_pos_b, double gpu_ticks_to_us, rmtS64 gpu_to_cpu_timestamp_us)
+static rmtError CopyD3D12Timestamps(D3D12BindImpl* bind, rmtU32 ring_pos_a, rmtU32 ring_pos_b, double gpu_ticks_to_us, rmtS64 gpu_to_cpu_timestamp_us)
 {
     rmtU32 query_index;
     D3D12_RANGE map;
@@ -8872,12 +8872,12 @@ static rmtError D3D12MarkFrame(D3D12BindImpl* bind)
         // Will have to split the copies into two passes if they cross the ring buffer wrap around
         if (ring_pos_b < ring_pos_a)
         {
-            rmtTry(CopyTimestamps(bind, ring_pos_a, bind->maxNbQueries, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
-            rmtTry(CopyTimestamps(bind, 0, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
+            rmtTry(CopyD3D12Timestamps(bind, ring_pos_a, bind->maxNbQueries, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
+            rmtTry(CopyD3D12Timestamps(bind, 0, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
         }
         else
         {
-            rmtTry(CopyTimestamps(bind, ring_pos_a, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
+            rmtTry(CopyD3D12Timestamps(bind, ring_pos_a, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
         }
 
         // Release the ring buffer entries just processed
@@ -9037,7 +9037,7 @@ static rmtError AllocateD3D12SampleTree(SampleTree** d3d_tree)
     return RMT_ERROR_NONE;
 }
 
-static rmtError AllocQueryPair(D3D12BindImpl* d3d_bind, rmtAtomicU32* out_allocation_index)
+static rmtError AllocD3D12QueryPair(D3D12BindImpl* d3d_bind, rmtAtomicU32* out_allocation_index)
 {
     // Check for overflow against a tail which is only ever written by one thread
     rmtU32 read = LoadAcquire(&d3d_bind->ringBufferRead);
@@ -9091,7 +9091,7 @@ RMT_API void _rmt_BeginD3D12Sample(rmtD3D12Bind* bind, void* command_list, rmtPS
             d3d_sample->commandList = d3d_command_list;
             d3d_sample->base.usGpuIssueOnCpu = usTimer_Get(&g_Remotery->timer);
 
-            error = AllocQueryPair(d3d_bind, &d3d_sample->queryIndex);
+            error = AllocD3D12QueryPair(d3d_bind, &d3d_sample->queryIndex);
             if (error == RMT_ERROR_NONE)
             {
                 rmtU32 physical_query_index = d3d_sample->queryIndex & (d3d_bind->maxNbQueries - 1);
@@ -10160,7 +10160,7 @@ static rmtError CreateQuerySemaphore(VulkanBindImpl* bind, VkDevice vulkan_devic
     return RMT_ERROR_NONE;
 }
 
-static rmtError CopyTimestamps(VulkanBindImpl* bind, VkDevice vulkan_device, rmtU32 ring_pos_a, rmtU32 ring_pos_b, double gpu_ticks_to_us, rmtS64 gpu_to_cpu_timestamp_us)
+static rmtError CopyVulkanTimestamps(VulkanBindImpl* bind, VkDevice vulkan_device, rmtU32 ring_pos_a, rmtU32 ring_pos_b, double gpu_ticks_to_us, rmtS64 gpu_to_cpu_timestamp_us)
 {
     rmtU32 query_index;
     VulkanSample** cpu_sample_buffer = bind->sampleRingBuffer;
@@ -10349,12 +10349,12 @@ static rmtError VulkanMarkFrame(VulkanBindImpl* bind, rmtBool recurse)
         // Will have to split the copies into two passes if they cross the ring buffer wrap around
         if (ring_pos_b < ring_pos_a)
         {
-            rmtTry(CopyTimestamps(bind, vulkan_device, ring_pos_a, bind->maxNbQueries, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
-            rmtTry(CopyTimestamps(bind, vulkan_device, 0, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
+            rmtTry(CopyVulkanTimestamps(bind, vulkan_device, ring_pos_a, bind->maxNbQueries, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
+            rmtTry(CopyVulkanTimestamps(bind, vulkan_device, 0, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
         }
         else
         {
-            rmtTry(CopyTimestamps(bind, vulkan_device, ring_pos_a, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
+            rmtTry(CopyVulkanTimestamps(bind, vulkan_device, ring_pos_a, ring_pos_b, gpu_ticks_to_us, gpu_to_cpu_timestamp_us));
         }
 
         // Release the ring buffer entries just processed
@@ -10561,7 +10561,7 @@ static rmtError AllocateVulkanSampleTree(SampleTree** vulkan_tree)
     return RMT_ERROR_NONE;
 }
 
-static rmtError AllocQueryPair(VulkanBindImpl* vulkan_bind, rmtU32* out_allocation_index)
+static rmtError AllocVulkanQueryPair(VulkanBindImpl* vulkan_bind, rmtU32* out_allocation_index)
 {
     // Check for overflow against a tail which is only ever written by one thread
     rmtU64 read = LoadAcquire64(&vulkan_bind->ringBufferRead);
@@ -10616,7 +10616,7 @@ RMT_API void _rmt_BeginVulkanSample(rmtVulkanBind* bind, void* command_buffer, r
             vulkan_sample->commandBuffer = vulkan_command_buffer;
             vulkan_sample->base.usGpuIssueOnCpu = usTimer_Get(&g_Remotery->timer);
 
-            error = AllocQueryPair(vulkan_bind, &vulkan_sample->queryIndex);
+            error = AllocVulkanQueryPair(vulkan_bind, &vulkan_sample->queryIndex);
             if (error == RMT_ERROR_NONE)
             {
                 rmtU32 physical_query_index = vulkan_sample->queryIndex & (vulkan_bind->maxNbQueries - 1);
