@@ -5,7 +5,7 @@ Console = (function()
 	var HEIGHT = 200;
 
 
-	function Console(wm, server)
+	function Console(wm)
 	{
 		// Create the window and its controls
 		this.Window = wm.AddWindow("Console", 10, 10, 100, 100);
@@ -33,12 +33,14 @@ Console = (function()
 		// At a much lower frequency this will update the console window
 		window.setInterval(Bind(UpdateHTML, this), 500);
 
-		// Setup log requests from the server
-		this.Server = server;
-		server.SetConsole(this);
-		server.AddMessageHandler("LOGM", Bind(OnLog, this));
-		
 		this.Window.SetOnResize(Bind(OnUserResize, this));
+	}
+
+
+	Console.prototype.SetServer = function(server)
+	{
+		// The server which will be receiving the console input.
+		this.Server = server;
 	}
 
 
@@ -65,15 +67,15 @@ Console = (function()
 	}
 
 
-	function OnLog(self, socket, data_view_reader)
+	Console.prototype.OnLog = function(server, socket, data_view_reader)
 	{
 		var text = data_view_reader.GetString();
-		self.AppTextBuffer = LogText(self.AppTextBuffer, text);
+		this.AppTextBuffer = LogText(this.AppTextBuffer, text);
 
 		// Don't register text as updating if disconnected as this implies a trace is being loaded, which we want to speed up
-		if (self.Server.Connected())
+		if (server.Connected())
 		{
-			self.AppTextUpdatePending = true;
+			this.AppTextUpdatePending = true;
 		}
 	}
 
