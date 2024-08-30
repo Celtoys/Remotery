@@ -23,8 +23,9 @@ TimelineRow = (function()
     var SAMPLE_Y_SPACING = SAMPLE_HEIGHT + SAMPLE_BORDER * 2;
 
 
-    function TimelineRow(gl, name, timeline, frame_history, check_handler)
+    function TimelineRow(gl, server_id, name, timeline, frame_history, check_handler)
     {
+        this.server_id = server_id;
         this.Name = name;
         this.timeline = timeline;
 
@@ -82,6 +83,12 @@ TimelineRow = (function()
     }
 
 
+    TimelineRow.prototype.SetCounterOffset = function(counter_offset)
+    {
+        this.counter_offset = counter_offset;
+    }
+
+
     TimelineRow.prototype.SetVisibleFrames = function(time_range)
     {
         // Clear previous visible list
@@ -103,7 +110,7 @@ TimelineRow = (function()
         while (start_frame_index > 0)
         {
             var frame = this.FrameHistory[start_frame_index];
-            if (time_range.Start_us > frame.StartTime_us)
+            if (time_range.Start_us > frame.StartTime_us + this.counter_offset)
                 break;
             start_frame_index--;
         }
@@ -112,7 +119,7 @@ TimelineRow = (function()
         while (start_frame_index < this.FrameHistory.length)
         {
             var frame = this.FrameHistory[start_frame_index];
-            if (frame.EndTime_us > time_range.Start_us)
+            if (frame.EndTime_us + this.counter_offset > time_range.Start_us)
                 break;
             start_frame_index++;
         }
@@ -122,7 +129,7 @@ TimelineRow = (function()
         for (var i = start_frame_index; i < this.FrameHistory.length; i++)
         {
             var frame = this.FrameHistory[i];
-            if (frame.StartTime_us > time_range.End_us)
+            if (frame.StartTime_us + this.counter_offset > time_range.End_us)
                 break;
             this.VisibleFrames.push(frame);
         }
@@ -137,14 +144,14 @@ TimelineRow = (function()
             const program = gl_canvas.timelineHighlightProgram;
 
             gl_canvas.SetContainerUniforms(program, container);
-    
+
             // Set row parameters
             const row_rect = this.LabelContainerNode.getBoundingClientRect();
             glSetUniform(gl, program, "inRow.yOffset", row_rect.top);
-    
+
             // Set sample parameters
             const float_offset = offset / 4;
-            glSetUniform(gl, program, "inStartMs", frame.sampleFloats[float_offset + g_sampleOffsetFloats_Start]);
+            glSetUniform(gl, program, "inStartMs", frame.sampleFloats[float_offset + g_sampleOffsetFloats_Start] + this.counter_offset / 1000.);
             glSetUniform(gl, program, "inLengthMs", frame.sampleFloats[float_offset + g_sampleOffsetFloats_Length]);
             glSetUniform(gl, program, "inDepth", depth);
 
@@ -177,7 +184,7 @@ TimelineRow = (function()
             glSetUniform(gl, program, "inRow.yOffset", row_rect.top);
 
             // Set sample parameters
-            const length_ms = frame.sampleFloats[float_offset + g_sampleOffsetFloats_Start] - start_ms;
+            const length_ms = frame.sampleFloats[float_offset + g_sampleOffsetFloats_Start] - start_ms + this.counter_offset / 1000.;
             glSetUniform(gl, program, "inStartMs", start_ms);
             glSetUniform(gl, program, "inLengthMs", length_ms);
             glSetUniform(gl, program, "inDepth", depth);
@@ -277,7 +284,7 @@ TimelineRow = (function()
             {
                 const float_offset = offset / 4;
 
-                cpu_samples[sample_pos + 0] = frame.sampleFloats[float_offset + g_sampleOffsetFloats_Start];
+                cpu_samples[sample_pos + 0] = frame.sampleFloats[float_offset + g_sampleOffsetFloats_Start] + this.counter_offset / 1000.;
                 cpu_samples[sample_pos + 1] = frame.sampleFloats[float_offset + g_sampleOffsetFloats_Length];
                 cpu_samples[sample_pos + 2] = depth;
                 cpu_samples[sample_pos + 3] = frame.sampleFloats[float_offset + g_sampleOffsetFloats_NameOffset];
@@ -360,7 +367,7 @@ TimelineRow = (function()
             // smaller than a pixel. This feels pretty odd and the closed interval fixes this feeling well.
             // TODO(don): There are still inconsistencies, need to shift to pixel range checking to match exactly.
             const frame = this.VisibleFrames[i];
-            if (time_us >= frame.StartTime_us && time_us <= frame.EndTime_us)
+            if (time_us >= frame.StartTime_us + this.counter_offset && time_us <= frame.EndTime_us + this.counter_offset)
             {
                 const found_sample = FindSample(this, frame, time_us, depth, 1);
                 if (found_sample != null)
@@ -383,7 +390,7 @@ TimelineRow = (function()
             depth = sample_data_view.getUint8(offset + g_sampleOffsetBytes_Depth) + 1;
             if (depth == target_depth)
             {
-                const us_start = sample_data_view.getFloat32(offset + g_sampleOffsetBytes_Start, true) * 1000.0;
+                const us_start = sample_data_view.getFloat32(offset + g_sampleOffsetBytes_Start, true) * 1000.0 + self.counter_offset;
                 const us_length = sample_data_view.getFloat32(offset + g_sampleOffsetBytes_Length, true) * 1000.0;
                 if (time_us >= us_start && time_us < us_start + us_length)
                 {

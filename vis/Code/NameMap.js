@@ -6,10 +6,10 @@ class NameMap
         this.textBuffer = text_buffer;
     }
 
-    Get(name_hash)
+    Get(server_id, name_hash)
     {
         // Return immediately if it's in the hash
-        let name = this.names[name_hash];
+        let name = this.names[[server_id, name_hash]];
         if (name != undefined)
         {
             return [ true, name ];
@@ -18,9 +18,9 @@ class NameMap
         // Create a temporary name that uses the hash
         name = {
             string: name_hash.toString(),
-            hash: name_hash
+            hash: [server_id, name_hash]
         };
-        this.names[name_hash] = name;
+        this.names[[server_id, name_hash]] = name;
 
         // Add to the text buffer the first time this name is encountered
         name.textEntry = this.textBuffer.AddText(name.string);
@@ -28,17 +28,17 @@ class NameMap
         return [ false, name ];
     }
 
-    Set(name_hash, name_string)
+    Set(server_id, name_hash, name_string)
     {
         // Create the name on-demand if its hash doesn't exist
-        let name = this.names[name_hash];
+        let name = this.names[[server_id, name_hash]];
         if (name == undefined)
         {
             name = {
                 string: name_string,
-                hash: name_hash
+                hash: [server_id, name_hash]
             };
-            this.names[name_hash] = name;
+            this.names[[server_id, name_hash]] = name;
         }
         else
         {
