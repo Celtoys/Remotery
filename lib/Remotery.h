@@ -51,7 +51,7 @@ documented just below this comment.
 #define RMT_ENABLED 1
 #endif
 
-// Help performance of the server sending data to the client by marking this machine as little-endian 
+// Help performance of the server sending data to the client by marking this machine as little-endian
 #ifndef RMT_ASSUME_LITTLE_ENDIAN
 #define RMT_ASSUME_LITTLE_ENDIAN 0
 #endif
@@ -305,10 +305,10 @@ typedef enum rmtError
     RMT_ERROR_SOCKET_INVALID_POLL,              // Poll attempt on an invalid socket
     RMT_ERROR_SOCKET_SELECT_FAIL,               // Server failed to call select on socket
     RMT_ERROR_SOCKET_POLL_ERRORS,               // Poll notified that the socket has errors
-    RMT_ERROR_SOCKET_SEND_FAIL,                 // Unrecoverable error occured while client/server tried to send data
+    RMT_ERROR_SOCKET_SEND_FAIL,                 // Unrecoverable error occurred while client/server tried to send data
     RMT_ERROR_SOCKET_RECV_NO_DATA,              // No data available when attempting a receive
     RMT_ERROR_SOCKET_RECV_TIMEOUT,              // Timed out trying to receive data
-    RMT_ERROR_SOCKET_RECV_FAILED,               // Unrecoverable error occured while client/server tried to receive data
+    RMT_ERROR_SOCKET_RECV_FAILED,               // Unrecoverable error occurred while client/server tried to receive data
 
     // WebSocket errors
     RMT_ERROR_WEBSOCKET_HANDSHAKE_NOT_GET,      // WebSocket server handshake failed, not HTTP GET
@@ -392,7 +392,7 @@ typedef struct rmtSettings
     rmtBool limit_connections_to_localhost;
 
     // Whether to enable runtime thread sampling that discovers which processors a thread is running
-    // on. This will suspend and resume threads from outside repeatdly and inject code into each
+    // on. This will suspend and resume threads from outside repeatedly and inject code into each
     // thread that automatically instruments the processor.
     // Default: Enabled
     rmtBool enableThreadSampler;
@@ -423,7 +423,7 @@ typedef struct rmtSettings
     rmtSampleTreeHandlerPtr sampletree_handler;
     void* sampletree_context;
 
-    // Callback pointer for traversing the prpperty graph
+    // Callback pointer for traversing the property graph
     rmtPropertyHandlerPtr snapshot_callback;
     void* snapshot_context;
 
@@ -452,7 +452,7 @@ typedef struct rmtSettings
 #define rmt_CreateGlobalInstance(rmt)                                               \
     RMT_OPTIONAL_RET(RMT_ENABLED, _rmt_CreateGlobalInstance(rmt), RMT_ERROR_NONE)
 
-// Shutsdown Remotery, requiring its pointer to be passed to ensure you are destroying the correct instance.
+// Shutdown Remotery, requiring its pointer to be passed to ensure you are destroying the correct instance.
 #define rmt_DestroyGlobalInstance(rmt)                                              \
     RMT_OPTIONAL(RMT_ENABLED, _rmt_DestroyGlobalInstance(rmt))
 
@@ -716,7 +716,7 @@ typedef enum
 // A property value as a union of all its possible types
 typedef union rmtPropertyValue
 {
-    // C++ requires function-based construction of property values because it has no designated initialiser support until C++20
+    // C++ requires function-based construction of property values because it has no designated initializer support until C++20
     #ifdef __cplusplus
         // These are static Make calls, rather than overloaded constructors, because `rmtBool` is the same type as `rmtU32`
         static rmtPropertyValue MakeBool(rmtBool v) { rmtPropertyValue pv; pv.Bool = v; return pv; }
@@ -754,7 +754,7 @@ typedef struct rmtProperty
 
     // Last frame value to see if previous value needs to be updated
     rmtPropertyValue lastFrameValue;
-    
+
     // Previous value only if it's different from the current value, and when it changed
     rmtPropertyValue prevValue;
     rmtU32 prevValueFrame;
@@ -841,8 +841,8 @@ typedef struct rmtProperty
 #define _rmt_PropertyDefine(type, name, default_value, flags, desc, ...) \
     rmtProperty name = { RMT_FALSE, RMT_PropertyType_##type, flags, default_value, default_value, default_value, 0, #name, desc, default_value, __VA_ARGS__ };
 
-// C++ doesn't support designated initialisers until C++20
-// Worth checking for C++ designated initialisers to remove the function call in debug builds
+// C++ doesn't support designated initializer until C++20
+// Worth checking for C++ designated initializer to remove the function call in debug builds
 #ifdef __cplusplus
 #define _rmt_MakePropertyValue(field, value) rmtPropertyValue::Make##field(value)
 #else

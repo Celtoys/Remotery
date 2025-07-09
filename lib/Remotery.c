@@ -3136,6 +3136,7 @@ static rmtError TCPSocket_RunServer(TCPSocket* tcp_socket, rmtU16 port, rmtBool 
     sin.sin_port = htons(port);
     if (bind(s, (struct sockaddr*)&sin, sizeof(sin)) == SOCKET_ERROR)
     {
+        closesocket(s);
         return rmtMakeError(RMT_ERROR_RESOURCE_ACCESS_FAIL, "Can't bind a socket for the server");
     }
 
@@ -6710,7 +6711,7 @@ static rmtError Remotery_SerialisePropertySnapshots(Buffer* bin_buf, Msg_Propert
             case RMT_PropertyType_rmtGroup:
                 rmtTry(Buffer_Write(bin_buf, empty_group, 16));
                 break;
-            
+
             // All value ranges here are double-representable, so convert them early in C where it's cheap
             case RMT_PropertyType_rmtBool:
                 rmtTry(Buffer_WriteF64(bin_buf, snapshot->value.Bool));
@@ -7196,15 +7197,18 @@ static void Remotery_Destructor(Remotery* rmt)
     rmtDelete(rmtMessageQueue, rmt->mq_to_rmt_thread);
 
     rmtDelete(Server, rmt->server);
-    
+
     // Free the error message TLS
-    // TODO(don): The allocated messages will need to be freed as well
+    // TODO(don): Clarify better way to allow user to get a error msg on init fail
     if (g_lastErrorMessageTlsHandle != TLS_INVALID_HANDLE)
     {
-        tlsFree(g_lastErrorMessageTlsHandle);
-        g_lastErrorMessageTlsHandle = TLS_INVALID_HANDLE;
+        if (tlsGet(g_lastErrorMessageTlsHandle) == NULL)
+        {
+            tlsFree(g_lastErrorMessageTlsHandle);
+            g_lastErrorMessageTlsHandle = TLS_INVALID_HANDLE;
+        }
     }
-    
+
     mtxDelete(&rmt->propertyMutex);
 }
 
@@ -8718,7 +8722,7 @@ static rmtError CreateQueryHeap(D3D12BindImpl* bind, ID3D12Device* d3d_device, I
         {
             return rmtMakeError(RMT_ERROR_INVALID_INPUT, "Copy queues on this device do not support timestamps");
         }
-        
+
         query_heap_type = D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP;
     }*/
     #else
@@ -8912,7 +8916,7 @@ static rmtError D3D12MarkFrame(D3D12BindImpl* bind)
 
     // Chain to the next bind here so that root calling code doesn't need to know the definition of D3D12BindImpl
     rmtTry(D3D12MarkFrame(bind->next));
-    
+
     return RMT_ERROR_NONE;
 }
 
@@ -9059,7 +9063,7 @@ RMT_API void _rmt_BeginD3D12Sample(rmtD3D12Bind* bind, void* command_list, rmtPS
 
     if (g_Remotery == NULL || bind == NULL)
         return;
-    
+
     assert(command_list != NULL);
 
     if (ThreadProfilers_GetCurrentThreadProfiler(g_Remotery->threadProfilers, &thread_profiler) == RMT_ERROR_NONE)
@@ -11007,7 +11011,7 @@ RMT_API rmtError _rmt_PropertySnapshotAll()
 
     // Mark current allocation count so we can quickly calculate the number of snapshots being sent
     nb_snapshot_allocs = g_Remotery->propertyAllocator->nb_inuse;
-    
+
     // Snapshot from the root into a linear list
     first_snapshot = NULL;
     prev_snapshot = NULL;

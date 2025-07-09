@@ -15,7 +15,7 @@ rmt_PropertyDefine_U32(FrameCounter, 0, NoFlags, "What is the current frame numb
 
 
 void aggregateFunction() {
-    rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);    
+    rmt_BeginCPUSample(aggregate, RMTSF_Aggregate);
     rmt_EndCPUSample();
 }
 void recursiveFunction(int depth) {
@@ -143,7 +143,7 @@ void sigintHandler(int sig_num) {
 
 int main() {
     Remotery* rmt;
-	rmtError error;
+    rmtError error;
 
     signal(SIGINT, sigintHandler);
 
@@ -157,10 +157,10 @@ int main() {
         settings->snapshot_context = 0;
     }
 
-	error = rmt_CreateGlobalInstance(&rmt);
+    error = rmt_CreateGlobalInstance(&rmt);
 
     if( RMT_ERROR_NONE != error) {
-		printf("Error launching Remotery %d\n", error);
+        printf("Error launching Remotery %d: %s\n", error, rmt_GetLastErrorMessage());
         return -1;
     }
 
