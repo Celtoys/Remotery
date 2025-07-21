@@ -1,5 +1,3 @@
-echo off
-
 set PLATFORM=%1
 set ARCH=%2
 set BUILDMODE=%3

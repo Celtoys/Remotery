@@ -13,7 +13,7 @@ jobs:
         arch: ['x86', 'x64']
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install 32 bit support
         run: sudo apt-get install gcc-multilib g++-multilib
 
@@ -32,12 +32,11 @@ jobs:
         buildmode: ['release']
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Build
         run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
       - name: Run
         run: .github/scripts/run_tests.sh
-
 
   build-windows:
     runs-on: 'windows-latest'
@@ -47,14 +46,12 @@ jobs:
         platform: ['windows']
         arch: ['x86', 'x64']
         buildmode: ['debug', 'release']
-        toolset: ['14.3','14.2','14.1']
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.arch }}
-          toolset: ${{ matrix.toolset }}
       - name: Build
         run: .github/scripts/compile.bat ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
       - name: Run
@@ -71,17 +68,17 @@ jobs:
         ndkversion: [21]
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 1.11
+      - name: Set up JDK
         uses: actions/setup-java@v3
         with:
-          distribution: 'zulu' # See 'Supported distributions' for available options
-          java-version: '11'
+          distribution: 'temurin' # See 'Supported distributions' for available options
+          java-version: '17'
 
       # Sets ANDROID_HOME + ANDROID_NDK_ROOT
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+        uses: android-actions/setup-android@v3
 
       - name: Build
         run: .github/scripts/compile.sh ${{ matrix.platform }} ${{ matrix.arch }} ${{ matrix.buildmode }}
